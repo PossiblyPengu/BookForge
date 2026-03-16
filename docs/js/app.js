@@ -523,18 +523,29 @@ const performLookup = async (query) => {
     const card = document.createElement("div");
     card.className = "lookup-card";
 
+    const imgContainer = document.createElement("div");
     if (result.coverUrl) {
       const img = document.createElement("img");
-      img.src = result.coverUrl;
+      img.crossOrigin = "anonymous";
+      img.referrerPolicy = "no-referrer";
       img.alt = result.title;
       img.loading = "lazy";
-      card.appendChild(img);
+      img.addEventListener("error", () => {
+        img.remove();
+        const fallback = document.createElement("div");
+        fallback.className = "no-cover";
+        fallback.textContent = "No cover";
+        imgContainer.appendChild(fallback);
+      });
+      img.src = result.coverUrl;
+      imgContainer.appendChild(img);
     } else {
       const noCover = document.createElement("div");
       noCover.className = "no-cover";
       noCover.textContent = "No cover";
-      card.appendChild(noCover);
+      imgContainer.appendChild(noCover);
     }
+    card.appendChild(imgContainer);
 
     const titleEl = document.createElement("div");
     titleEl.className = "lookup-card-title";

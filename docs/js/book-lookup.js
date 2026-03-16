@@ -138,25 +138,46 @@ export const searchBooks = async (query, maxResults = 5) => {
 
 /**
  * Fetch a cover image as a Blob (for embedding into the M4B).
- * Uses a proxy-free approach; falls back gracefully.
+ * Tries direct fetch first. If CORS blocks it, renders through
+ * a canvas to extract pixel data as a JPEG blob.
  *
  * @param {string} url
  * @returns {Promise<Blob|null>}
  */
 export const fetchCoverBlob = async (url) => {
   if (!url) return null;
+
+  // Try direct fetch first
   try {
     const resp = await fetch(url, { mode: "cors" });
-    if (!resp.ok) return null;
-    return await resp.blob();
-  } catch {
-    // CORS blocked — try no-cors (can't read body, but some CDNs allow it)
-    try {
-      const resp = await fetch(url);
-      if (!resp.ok) return null;
-      return await resp.blob();
-    } catch {
-      return null;
+    if (resp.ok) {
+      const blob = await resp.blob();
+      if (blob.size > 0) return blob;
     }
-  }
+  } catch { /* CORS blocked, try canvas fallback */ }
+
+  // Canvas fallback: load image with crossOrigin, draw to canvas, export
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.referrerPolicy = "no-referrer";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob(
+          (blob) => resolve(blob),
+          "image/jpeg",
+          0.92
+        );
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
 };

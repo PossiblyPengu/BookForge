@@ -12,6 +12,8 @@
     />
     <link rel="stylesheet" href="css/main.css" />
     <!-- Enable SharedArrayBuffer on GitHub Pages (required by FFmpeg.wasm) -->
+    <!-- Use credentialless mode so cross-origin images (book covers) still load -->
+    <script>window.coi = { coepCredentialless: () => true };</script>
     <script src="coi-serviceworker.js"></script>
   </head>
   <body>
