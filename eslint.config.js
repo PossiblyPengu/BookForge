@@ -25,6 +25,7 @@ export default [
         clients: "readonly",
         navigator: "readonly",
         localStorage: "readonly",
+        indexedDB: "readonly",
       },
     },
     rules: {

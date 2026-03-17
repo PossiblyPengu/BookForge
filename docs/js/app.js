@@ -4,6 +4,7 @@ import { inferBook, extractSortKey } from "./book-parser.js";
 import { searchBooks, fetchCoverBlob, fetchBookDetails } from "./book-lookup.js";
 import { extractMetadata } from "./metadata.js";
 import { ensureAuth, listFolder, downloadFiles, uploadToDrive } from "./gdrive.js";
+import { saveSession, loadSession, clearSession } from "./session.js";
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -94,6 +95,7 @@ let coverObjectURL = null;
 let lookupDebounceTimer = null;
 let lastCompiledBlob = null;
 let lastCompiledFilename = null;
+let onSessionChange = null;
 
 // ---------------------------------------------------------------------------
 // Wizard navigation
@@ -126,6 +128,9 @@ const goToStep = (step) => {
 
   // If entering forge step, populate review
   if (step === "forge") populateForgeReview();
+
+  // Persist session on step change
+  if (onSessionChange) onSessionChange();
 };
 
 // Allow clicking completed/adjacent steps
@@ -327,6 +332,7 @@ const refreshTrackList = () => {
     nameInput.value = track.chapterName || `Chapter ${index + 1}`;
     nameInput.addEventListener("change", () => {
       track.chapterName = nameInput.value.trim() || `Chapter ${index + 1}`;
+      if (onSessionChange) onSessionChange();
     });
 
     const detail = document.createElement("span");
@@ -484,11 +490,13 @@ const moveTrack = (from, to) => {
   updated.splice(to, 0, item);
   tracks = updated;
   refreshTrackList();
+  if (onSessionChange) onSessionChange();
 };
 
 const removeTrack = (index) => {
   tracks.splice(index, 1);
   refreshTrackList();
+  if (onSessionChange) onSessionChange();
 };
 
 // ---------------------------------------------------------------------------
@@ -622,6 +630,7 @@ const applyMetadata = async (result) => {
   }
 
   setIdle("Metadata loaded");
+  if (onSessionChange) onSessionChange();
 };
 
 const applyCover = async (result) => {
@@ -630,6 +639,7 @@ const applyCover = async (result) => {
   const blob = await fetchCoverBlob(result.coverUrl);
   if (blob && blob.size > 0) setCover(blob);
   setIdle("Cover loaded");
+  if (onSessionChange) onSessionChange();
 };
 
 // ---------------------------------------------------------------------------
@@ -840,6 +850,7 @@ clearAllButton.addEventListener("click", () => {
   descriptionInput.value = "";
   lookupQuery.value = "";
   refreshTrackList();
+  clearSession();
   goToStep("upload");
 });
 
@@ -1162,5 +1173,81 @@ gdriveExportBtn.addEventListener("click", async () => {
   }
 });
 
-// Init
-goToStep("upload");
+// ---------------------------------------------------------------------------
+// Session persistence
+// ---------------------------------------------------------------------------
+const gatherState = () => ({
+  currentStep,
+  formFields: {
+    title: titleInput.value,
+    author: authorInput.value,
+    year: yearInput.value,
+    genre: genreInput.value,
+    narrator: narratorInput.value,
+    description: descriptionInput.value,
+  },
+  inferredBook,
+  coverBlob: coverFile || null,
+  tracks: tracks.map((t) => ({
+    blob: t.file,
+    fileName: t.file.name,
+    fileType: t.file.type,
+    fileLastModified: t.file.lastModified,
+    chapterName: t.chapterName,
+    meta: t.meta ? { ...t.meta, picture: null } : null,
+  })),
+});
+
+const restoreState = (saved) => {
+  // Reconstruct tracks with File objects
+  tracks = saved.tracks.map((t) => ({
+    file: new File([t.blob], t.fileName, {
+      type: t.fileType || "audio/mpeg",
+      lastModified: t.fileLastModified,
+    }),
+    meta: t.meta,
+    chapterName: t.chapterName,
+  }));
+
+  // Restore form fields
+  const f = saved.formFields;
+  if (f.title) titleInput.value = f.title;
+  if (f.author) authorInput.value = f.author;
+  if (f.year) yearInput.value = f.year;
+  if (f.genre) genreInput.value = f.genre;
+  if (f.narrator) narratorInput.value = f.narrator;
+  if (f.description) descriptionInput.value = f.description;
+
+  // Restore inferred book
+  inferredBook = saved.inferredBook || null;
+
+  // Restore cover
+  if (saved.coverBlob) setCover(saved.coverBlob);
+
+  // Refresh UI
+  refreshTrackList();
+  goToStep(saved.currentStep || "upload");
+};
+
+let sessionSaveTimer = null;
+const debouncedSave = () => {
+  clearTimeout(sessionSaveTimer);
+  sessionSaveTimer = setTimeout(() => saveSession(gatherState()), 1000);
+};
+
+// Wire up the session change callback (used by goToStep, etc.)
+onSessionChange = debouncedSave;
+
+// Save on form field changes
+[titleInput, authorInput, yearInput, genreInput, narratorInput, descriptionInput]
+  .forEach((el) => el.addEventListener("input", debouncedSave));
+
+// Init — restore session or start fresh
+(async () => {
+  const saved = await loadSession();
+  if (saved && saved.tracks?.length > 0) {
+    restoreState(saved);
+  } else {
+    goToStep("upload");
+  }
+})();
