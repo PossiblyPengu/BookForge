@@ -260,6 +260,14 @@ progressDismiss?.addEventListener("click", () => {
   progressDismissedManually = true;
 });
 
+// Click anywhere on the progress dialog to reopen Drive download modal
+progressDialog?.addEventListener("click", (e) => {
+  if (e.target.closest(".btn")) return; // don't interfere with Hide button
+  if (gdriveDownloading && gdrivePickerModal.hidden) {
+    gdrivePickerModal.hidden = false;
+  }
+});
+
 // Click toolbar status to reopen dismissed progress dialog or download modal
 const toolbarStatus = $("toolbar-status");
 toolbarStatus?.addEventListener("click", () => {
