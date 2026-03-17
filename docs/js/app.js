@@ -1061,7 +1061,11 @@ const renderBreadcrumbs = () => {
 };
 
 const navigateToFolder = async (folderId) => {
-  gdriveFileList.innerHTML = '<div class="gdrive-picker-empty">Loading...</div>';
+  gdriveFileList.textContent = "";
+  const loadingDiv = document.createElement("div");
+  loadingDiv.className = "gdrive-picker-empty";
+  loadingDiv.textContent = "Loading...";
+  gdriveFileList.appendChild(loadingDiv);
   gdriveSelectAll.checked = false;
   gdriveSelectAllLabel.hidden = true;
   pickerCurrentFiles = [];
@@ -1073,7 +1077,10 @@ const navigateToFolder = async (folderId) => {
     pickerCurrentFiles = files.filter((f) => f.mimeType !== "application/vnd.google-apps.folder");
 
     if (!files.length) {
-      gdriveFileList.innerHTML = '<div class="gdrive-picker-empty">No MP3 files or folders here</div>';
+      const emptyDiv = document.createElement("div");
+      emptyDiv.className = "gdrive-picker-empty";
+      emptyDiv.textContent = "No MP3 files or folders here";
+      gdriveFileList.appendChild(emptyDiv);
       return;
     }
 
@@ -1085,12 +1092,19 @@ const navigateToFolder = async (folderId) => {
       row.className = "gdrive-file-row";
 
       if (isFolder) {
-        row.innerHTML = `
-          <span class="gdrive-file-icon gdrive-folder-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-          </span>
-          <span class="gdrive-file-name">${file.name}</span>
-        `;
+        const iconSpan = document.createElement("span");
+        iconSpan.className = "gdrive-file-icon gdrive-folder-icon";
+        const folderSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        folderSvg.setAttribute("width", "18"); folderSvg.setAttribute("height", "18");
+        folderSvg.setAttribute("viewBox", "0 0 24 24"); folderSvg.setAttribute("fill", "none");
+        folderSvg.setAttribute("stroke", "currentColor"); folderSvg.setAttribute("stroke-width", "2");
+        folderSvg.setAttribute("stroke-linecap", "round"); folderSvg.setAttribute("stroke-linejoin", "round");
+        folderSvg.innerHTML = '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>';
+        iconSpan.appendChild(folderSvg);
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "gdrive-file-name";
+        nameSpan.textContent = file.name;
+        row.append(iconSpan, nameSpan);
         row.addEventListener("click", () => {
           pickerBreadcrumbs.push({ id: file.id, name: file.name });
           navigateToFolder(file.id);
@@ -1098,17 +1112,28 @@ const navigateToFolder = async (folderId) => {
       } else {
         const checked = pickerSelected.has(file.id);
         const size = file.size ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : "";
-        row.innerHTML = `
-          <label class="gdrive-file-check">
-            <input type="checkbox" ${checked ? "checked" : ""} />
-          </label>
-          <span class="gdrive-file-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-          </span>
-          <span class="gdrive-file-name">${file.name}</span>
-          <span class="gdrive-file-size">${size}</span>
-        `;
-        const checkbox = row.querySelector("input");
+        const checkLabel = document.createElement("label");
+        checkLabel.className = "gdrive-file-check";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = checked;
+        checkLabel.appendChild(checkbox);
+        const fileIconSpan = document.createElement("span");
+        fileIconSpan.className = "gdrive-file-icon";
+        const musicSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        musicSvg.setAttribute("width", "18"); musicSvg.setAttribute("height", "18");
+        musicSvg.setAttribute("viewBox", "0 0 24 24"); musicSvg.setAttribute("fill", "none");
+        musicSvg.setAttribute("stroke", "currentColor"); musicSvg.setAttribute("stroke-width", "2");
+        musicSvg.setAttribute("stroke-linecap", "round"); musicSvg.setAttribute("stroke-linejoin", "round");
+        musicSvg.innerHTML = '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>';
+        fileIconSpan.appendChild(musicSvg);
+        const fileNameSpan = document.createElement("span");
+        fileNameSpan.className = "gdrive-file-name";
+        fileNameSpan.textContent = file.name;
+        const fileSizeSpan = document.createElement("span");
+        fileSizeSpan.className = "gdrive-file-size";
+        fileSizeSpan.textContent = size;
+        row.append(checkLabel, fileIconSpan, fileNameSpan, fileSizeSpan);
         const toggleSelect = () => {
           if (pickerSelected.has(file.id)) {
             pickerSelected.delete(file.id);
@@ -1128,7 +1153,11 @@ const navigateToFolder = async (folderId) => {
       gdriveFileList.appendChild(row);
     }
   } catch (err) {
-    gdriveFileList.innerHTML = `<div class="gdrive-picker-empty">Error: ${err.message}</div>`;
+    gdriveFileList.textContent = "";
+    const errDiv = document.createElement("div");
+    errDiv.className = "gdrive-picker-empty";
+    errDiv.textContent = `Error: ${err.message}`;
+    gdriveFileList.appendChild(errDiv);
   }
 };
 
