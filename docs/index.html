@@ -143,29 +143,40 @@
 
               <!-- Metadata Fields -->
               <div class="card meta-card">
-                <div class="field-group">
-                  <label class="field">
-                    <span class="field-label">Title</span>
-                    <input type="text" name="title" value="Untitled Audiobook" />
-                  </label>
-                  <label class="field">
-                    <span class="field-label">Author</span>
-                    <input type="text" name="author" value="Unknown" />
-                  </label>
-                  <div class="field-row">
-                    <label class="field">
-                      <span class="field-label">Year</span>
-                      <input type="text" name="year" placeholder="2024" />
-                    </label>
-                    <label class="field">
-                      <span class="field-label">Genre</span>
-                      <input type="text" name="genre" value="Audiobook" />
+                <div class="meta-card-body">
+                  <div class="meta-card-header">
+                    <div>
+                      <p class="meta-card-eyebrow">Metadata</p>
+                      <h3>Stamp the finished file</h3>
+                    </div>
+                    <p class="meta-card-hint">Used for the M4B title page, chapters, and cover embed.</p>
+                  </div>
+                  <div class="field-group">
+                    <div class="field-row">
+                      <label class="field">
+                        <span class="field-label">Title</span>
+                        <input type="text" name="title" value="Untitled Audiobook" />
+                      </label>
+                      <label class="field">
+                        <span class="field-label">Author</span>
+                        <input type="text" name="author" value="Unknown" />
+                      </label>
+                    </div>
+                    <div class="field-row compact">
+                      <label class="field">
+                        <span class="field-label">Year</span>
+                        <input type="text" name="year" placeholder="2024" />
+                      </label>
+                      <label class="field">
+                        <span class="field-label">Genre</span>
+                        <input type="text" name="genre" value="Audiobook" />
+                      </label>
+                    </div>
+                    <label class="field textarea-field">
+                      <span class="field-label">Description</span>
+                      <textarea name="description" rows="4" placeholder="Synopsis, narrator notes, edition details..."></textarea>
                     </label>
                   </div>
-                  <label class="field">
-                    <span class="field-label">Description</span>
-                    <textarea name="description" rows="3" placeholder="Synopsis or narrator info..."></textarea>
-                  </label>
                 </div>
               </div>
             </aside>

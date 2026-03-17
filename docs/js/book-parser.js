@@ -182,12 +182,14 @@ export const id3Consensus = (metadataList) => {
   const albums = metadataList.map((m) => m?.album).filter(Boolean);
   const artists = metadataList.map((m) => m?.artist).filter(Boolean);
   const titles = metadataList.map((m) => m?.title).filter(Boolean);
+  const descriptions = metadataList.map((m) => m?.description).filter(Boolean);
 
   return {
     album: mostCommon(albums),
     artist: mostCommon(artists),
     // Individual track titles (for chapter naming)
     trackTitles: titles,
+    description: selectDescription(descriptions),
   };
 };
 
@@ -289,7 +291,12 @@ export const inferBook = (files, metadataList) => {
   // Author priority: ID3 artist > filename author
   const author = id3Result.artist || fnResult.author;
 
-  return { title, author, chapters };
+  return {
+    title,
+    author,
+    chapters,
+    description: id3Result.description,
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -324,6 +331,14 @@ const cleanupString = (str) => {
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+};
+
+const selectDescription = (values) => {
+  const cleaned = values
+    .map((val) => (typeof val === "string" ? val.trim() : ""))
+    .filter(Boolean);
+  if (!cleaned.length) return null;
+  return cleaned.sort((a, b) => b.length - a.length)[0];
 };
 
 /**

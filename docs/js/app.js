@@ -438,15 +438,26 @@ const addFiles = async (fileList) => {
   ) {
     descriptionInput.value = inferredBook.description;
   }
+  let needsYear = !yearInput.value;
+  let needsGenre = genreInput.value === "Audiobook";
+  let needsDescription = !descriptionInput.value.trim();
   for (const t of tracks) {
     if (!t.meta) continue;
-    if (t.meta.year && !yearInput.value) yearInput.value = t.meta.year;
-    if (t.meta.genre && genreInput.value === "Audiobook")
-      genreInput.value = t.meta.genre;
-    if (!descriptionInput.value.trim() && t.meta.description) {
-      descriptionInput.value = t.meta.description;
+    if (needsYear && t.meta.year) {
+      yearInput.value = t.meta.year;
+      needsYear = false;
     }
-    break;
+    if (needsGenre && t.meta.genre) {
+      genreInput.value = t.meta.genre;
+      needsGenre = false;
+    }
+    if (needsDescription && t.meta.description) {
+      descriptionInput.value = t.meta.description;
+      needsDescription = false;
+    }
+    if (!needsYear && !needsGenre && !needsDescription) {
+      break;
+    }
   }
 
   // Auto-extract cover from ID3
