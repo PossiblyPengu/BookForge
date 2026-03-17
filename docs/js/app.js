@@ -1,6 +1,6 @@
 import { FFmpeg } from "https://esm.sh/@ffmpeg/ffmpeg@0.12.10";
 import { fetchFile, toBlobURL } from "https://esm.sh/@ffmpeg/util@0.12.1";
-import { inferBook, buildChapterNames, extractSortKey } from "./book-parser.js";
+import { inferBook, extractSortKey } from "./book-parser.js";
 import { searchBooks, fetchCoverBlob, fetchChapters } from "./book-lookup.js";
 
 // ---------------------------------------------------------------------------
@@ -9,11 +9,15 @@ import { searchBooks, fetchCoverBlob, fetchChapters } from "./book-lookup.js";
 const form = document.getElementById("compile-form");
 const dropZone = document.getElementById("drop-zone");
 const fileInput = document.getElementById("file-input");
+const workspace = document.getElementById("workspace");
 const trackList = document.getElementById("track-list");
+const addMoreBtn = document.getElementById("add-more-btn");
 const clearAllButton = document.getElementById("clear-all");
 const compileButton = document.getElementById("compile-button");
-const statusValue = document.getElementById("status-value");
-const progressBar = document.getElementById("progress-bar");
+const compileSummary = document.getElementById("compile-summary");
+const statusDot = document.getElementById("status-dot");
+const statusText = document.getElementById("status-text");
+const progressTrack = document.getElementById("progress-track");
 const progressFill = document.getElementById("progress-fill");
 const titleInput = form.elements.namedItem("title");
 const authorInput = form.elements.namedItem("author");
@@ -34,27 +38,33 @@ const lookupDismiss = document.getElementById("lookup-dismiss");
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let tracks = []; // { file: File, meta: null | { duration, bitrate, title, artist, album }, chapterName: null | string }
+let tracks = []; // { file, meta, chapterName }
 let ffmpeg = null;
 let ffmpegReady = false;
-let inferredBook = null; // result from inferBook()
-let coverFile = null; // File or Blob for cover art
+let inferredBook = null;
+let coverFile = null;
 let coverObjectURL = null;
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Status helpers
 // ---------------------------------------------------------------------------
-const updateStatus = (label) => {
-  statusValue.textContent = label;
+const updateStatus = (label, state = "busy") => {
+  statusText.textContent = label;
+  statusDot.className = "status-dot" + (state === "idle" ? "" : state === "error" ? " error" : " busy");
+};
+
+const setIdle = (label = "Ready") => {
+  statusText.textContent = label;
+  statusDot.className = "status-dot";
 };
 
 const showProgress = (pct) => {
-  progressBar.hidden = false;
+  progressTrack.hidden = false;
   progressFill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
 };
 
 const hideProgress = () => {
-  progressBar.hidden = true;
+  progressTrack.hidden = true;
   progressFill.style.width = "0%";
 };
 
@@ -75,11 +85,17 @@ const setCover = (blob) => {
   if (coverObjectURL) URL.revokeObjectURL(coverObjectURL);
   coverFile = blob;
   coverObjectURL = URL.createObjectURL(blob);
-  coverPlaceholder.innerHTML = "";
-  const img = document.createElement("img");
-  img.src = coverObjectURL;
-  img.alt = "Cover art";
-  coverPlaceholder.replaceWith(img);
+
+  const existing = coverPreview.querySelector("img");
+  if (existing) {
+    existing.src = coverObjectURL;
+  } else {
+    coverPlaceholder.innerHTML = "";
+    const img = document.createElement("img");
+    img.src = coverObjectURL;
+    img.alt = "Cover art";
+    coverPlaceholder.replaceWith(img);
+  }
   coverRemoveBtn.hidden = false;
 };
 
@@ -90,20 +106,25 @@ const removeCover = () => {
   const existing = coverPreview.querySelector("img");
   if (existing) {
     const ph = document.createElement("div");
-    ph.className = "placeholder";
+    ph.className = "cover-placeholder";
     ph.id = "cover-placeholder";
-    ph.innerHTML = "Click to add<br />cover art";
+    ph.innerHTML = `
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".4">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+        <circle cx="8.5" cy="8.5" r="1.5"/>
+        <polyline points="21 15 16 10 5 21"/>
+      </svg>
+      <span>Click to add cover</span>`;
     existing.replaceWith(ph);
   }
   coverRemoveBtn.hidden = true;
 };
 
 // ---------------------------------------------------------------------------
-// Client-side ID3 metadata extraction via jsmediatags
+// ID3 metadata extraction
 // ---------------------------------------------------------------------------
 const readID3 = (file) =>
   new Promise((resolve) => {
-    // Dynamically load jsmediatags if not cached
     if (!window.jsmediatags) {
       const script = document.createElement("script");
       script.src =
@@ -140,7 +161,6 @@ const parseTag = (file, resolve) => {
   });
 };
 
-// Get duration + bitrate via Web Audio / Audio element
 const readAudioInfo = (file) =>
   new Promise((resolve) => {
     const audio = new Audio();
@@ -152,22 +172,27 @@ const readAudioInfo = (file) =>
       () => {
         const duration = audio.duration || 0;
         const bitrate =
-          duration > 0
-            ? Math.round((file.size * 8) / duration / 1000)
-            : 0;
+          duration > 0 ? Math.round((file.size * 8) / duration / 1000) : 0;
         URL.revokeObjectURL(url);
         resolve({ duration: Math.round(duration * 100) / 100, bitrate });
       },
       { once: true }
     );
-    audio.addEventListener("error", () => {
-      URL.revokeObjectURL(url);
-      resolve({ duration: 0, bitrate: 0 });
-    }, { once: true });
+    audio.addEventListener(
+      "error",
+      () => {
+        URL.revokeObjectURL(url);
+        resolve({ duration: 0, bitrate: 0 });
+      },
+      { once: true }
+    );
   });
 
 const extractMetadata = async (file) => {
-  const [id3, audioInfo] = await Promise.all([readID3(file), readAudioInfo(file)]);
+  const [id3, audioInfo] = await Promise.all([
+    readID3(file),
+    readAudioInfo(file),
+  ]);
   return {
     title: id3?.title || null,
     artist: id3?.artist || null,
@@ -186,24 +211,24 @@ const extractMetadata = async (file) => {
 // ---------------------------------------------------------------------------
 const loadFFmpeg = async () => {
   if (ffmpegReady) return;
-  updateStatus("Loading FFmpeg…");
+  updateStatus("Loading FFmpeg...");
   showProgress(10);
 
   ffmpeg = new FFmpeg();
-
-  ffmpeg.on("progress", ({ progress }) => {
-    showProgress(20 + progress * 70);
-  });
+  ffmpeg.on("progress", ({ progress }) => showProgress(20 + progress * 70));
 
   const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
   await ffmpeg.load({
     coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+    wasmURL: await toBlobURL(
+      `${baseURL}/ffmpeg-core.wasm`,
+      "application/wasm"
+    ),
   });
 
   ffmpegReady = true;
   hideProgress();
-  updateStatus("Idle");
+  setIdle();
 };
 
 // ---------------------------------------------------------------------------
@@ -213,106 +238,101 @@ const refreshTrackList = () => {
   trackList.innerHTML = "";
 
   if (!tracks.length) {
-    trackList.innerHTML = '<li class="empty">No tracks added yet.</li>';
+    trackList.innerHTML =
+      '<div class="track-list-empty">No chapters added yet. Drop MP3 files above.</div>';
     compileButton.disabled = true;
+    compileSummary.textContent = "";
+    workspace.hidden = true;
+    dropZone.classList.remove("compact");
     return;
   }
 
+  workspace.hidden = false;
+  dropZone.classList.add("compact");
   compileButton.disabled = false;
 
+  // Summary
+  const totalDuration = tracks.reduce(
+    (s, t) => s + (t.meta?.duration || 0),
+    0
+  );
+  const totalSize = tracks.reduce((s, t) => s + t.file.size, 0);
+  compileSummary.textContent = `${tracks.length} chapter${tracks.length !== 1 ? "s" : ""} \u00b7 ${formatDuration(totalDuration)} \u00b7 ${(totalSize / (1024 * 1024)).toFixed(1)} MB`;
+
   tracks.forEach((track, index) => {
-    const li = document.createElement("li");
-    li.className = "track-row";
+    const row = document.createElement("div");
+    row.className = "track-row";
 
-    const order = document.createElement("strong");
-    order.textContent = String(index + 1).padStart(2, "0");
+    // Number
+    const num = document.createElement("span");
+    num.className = "track-num";
+    num.textContent = String(index + 1).padStart(2, "0");
 
-    const info = document.createElement("div");
-    info.className = "track-info";
+    // Body (chapter name input + details)
+    const body = document.createElement("div");
+    body.className = "track-body";
 
-    const nameEl = document.createElement("span");
-    nameEl.className = "track-name";
-    nameEl.textContent = track.chapterName || track.file.name;
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.className = "track-chapter-input";
+    nameInput.value = track.chapterName || `Chapter ${index + 1}`;
+    nameInput.addEventListener("change", () => {
+      track.chapterName = nameInput.value.trim() || `Chapter ${index + 1}`;
+    });
 
-    const details = document.createElement("small");
-    details.className = "track-meta";
-    const megabytes = (track.file.size / (1024 * 1024)).toFixed(1);
-    const detailParts = [];
-    if (track.chapterName) detailParts.push(track.file.name);
+    const detail = document.createElement("span");
+    detail.className = "track-detail";
+    const parts = [track.file.name];
     if (track.meta) {
-      if (track.meta.artist && !track.chapterName) detailParts.push(track.meta.artist);
-      detailParts.push(formatDuration(track.meta.duration));
-      detailParts.push(`${track.meta.bitrate || "?"}kbps`);
+      parts.push(formatDuration(track.meta.duration));
+      parts.push(`${track.meta.bitrate || "?"}kbps`);
     }
-    detailParts.push(`${megabytes} MB`);
-    details.textContent = detailParts.join(" \u00b7 ");
+    parts.push(`${(track.file.size / (1024 * 1024)).toFixed(1)} MB`);
+    detail.textContent = parts.join(" \u00b7 ");
 
-    info.append(nameEl, details);
+    body.append(nameInput, detail);
 
+    // Actions
     const actions = document.createElement("div");
     actions.className = "track-actions";
 
-    const upButton = document.createElement("button");
-    upButton.type = "button";
-    upButton.className = "ghost icon";
-    upButton.textContent = "\u2191";
-    upButton.disabled = index === 0;
-    upButton.addEventListener("click", () => moveTrack(index, index - 1));
+    const mkBtn = (label, cls, handler) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `btn btn-icon${cls ? " " + cls : ""}`;
+      b.innerHTML = label;
+      b.addEventListener("click", handler);
+      return b;
+    };
 
-    const downButton = document.createElement("button");
-    downButton.type = "button";
-    downButton.className = "ghost icon";
-    downButton.textContent = "\u2193";
-    downButton.disabled = index === tracks.length - 1;
-    downButton.addEventListener("click", () => moveTrack(index, index + 1));
+    const upBtn = mkBtn("\u2191", "", () => moveTrack(index, index - 1));
+    upBtn.disabled = index === 0;
+    const downBtn = mkBtn("\u2193", "", () => moveTrack(index, index + 1));
+    downBtn.disabled = index === tracks.length - 1;
+    const removeBtn = mkBtn("\u2715", "danger", () => removeTrack(index));
 
-    const removeButton = document.createElement("button");
-    removeButton.type = "button";
-    removeButton.className = "ghost icon";
-    removeButton.textContent = "\u2715";
-    removeButton.addEventListener("click", () => removeTrack(index));
-
-    actions.append(upButton, downButton, removeButton);
-    li.append(order, info, actions);
-    trackList.append(li);
+    actions.append(upBtn, downBtn, removeBtn);
+    row.append(num, body, actions);
+    trackList.append(row);
   });
 };
 
 // ---------------------------------------------------------------------------
 // Track management
 // ---------------------------------------------------------------------------
-const addFiles = async (fileList) => {
-  const mp3Files = Array.from(fileList).filter(
-    (file) =>
-      file.type === "audio/mpeg" || file.name.toLowerCase().endsWith(".mp3")
+const parseTrackNum = (track) => {
+  if (track == null) return null;
+  // Handle "3/12" format (track number / total tracks)
+  const str = String(track).split("/")[0].trim();
+  const n = parseInt(str, 10);
+  return Number.isFinite(n) ? n : null;
+};
+
+const sortTracks = () => {
+  const hasID3TrackNums = tracks.some(
+    (t) => parseTrackNum(t.meta?.track) != null
   );
 
-  const newTracks = mp3Files.map((file) => ({ file, meta: null, chapterName: null }));
-  tracks = [...tracks, ...newTracks];
-
-  // Auto-sort all tracks by chapter/part number
-  tracks.sort((a, b) => {
-    const keyA = extractSortKey(a.file.name);
-    const keyB = extractSortKey(b.file.name);
-    if (keyA !== keyB) return keyA - keyB;
-    return a.file.name.localeCompare(b.file.name, undefined, { numeric: true });
-  });
-
-  refreshTrackList();
-
-  // Extract metadata in parallel
-  const metaPromises = newTracks.map(async (t) => {
-    t.meta = await extractMetadata(t.file);
-  });
-  await Promise.all(metaPromises);
-
-  // Re-sort: prefer ID3 track numbers, fall back to filename sort key
-  const parseTrackNum = (track) => {
-    if (track == null) return null;
-    const n = parseInt(String(track), 10);
-    return Number.isFinite(n) ? n : null;
-  };
-  const hasID3TrackNums = tracks.some((t) => parseTrackNum(t.meta?.track) != null);
   tracks.sort((a, b) => {
     if (hasID3TrackNums) {
       const numA = parseTrackNum(a.meta?.track);
@@ -324,41 +344,74 @@ const addFiles = async (fileList) => {
     const keyA = extractSortKey(a.file.name);
     const keyB = extractSortKey(b.file.name);
     if (keyA !== keyB) return keyA - keyB;
-    return a.file.name.localeCompare(b.file.name, undefined, { numeric: true });
+    return a.file.name.localeCompare(b.file.name, undefined, {
+      numeric: true,
+    });
+  });
+};
+
+const addFiles = async (fileList) => {
+  const mp3Files = Array.from(fileList).filter(
+    (file) =>
+      file.type === "audio/mpeg" || file.name.toLowerCase().endsWith(".mp3")
+  );
+  if (!mp3Files.length) return;
+
+  const newTracks = mp3Files.map((file) => ({
+    file,
+    meta: null,
+    chapterName: null,
+  }));
+  tracks = [...tracks, ...newTracks];
+
+  // Initial sort by filename numbers
+  tracks.sort((a, b) => {
+    const keyA = extractSortKey(a.file.name);
+    const keyB = extractSortKey(b.file.name);
+    if (keyA !== keyB) return keyA - keyB;
+    return a.file.name.localeCompare(b.file.name, undefined, {
+      numeric: true,
+    });
   });
 
-  // Run book inference across ALL tracks (filenames + ID3 consensus)
+  refreshTrackList();
+  updateStatus("Reading metadata...");
+
+  // Extract metadata
+  await Promise.all(newTracks.map(async (t) => {
+    t.meta = await extractMetadata(t.file);
+  }));
+
+  // Re-sort with ID3 track numbers
+  sortTracks();
+
+  // Infer book info
   const allMeta = tracks.map((t) => t.meta);
   inferredBook = inferBook(tracks, allMeta);
 
-  // Apply inferred chapter names
+  // Apply chapter names
   if (inferredBook.chapters) {
     inferredBook.chapters.forEach((name, i) => {
       if (i < tracks.length) tracks[i].chapterName = name;
     });
   }
 
-  // Auto-populate title/author if still at defaults
+  // Auto-populate metadata fields
   if (inferredBook.title && titleInput.value === "Untitled Audiobook") {
     titleInput.value = inferredBook.title;
   }
   if (inferredBook.author && authorInput.value === "Unknown") {
     authorInput.value = inferredBook.author;
   }
-
-  // Auto-populate year/genre from first track with data
   for (const t of tracks) {
     if (!t.meta) continue;
-    if (t.meta.year && !yearInput.value) {
-      yearInput.value = t.meta.year;
-    }
-    if (t.meta.genre && genreInput.value === "Audiobook") {
+    if (t.meta.year && !yearInput.value) yearInput.value = t.meta.year;
+    if (t.meta.genre && genreInput.value === "Audiobook")
       genreInput.value = t.meta.genre;
-    }
     break;
   }
 
-  // Extract cover art from first track that has one (if no cover set yet)
+  // Auto-extract cover from ID3
   if (!coverFile) {
     for (const t of tracks) {
       if (t.meta?.picture) {
@@ -369,14 +422,15 @@ const addFiles = async (fileList) => {
   }
 
   refreshTrackList();
+  setIdle();
 
-  // Auto-search for book metadata using inferred title/author
-  const searchQuery = [inferredBook?.title, inferredBook?.author]
+  // Auto-search for book metadata
+  const searchQ = [inferredBook?.title, inferredBook?.author]
     .filter(Boolean)
     .join(" ");
-  if (searchQuery.length >= 3) {
-    lookupQuery.value = searchQuery;
-    performLookup(searchQuery);
+  if (searchQ.length >= 3) {
+    lookupQuery.value = searchQ;
+    performLookup(searchQ);
   }
 };
 
@@ -395,7 +449,7 @@ const removeTrack = (index) => {
 };
 
 // ---------------------------------------------------------------------------
-// Compile to M4B (fully in-browser)
+// Compile to M4B
 // ---------------------------------------------------------------------------
 const compileM4B = async () => {
   await loadFFmpeg();
@@ -406,10 +460,9 @@ const compileM4B = async () => {
   const genreVal = genreInput.value.trim();
   const descVal = descriptionInput.value.trim();
 
-  updateStatus("Reading files…");
+  updateStatus("Reading files...");
   showProgress(5);
 
-  // Write each MP3 into the virtual FS
   const filenames = [];
   for (let i = 0; i < tracks.length; i++) {
     const fname = `input_${String(i).padStart(3, "0")}.mp3`;
@@ -418,27 +471,23 @@ const compileM4B = async () => {
     showProgress(5 + ((i + 1) / tracks.length) * 10);
   }
 
-  // Build concat list
   const listContent = filenames.map((f) => `file '${f}'`).join("\n");
-  await ffmpeg.writeFile(
-    "inputs.txt",
-    new TextEncoder().encode(listContent)
-  );
+  await ffmpeg.writeFile("inputs.txt", new TextEncoder().encode(listContent));
 
-  // Write cover art to virtual FS if present
   let hasCover = false;
   if (coverFile) {
     await ffmpeg.writeFile("cover.jpg", await fetchFile(coverFile));
     hasCover = true;
   }
 
-  // Build chapter metadata file using inferred chapter names
-  let chapterMeta = ";FFMETADATA1\n";
-  chapterMeta += `title=${titleVal}\n`;
-  chapterMeta += `artist=${authorVal}\n`;
-  if (yearVal) chapterMeta += `date=${yearVal}\n`;
-  if (genreVal) chapterMeta += `genre=${genreVal}\n`;
-  if (descVal) chapterMeta += `comment=${descVal}\n`;
+  // Build FFMETADATA1
+  let meta = ";FFMETADATA1\n";
+  meta += `title=${titleVal}\n`;
+  meta += `artist=${authorVal}\n`;
+  if (yearVal) meta += `date=${yearVal}\n`;
+  if (genreVal) meta += `genre=${genreVal}\n`;
+  if (descVal) meta += `comment=${descVal}\n`;
+
   let cursorMs = 0;
   for (let i = 0; i < tracks.length; i++) {
     const track = tracks[i];
@@ -449,72 +498,56 @@ const compileM4B = async () => {
         track.chapterName ||
         track.meta?.title ||
         track.file.name.replace(/\.mp3$/i, "");
-      chapterMeta += "\n[CHAPTER]\nTIMEBASE=1/1000\n";
-      chapterMeta += `START=${cursorMs}\n`;
-      chapterMeta += `END=${cursorMs + durationMs}\n`;
-      chapterMeta += `title=${chTitle}\n`;
+      meta += "\n[CHAPTER]\nTIMEBASE=1/1000\n";
+      meta += `START=${cursorMs}\n`;
+      meta += `END=${cursorMs + durationMs}\n`;
+      meta += `title=${chTitle}\n`;
       cursorMs += durationMs;
     }
   }
-  await ffmpeg.writeFile(
-    "chapters.txt",
-    new TextEncoder().encode(chapterMeta)
-  );
+  await ffmpeg.writeFile("chapters.txt", new TextEncoder().encode(meta));
 
-  // Step 1: concatenate MP3s
-  updateStatus("Concatenating…");
+  updateStatus("Concatenating...");
   showProgress(18);
   await ffmpeg.exec([
-    "-y",
-    "-f", "concat",
-    "-safe", "0",
-    "-i", "inputs.txt",
-    "-c", "copy",
-    "combined.mp3",
+    "-y", "-f", "concat", "-safe", "0",
+    "-i", "inputs.txt", "-c", "copy", "combined.mp3",
   ]);
 
-  // Step 2: convert to AAC/M4B with metadata + chapters (+ optional cover)
-  updateStatus("Converting to M4B…");
+  updateStatus("Converting to M4B...");
   showProgress(25);
 
-  const convertArgs = ["-y", "-i", "combined.mp3", "-i", "chapters.txt"];
+  const args = ["-y", "-i", "combined.mp3", "-i", "chapters.txt"];
   if (hasCover) {
-    convertArgs.push("-i", "cover.jpg");
-    convertArgs.push("-map", "0:a", "-map", "2:v");
-    convertArgs.push("-c:v", "mjpeg", "-disposition:v", "attached_pic");
+    args.push("-i", "cover.jpg", "-map", "0:a", "-map", "2:v");
+    args.push("-c:v", "mjpeg", "-disposition:v", "attached_pic");
   }
-  convertArgs.push(
-    "-map_metadata", "1",
-    "-map_chapters", "1",
-    "-c:a", "aac",
-    "-b:a", "96k",
-    "-movflags", "+faststart",
-    "-f", "mp4",
-    "audiobook.m4b",
+  args.push(
+    "-map_metadata", "1", "-map_chapters", "1",
+    "-c:a", "aac", "-b:a", "96k",
+    "-movflags", "+faststart", "-f", "mp4", "audiobook.m4b"
   );
-  if (!hasCover) convertArgs.splice(convertArgs.indexOf("-f"), 0, "-vn");
-  await ffmpeg.exec(convertArgs);
+  if (!hasCover) args.splice(args.indexOf("-f"), 0, "-vn");
+  await ffmpeg.exec(args);
 
-  updateStatus("Preparing download…");
+  updateStatus("Preparing download...");
   showProgress(95);
   const data = await ffmpeg.readFile("audiobook.m4b");
 
-  // Cleanup virtual FS
-  for (const f of filenames) {
-    await ffmpeg.deleteFile(f).catch(() => {});
-  }
+  // Cleanup
+  for (const f of filenames) await ffmpeg.deleteFile(f).catch(() => {});
   await ffmpeg.deleteFile("inputs.txt").catch(() => {});
   await ffmpeg.deleteFile("chapters.txt").catch(() => {});
   await ffmpeg.deleteFile("combined.mp3").catch(() => {});
   await ffmpeg.deleteFile("audiobook.m4b").catch(() => {});
   if (hasCover) await ffmpeg.deleteFile("cover.jpg").catch(() => {});
 
-  // Trigger download
-  const slug = titleVal
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "") || "audiobook";
+  const slug =
+    titleVal
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "audiobook";
   const blob = new Blob([data.buffer], { type: "audio/x-m4b" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -526,25 +559,24 @@ const compileM4B = async () => {
   URL.revokeObjectURL(url);
 
   showProgress(100);
-  updateStatus("Complete");
+  setIdle("Complete!");
   setTimeout(hideProgress, 1500);
 };
 
-// ---------------------------------------------------------------------------
-// Event listeners
-// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Book lookup
 // ---------------------------------------------------------------------------
 const performLookup = async (query) => {
   if (!query || query.trim().length < 2) return;
-  lookupResultsList.innerHTML = '<div class="lookup-spinner">Searching…</div>';
+  lookupResultsList.innerHTML =
+    '<div class="lookup-spinner">Searching...</div>';
   lookupResults.hidden = false;
 
   const results = await searchBooks(query, 6);
 
   if (!results.length) {
-    lookupResultsList.innerHTML = '<div class="lookup-spinner">No results found.</div>';
+    lookupResultsList.innerHTML =
+      '<div class="lookup-spinner">No results found.</div>';
     return;
   }
 
@@ -562,18 +594,18 @@ const performLookup = async (query) => {
       img.loading = "lazy";
       img.addEventListener("error", () => {
         img.remove();
-        const fallback = document.createElement("div");
-        fallback.className = "no-cover";
-        fallback.textContent = "No cover";
-        imgContainer.appendChild(fallback);
+        const fb = document.createElement("div");
+        fb.className = "no-cover";
+        fb.textContent = "No cover";
+        imgContainer.appendChild(fb);
       });
       img.src = result.coverUrl;
       imgContainer.appendChild(img);
     } else {
-      const noCover = document.createElement("div");
-      noCover.className = "no-cover";
-      noCover.textContent = "No cover";
-      imgContainer.appendChild(noCover);
+      const nc = document.createElement("div");
+      nc.className = "no-cover";
+      nc.textContent = "No cover";
+      imgContainer.appendChild(nc);
     }
     card.appendChild(imgContainer);
 
@@ -591,7 +623,8 @@ const performLookup = async (query) => {
 
     const sourceEl = document.createElement("div");
     sourceEl.className = "lookup-card-source";
-    sourceEl.textContent = result.source === "google" ? "Google Books" : "Open Library";
+    sourceEl.textContent =
+      result.source === "google" ? "Google Books" : "Open Library";
     card.appendChild(sourceEl);
 
     card.addEventListener("click", () => applyLookupResult(result));
@@ -606,25 +639,22 @@ const applyLookupResult = async (result) => {
   if (result.genre) genreInput.value = result.genre;
   if (result.description) descriptionInput.value = result.description;
 
-  // Fetch and apply cover art
+  // Fetch cover
   if (result.coverUrl) {
-    updateStatus("Fetching cover…");
+    updateStatus("Fetching cover...");
     const blob = await fetchCoverBlob(result.coverUrl);
-    if (blob && blob.size > 0) {
-      setCover(blob);
-    }
+    if (blob && blob.size > 0) setCover(blob);
   }
 
-  // Fetch and apply chapter names from the API
+  // Fetch and apply chapter names
   if (tracks.length) {
-    updateStatus("Fetching chapters…");
+    updateStatus("Fetching chapters...");
     const apiChapters = await fetchChapters(result);
     if (apiChapters?.length) {
       const count = Math.min(apiChapters.length, tracks.length);
       for (let i = 0; i < count; i++) {
         tracks[i].chapterName = apiChapters[i];
       }
-      // If more tracks than API chapters, label the rest generically
       for (let i = count; i < tracks.length; i++) {
         tracks[i].chapterName = `Chapter ${i + 1}`;
       }
@@ -632,45 +662,39 @@ const applyLookupResult = async (result) => {
     }
   }
 
-  updateStatus("Idle");
+  setIdle();
   lookupResults.hidden = true;
 };
 
 // ---------------------------------------------------------------------------
-// Cover art events
+// Event listeners
 // ---------------------------------------------------------------------------
+
+// Cover
 coverPreview.addEventListener("click", () => coverInput.click());
 coverUploadBtn.addEventListener("click", () => coverInput.click());
-
-coverInput.addEventListener("change", (event) => {
-  const file = event.target.files?.[0];
+coverInput.addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
   if (file) {
     setCover(file);
     coverInput.value = "";
   }
 });
-
 coverRemoveBtn.addEventListener("click", removeCover);
 
-// ---------------------------------------------------------------------------
-// Book lookup events
-// ---------------------------------------------------------------------------
+// Lookup
 lookupBtn.addEventListener("click", () => performLookup(lookupQuery.value));
-
-lookupQuery.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
+lookupQuery.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
     performLookup(lookupQuery.value);
   }
 });
-
 lookupDismiss.addEventListener("click", () => {
   lookupResults.hidden = true;
 });
 
-// ---------------------------------------------------------------------------
-// Other event listeners
-// ---------------------------------------------------------------------------
+// Clear all
 clearAllButton.addEventListener("click", () => {
   tracks = [];
   inferredBook = null;
@@ -685,55 +709,51 @@ clearAllButton.addEventListener("click", () => {
   refreshTrackList();
 });
 
+// Drop zone + file input
 dropZone.addEventListener("click", () => fileInput.click());
+addMoreBtn.addEventListener("click", () => fileInput.click());
 
-dropZone.addEventListener("dragover", (event) => {
-  event.preventDefault();
+dropZone.addEventListener("dragover", (e) => {
+  e.preventDefault();
   dropZone.classList.add("dragover");
 });
-
 dropZone.addEventListener("dragleave", () => {
   dropZone.classList.remove("dragover");
 });
-
-dropZone.addEventListener("drop", (event) => {
-  event.preventDefault();
+dropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
   dropZone.classList.remove("dragover");
-  if (event.dataTransfer?.files?.length) {
-    addFiles(event.dataTransfer.files);
-  }
+  if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
 });
 
-fileInput.addEventListener("change", (event) => {
-  if (event.target.files?.length) {
-    addFiles(event.target.files);
+fileInput.addEventListener("change", (e) => {
+  if (e.target.files?.length) {
+    addFiles(e.target.files);
     fileInput.value = "";
   }
 });
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
+// Compile
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
   if (!tracks.length) {
-    updateStatus("Add MP3 files first");
+    updateStatus("Add MP3 files first", "error");
     return;
   }
-
   compileButton.disabled = true;
-
   try {
     await compileM4B();
   } catch (err) {
     console.error(err);
-    updateStatus(err.message || "Conversion failed");
+    updateStatus(err.message || "Conversion failed", "error");
     hideProgress();
   } finally {
     compileButton.disabled = !tracks.length;
     setTimeout(() => {
-      if (!tracks.length) {
-        updateStatus("Idle");
-      }
+      if (!tracks.length) setIdle();
     }, 4000);
   }
 });
 
+// Init
 refreshTrackList();

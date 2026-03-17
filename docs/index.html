@@ -7,136 +7,154 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="css/main.css" />
-    <!-- Enable SharedArrayBuffer on GitHub Pages (required by FFmpeg.wasm) -->
-    <!-- Use credentialless mode so cross-origin images (book covers) still load -->
     <script>window.coi = { coepCredentialless: () => true };</script>
     <script src="coi-serviceworker.js"></script>
   </head>
   <body>
-    <div class="page-shell">
-      <!-- Top bar -->
-      <header>
-        <div class="header-text">
-          <p class="eyebrow">Audio toolkit</p>
-          <h1>M4B Foundry</h1>
+    <div class="app">
+      <!-- Toolbar -->
+      <nav class="toolbar">
+        <div class="toolbar-brand">
+          <svg class="logo-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"/>
+            <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+          <span class="logo-text">M4B Foundry</span>
         </div>
-        <div class="status-card" id="status-card">
-          <div class="status-label">Status</div>
-          <div class="status-value" id="status-value">Idle</div>
-          <div class="progress-bar" id="progress-bar" hidden>
-            <div class="progress-fill" id="progress-fill"></div>
-          </div>
+        <div class="toolbar-status" id="toolbar-status">
+          <span class="status-dot" id="status-dot"></span>
+          <span class="status-text" id="status-text">Ready</span>
         </div>
-      </header>
+      </nav>
+
+      <!-- Progress bar (full-width under toolbar) -->
+      <div class="progress-track" id="progress-track" hidden>
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
 
       <form id="compile-form">
-        <!-- Drop zone — full width -->
+        <!-- Drop zone -->
         <div class="drop-zone" id="drop-zone">
-          <input
-            id="file-input"
-            type="file"
-            accept="audio/mpeg,.mp3"
-            multiple
-            hidden
-          />
-          <div class="drop-content">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:.45"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <p class="drop-title">Drop MP3 files here or click to browse</p>
-            <small>Chapters auto-sort by track number</small>
+          <input id="file-input" type="file" accept="audio/mpeg,.mp3" multiple hidden />
+          <div class="drop-inner">
+            <div class="drop-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <p class="drop-heading">Drop MP3 chapter files</p>
+            <p class="drop-sub">or click to browse &middot; chapters auto-sort by number</p>
           </div>
         </div>
 
-        <!-- Two-column workspace -->
-        <div class="workspace">
-          <!-- Left: tracklist -->
-          <section class="panel tracklist-panel">
-            <div class="tracks-header">
-              <h2>Tracklist</h2>
-              <button type="button" id="clear-all" class="ghost">Clear all</button>
-            </div>
-            <ul id="track-list" aria-live="polite"></ul>
-
-            <div class="actions">
-              <button type="submit" class="primary" id="compile-button">
-                Compile to M4B
-              </button>
-            </div>
-          </section>
-
-          <!-- Right: metadata sidebar -->
-          <aside class="panel meta-panel">
-            <!-- Lookup -->
-            <div class="lookup-bar">
-              <input
-                type="text"
-                id="lookup-query"
-                placeholder="Search by title or author…"
-              />
-              <button type="button" id="lookup-btn" class="ghost">Look up</button>
-            </div>
-
-            <div class="lookup-results" id="lookup-results" hidden>
-              <div class="lookup-results-list" id="lookup-results-list"></div>
-              <button type="button" id="lookup-dismiss" class="ghost dismiss-btn">
-                Dismiss
-              </button>
-            </div>
-
-            <!-- Cover + fields -->
-            <div class="cover-area">
-              <div class="cover-preview" id="cover-preview" title="Click to upload cover art">
-                <input
-                  id="cover-input"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  hidden
-                />
-                <div class="placeholder" id="cover-placeholder">
-                  Click to add<br />cover art
+        <!-- Main workspace (hidden until files added) -->
+        <div class="workspace" id="workspace" hidden>
+          <div class="workspace-grid">
+            <!-- Left: Tracks -->
+            <section class="card tracks-card">
+              <div class="card-header">
+                <h2>Chapters</h2>
+                <div class="card-header-actions">
+                  <button type="button" id="add-more-btn" class="btn btn-ghost btn-sm">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add files
+                  </button>
+                  <button type="button" id="clear-all" class="btn btn-ghost btn-sm">Clear all</button>
                 </div>
               </div>
-              <div class="cover-btns">
-                <button type="button" id="cover-upload-btn" class="ghost small">Upload</button>
-                <button type="button" id="cover-remove-btn" class="ghost small" hidden>Remove</button>
-              </div>
-            </div>
+              <div class="track-list" id="track-list"></div>
+            </section>
 
-            <div class="meta-fields">
-              <label>
-                <span>Title</span>
-                <input type="text" name="title" value="Untitled Audiobook" />
-              </label>
-              <label>
-                <span>Author</span>
-                <input type="text" name="author" value="Unknown" />
-              </label>
-              <div class="meta-row">
-                <label>
-                  <span>Year</span>
-                  <input type="text" name="year" placeholder="e.g. 2024" />
-                </label>
-                <label>
-                  <span>Genre</span>
-                  <input type="text" name="genre" value="Audiobook" />
-                </label>
+            <!-- Right: Sidebar -->
+            <aside class="sidebar">
+              <!-- Lookup -->
+              <div class="card lookup-card">
+                <div class="card-header">
+                  <h2>Book Lookup</h2>
+                </div>
+                <div class="lookup-bar">
+                  <input type="text" id="lookup-query" placeholder="Search title or author..." />
+                  <button type="button" id="lookup-btn" class="btn btn-accent btn-sm">Search</button>
+                </div>
+                <div class="lookup-results" id="lookup-results" hidden>
+                  <div class="lookup-scroll" id="lookup-results-list"></div>
+                  <button type="button" id="lookup-dismiss" class="btn btn-ghost btn-xs">Dismiss</button>
+                </div>
               </div>
-              <label>
-                <span>Description</span>
-                <textarea name="description" rows="3" placeholder="Optional book description or narrator info"></textarea>
-              </label>
-            </div>
 
-            <div class="info-note">
-              <small>
-                Everything runs in your browser. The first load downloads
-                ~31&nbsp;MB of FFmpeg WebAssembly; subsequent visits use cache.
-              </small>
-            </div>
-          </aside>
+              <!-- Cover Art -->
+              <div class="card cover-card">
+                <div class="card-header">
+                  <h2>Cover Art</h2>
+                  <div class="card-header-actions">
+                    <button type="button" id="cover-upload-btn" class="btn btn-ghost btn-xs">Upload</button>
+                    <button type="button" id="cover-remove-btn" class="btn btn-ghost btn-xs" hidden>Remove</button>
+                  </div>
+                </div>
+                <div class="cover-well" id="cover-preview" title="Click to upload cover art">
+                  <input id="cover-input" type="file" accept="image/jpeg,image/png,image/webp" hidden />
+                  <div class="cover-placeholder" id="cover-placeholder">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".4">
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                      <circle cx="8.5" cy="8.5" r="1.5"/>
+                      <polyline points="21 15 16 10 5 21"/>
+                    </svg>
+                    <span>Click to add cover</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Metadata Fields -->
+              <div class="card meta-card">
+                <div class="card-header"><h2>Metadata</h2></div>
+                <div class="field-group">
+                  <label class="field">
+                    <span class="field-label">Title</span>
+                    <input type="text" name="title" value="Untitled Audiobook" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Author</span>
+                    <input type="text" name="author" value="Unknown" />
+                  </label>
+                  <div class="field-row">
+                    <label class="field">
+                      <span class="field-label">Year</span>
+                      <input type="text" name="year" placeholder="2024" />
+                    </label>
+                    <label class="field">
+                      <span class="field-label">Genre</span>
+                      <input type="text" name="genre" value="Audiobook" />
+                    </label>
+                  </div>
+                  <label class="field">
+                    <span class="field-label">Description</span>
+                    <textarea name="description" rows="3" placeholder="Synopsis or narrator info..."></textarea>
+                  </label>
+                </div>
+              </div>
+
+              <div class="sidebar-note">
+                Everything runs locally in your browser. First load downloads ~31&nbsp;MB of FFmpeg WASM.
+              </div>
+            </aside>
+          </div>
+
+          <!-- Compile bar -->
+          <div class="compile-bar">
+            <div class="compile-summary" id="compile-summary"></div>
+            <button type="submit" class="btn btn-primary btn-lg" id="compile-button">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+              </svg>
+              Forge M4B
+            </button>
+          </div>
         </div>
       </form>
     </div>
