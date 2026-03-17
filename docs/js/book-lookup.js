@@ -15,6 +15,9 @@
  * @property {string|null} coverUrl - URL to a cover image
  * @property {string|null} isbn
  * @property {string|null} publisher
+ * @property {string|null} workKey
+ * @property {string|null} editionKey
+ * @property {string[]|null} editionKeys
  * @property {string} source - "google" or "openlibrary"
  */
 
@@ -81,7 +84,7 @@ const searchGoogleBooks = async (query, maxResults = 5) => {
 // ---------------------------------------------------------------------------
 
 const searchOpenLibrary = async (query, maxResults = 5) => {
-  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=${maxResults}&fields=key,title,author_name,first_publish_year,subject,isbn,publisher,cover_i,edition_key`;
+  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=${maxResults}&fields=key,title,author_name,first_publish_year,subject,isbn,publisher,cover_i,edition_key,description,first_sentence`;
   try {
     const resp = await fetch(url);
     if (!resp.ok) return [];
@@ -93,19 +96,23 @@ const searchOpenLibrary = async (query, maxResults = 5) => {
       const coverUrl = coverId
         ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg`
         : null;
+      const docDescription =
+        normalizeOpenLibraryDescription(doc.description) ||
+        normalizeOpenLibraryDescription(doc.first_sentence);
       return {
         title: doc.title || "Unknown",
         subtitle: null,
         author: doc.author_name?.join(", ") || null,
         year: doc.first_publish_year ? String(doc.first_publish_year) : null,
         genre: doc.subject?.slice(0, 3).join(", ") || null,
-        description: null,
+        description: docDescription,
         coverUrl,
         isbn: doc.isbn?.[0] || null,
         publisher: doc.publisher?.[0] || null,
         chapters: null,
         workKey: doc.key || null,
         editionKey: doc.edition_key?.[0] || null,
+        editionKeys: doc.edition_key || null,
         source: "openlibrary",
       };
     });
@@ -238,10 +245,19 @@ export const fetchBookDetails = async (result) => {
       }
     } catch { /* ignore */ }
 
-    if (!description && result.editionKey) {
-      const edition = await fetchOpenLibraryEdition(result.editionKey);
-      if (edition?.description) description = edition.description;
-      if (!chapters && edition?.chapters?.length) chapters = edition.chapters;
+    const editionCandidates = result.editionKeys?.length
+      ? result.editionKeys
+      : result.editionKey
+        ? [result.editionKey]
+        : [];
+    if (!description || !chapters) {
+      for (const edKey of editionCandidates) {
+        if (!edKey) continue;
+        const edition = await fetchOpenLibraryEdition(edKey);
+        if (edition?.description && !description) description = edition.description;
+        if (edition?.chapters?.length && !chapters) chapters = edition.chapters;
+        if (description && chapters) break;
+      }
     }
   }
 
