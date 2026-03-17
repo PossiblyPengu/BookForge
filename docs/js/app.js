@@ -27,6 +27,7 @@ const progressFill = $("progress-fill");
 const progressDialog = $("progress-dialog");
 const progressList = $("progress-list");
 const progressDismiss = $("progress-dismiss");
+const progressDialogCard = progressDialog?.querySelector(".progress-dialog-card");
 const coverPreview = $("cover-preview");
 const coverUploadBtn = $("cover-upload-btn");
 const coverRemoveBtn = $("cover-remove-btn");
@@ -102,7 +103,6 @@ let lookupDebounceTimer = null;
 let lastCompiledBlob = null;
 let lastCompiledFilename = null;
 let onSessionChange = null;
-let progressDismissedManually = false;
 
 // ---------------------------------------------------------------------------
 // Wizard navigation
@@ -214,18 +214,45 @@ const hideProgress = () => {
 };
 
 let progressHideTimer = null;
+const setProgressDialogCardInteractive = (active) => {
+  if (!progressDialogCard) return;
+  if (active) {
+    progressDialogCard.setAttribute("tabindex", "0");
+    progressDialogCard.setAttribute("role", "button");
+    progressDialogCard.setAttribute("aria-label", "Show activity dialog");
+  } else {
+    progressDialogCard.removeAttribute("tabindex");
+    progressDialogCard.removeAttribute("role");
+    progressDialogCard.removeAttribute("aria-label");
+  }
+};
+
+const fullyHideProgressDialog = () => {
+  progressDialog.hidden = true;
+  progressDialog.classList.remove("collapsed");
+  progressList.textContent = "";
+  setProgressDialogCardInteractive(false);
+};
+
 const showProgressDialog = () => {
   if (progressHideTimer) { clearTimeout(progressHideTimer); progressHideTimer = null; }
   progressDialog.hidden = false;
-  progressDismissedManually = false;
+  progressDialog.classList.remove("collapsed");
+  setProgressDialogCardInteractive(false);
+};
+
+const collapseProgressDialog = () => {
+  if (progressDialog.hidden) return;
+  if (progressHideTimer) { clearTimeout(progressHideTimer); progressHideTimer = null; }
+  progressDialog.hidden = false;
+  progressDialog.classList.add("collapsed");
+  setProgressDialogCardInteractive(true);
 };
 
 const hideProgressDialogDelayed = () => {
   if (progressHideTimer) { clearTimeout(progressHideTimer); }
   progressHideTimer = setTimeout(() => {
-    progressDialog.hidden = true;
-    progressList.textContent = "";
-    progressDismissedManually = false;
+    fullyHideProgressDialog();
     progressHideTimer = null;
   }, 1200);
 };
@@ -243,13 +270,31 @@ const appendProgressStep = (label, state = "pending") => {
 };
 
 progressDismiss?.addEventListener("click", () => {
-  progressDialog.hidden = true;
-  progressDismissedManually = true;
+  collapseProgressDialog();
 });
 
 toolbarStatus?.addEventListener("click", () => {
-  if (!progressDialog.hidden || !progressList.children.length) return;
+  if (progressDialog.hidden && progressList.children.length) {
+    showProgressDialog();
+    return;
+  }
+  if (progressDialog.classList.contains("collapsed")) {
+    showProgressDialog();
+  }
+});
+
+progressDialogCard?.addEventListener("click", (e) => {
+  if (!progressDialog.classList.contains("collapsed")) return;
+  e.preventDefault();
   showProgressDialog();
+});
+
+progressDialogCard?.addEventListener("keydown", (e) => {
+  if (!progressDialog.classList.contains("collapsed")) return;
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    showProgressDialog();
+  }
 });
 
 const formatDuration = (seconds) => {
@@ -550,8 +595,6 @@ const removeTrack = (index) => {
 // ---------------------------------------------------------------------------
 // Book lookup (step 2)
 // ---------------------------------------------------------------------------
-let lastLookupResults = [];
-
 const performLookup = async (query) => {
   if (!query || query.trim().length < 2) return;
 
@@ -563,7 +606,6 @@ const performLookup = async (query) => {
   matchResultsGrid.appendChild(spinner);
 
   const results = await searchBooks(query, 6);
-  lastLookupResults = results;
 
   if (!results.length) {
     spinner.textContent = "No results found. Try a different search.";

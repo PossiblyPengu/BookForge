@@ -357,6 +357,52 @@ form {
   animation: spin 0.7s linear infinite;
 }
 
+.upload-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: stretch;
+}
+
+.upload-gdrive-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  padding: 1.75rem 1.5rem;
+}
+
+.upload-gdrive-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.upload-gdrive-eyebrow {
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.upload-gdrive-title {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.upload-gdrive-sub {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.upload-gdrive-card .btn-gdrive {
+  justify-content: center;
+  width: 100%;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -1275,18 +1321,20 @@ textarea {
    ================================================================== */
 .btn-gdrive { gap: 0.5rem; }
 
-.upload-alt-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0;
+@media (max-width: 900px) {
+  .upload-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-gdrive-card {
+    padding: 1.5rem;
+  }
 }
 
-.upload-alt-divider {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  text-transform: lowercase;
+@media (max-width: 560px) {
+  .upload-gdrive-card .btn-gdrive {
+    width: auto;
+  }
 }
 
 .forge-actions-right {
