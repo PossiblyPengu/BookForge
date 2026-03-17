@@ -81,7 +81,7 @@ const searchGoogleBooks = async (query, maxResults = 5) => {
 // ---------------------------------------------------------------------------
 
 const searchOpenLibrary = async (query, maxResults = 5) => {
-  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=${maxResults}&fields=key,title,author_name,first_publish_year,subject,isbn,publisher,cover_i`;
+  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=${maxResults}&fields=key,title,author_name,first_publish_year,subject,isbn,publisher,cover_i,edition_key`;
   try {
     const resp = await fetch(url);
     if (!resp.ok) return [];
@@ -105,6 +105,7 @@ const searchOpenLibrary = async (query, maxResults = 5) => {
         publisher: doc.publisher?.[0] || null,
         chapters: null,
         workKey: doc.key || null,
+        editionKey: doc.edition_key?.[0] || null,
         source: "openlibrary",
       };
     });
@@ -167,6 +168,29 @@ const normalizeOpenLibraryDescription = (desc) => {
 const mapChapterTitles = (entries) =>
   entries.map((ch) => ch?.title || ch?.label || ch || "").filter(Boolean).map((name) => String(name));
 
+const fetchOpenLibraryEdition = async (editionKey) => {
+  if (!editionKey) return null;
+  const url = `https://openlibrary.org/api/books?bibkeys=OLID:${editionKey}&format=json&jscmd=data`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const entry = data[`OLID:${editionKey}`];
+    if (!entry) return null;
+    return {
+      description: stripHtml(
+        entry.description?.value || entry.description || entry.subtitle || ""
+      ),
+      chapters: entry.table_of_contents
+        ? mapChapterTitles(entry.table_of_contents)
+        : null,
+    };
+  } catch (err) {
+    console.warn("Open Library edition lookup failed", err);
+    return null;
+  }
+};
+
 /**
  * Fetch richer details (description + chapters) for a selected book result.
  * @param {BookResult} result
@@ -213,6 +237,12 @@ export const fetchBookDetails = async (result) => {
         }
       }
     } catch { /* ignore */ }
+
+    if (!description && result.editionKey) {
+      const edition = await fetchOpenLibraryEdition(result.editionKey);
+      if (edition?.description) description = edition.description;
+      if (!chapters && edition?.chapters?.length) chapters = edition.chapters;
+    }
   }
 
   return { description, chapters };
