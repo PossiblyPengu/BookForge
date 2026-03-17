@@ -1181,14 +1181,29 @@ textarea {
 }
 
 /* ==================================================================
-   GOOGLE DRIVE BUTTONS
+   GOOGLE DRIVE
    ================================================================== */
 .btn-gdrive {
   gap: 0.5rem;
 }
 
-.btn-gdrive:disabled {
-  opacity: 0.35;
+.btn-gdrive-connect {
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+
+.btn-gdrive-connect.connected {
+  color: var(--success);
+}
+
+.btn-gdrive-connect.connected::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  margin-right: 0.15rem;
 }
 
 .upload-alt-actions {

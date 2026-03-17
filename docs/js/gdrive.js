@@ -42,6 +42,15 @@ let tokenClient = null;
 let gisLoaded = false;
 let gapiLoaded = false;
 let pickerInited = false;
+let authChangeCallback = null;
+
+/**
+ * Register a callback that fires whenever sign-in state changes.
+ * @param {(signedIn: boolean) => void} cb
+ */
+export const onAuthChange = (cb) => { authChangeCallback = cb; };
+
+const notifyAuthChange = () => { authChangeCallback?.(!!accessToken); };
 
 // ---------------------------------------------------------------------------
 // Script loaders (dynamic, like metadata.js loads jsmediatags)
@@ -78,9 +87,15 @@ const ensureGAPI = async () => {
 // Auth — Google Identity Services token model (implicit flow)
 // ---------------------------------------------------------------------------
 
+/** Sentinel error code used by app.js to distinguish "needs config" */
+export const NEEDS_CONFIG = "NEEDS_CONFIG";
+
 /**
  * Ensure we have a valid access token. Prompts the user to sign in if
  * no token exists. Returns the token string.
+ *
+ * Throws with `error.code === NEEDS_CONFIG` when Client ID / API Key
+ * have not been configured yet.
  */
 export const ensureAuth = () =>
   new Promise(async (resolve, reject) => {
@@ -89,12 +104,14 @@ export const ensureAuth = () =>
       return;
     }
 
-    const { clientId } = getConfig();
-    if (!clientId) {
-      reject(new Error("Google Drive Client ID not configured. Open Settings to add it."));
+    if (!isConfigured()) {
+      const err = new Error("Google Drive is not configured yet.");
+      err.code = NEEDS_CONFIG;
+      reject(err);
       return;
     }
 
+    const { clientId } = getConfig();
     await ensureGIS();
 
     if (!tokenClient) {
@@ -108,7 +125,11 @@ export const ensureAuth = () =>
           }
           accessToken = resp.access_token;
           // Auto-clear when it expires
-          setTimeout(() => { accessToken = null; }, (resp.expires_in - 60) * 1000);
+          setTimeout(() => {
+            accessToken = null;
+            notifyAuthChange();
+          }, (resp.expires_in - 60) * 1000);
+          notifyAuthChange();
           resolve(accessToken);
         },
         error_callback: (err) => {
@@ -126,6 +147,7 @@ export const signOut = () => {
   if (accessToken) {
     window.google.accounts.oauth2.revoke(accessToken);
     accessToken = null;
+    notifyAuthChange();
   }
 };
 

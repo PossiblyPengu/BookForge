@@ -3,7 +3,7 @@ import { fetchFile, toBlobURL } from "https://esm.sh/@ffmpeg/util@0.12.1";
 import { inferBook, extractSortKey } from "./book-parser.js";
 import { searchBooks, fetchCoverBlob, fetchBookDetails } from "./book-lookup.js";
 import { extractMetadata } from "./metadata.js";
-import { getConfig, saveConfig, isConfigured, pickFiles, uploadToDrive, ensureAuth } from "./gdrive.js";
+import { getConfig, saveConfig, isConfigured, isSignedIn, signOut, onAuthChange, ensureAuth, pickFiles, uploadToDrive, NEEDS_CONFIG } from "./gdrive.js";
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -38,15 +38,16 @@ const uploadStatusText = $("upload-status-text");
 // Google Drive
 const gdriveImportBtn = $("gdrive-import-btn");
 const gdriveExportBtn = $("gdrive-export-btn");
+const gdriveConnectBtn = $("gdrive-connect-btn");
+const gdriveConnectLabel = $("gdrive-connect-label");
 
-// Settings modal
-const settingsModal = $("settings-modal");
-const settingsBtn = $("settings-btn");
-const settingsClose = $("settings-close");
-const settingsCancel = $("settings-cancel");
-const settingsSave = $("settings-save");
-const settingsClientId = $("settings-client-id");
-const settingsApiKey = $("settings-api-key");
+// Google Drive config modal
+const gdriveConfigModal = $("gdrive-config-modal");
+const gdriveConfigClose = $("gdrive-config-close");
+const gdriveConfigCancel = $("gdrive-config-cancel");
+const gdriveConfigSave = $("gdrive-config-save");
+const gdriveClientIdInput = $("gdrive-client-id");
+const gdriveApiKeyInput = $("gdrive-api-key");
 
 // Wizard panels & nav
 const panels = {
@@ -786,7 +787,7 @@ const compileM4B = async () => {
   // Retain for Google Drive export
   lastCompiledBlob = blob;
   lastCompiledFilename = `${slug}.m4b`;
-  if (isConfigured()) gdriveExportBtn.hidden = false;
+  gdriveExportBtn.hidden = false;
 
   showProgress(100);
   setIdle("Complete!");
@@ -895,44 +896,98 @@ form.addEventListener("submit", async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Settings modal
+// Google Drive — connection state
 // ---------------------------------------------------------------------------
-const openSettings = () => {
-  const cfg = getConfig();
-  settingsClientId.value = cfg.clientId;
-  settingsApiKey.value = cfg.apiKey;
-  settingsModal.hidden = false;
+const updateDriveUI = () => {
+  const signedIn = isSignedIn();
+  gdriveConnectBtn.classList.toggle("connected", signedIn);
+  gdriveConnectLabel.textContent = signedIn ? "Drive Connected" : "Connect Drive";
 };
 
-const closeSettings = () => { settingsModal.hidden = true; };
+onAuthChange(updateDriveUI);
 
-settingsBtn.addEventListener("click", openSettings);
-settingsClose.addEventListener("click", closeSettings);
-settingsCancel.addEventListener("click", closeSettings);
-settingsModal.addEventListener("click", (e) => { if (e.target === settingsModal) closeSettings(); });
+// ---------------------------------------------------------------------------
+// Google Drive config modal (one-time setup)
+// ---------------------------------------------------------------------------
+let pendingDriveAction = null; // "import" | "export" — resume after config
 
-settingsSave.addEventListener("click", () => {
-  saveConfig(settingsClientId.value, settingsApiKey.value);
-  closeSettings();
-  refreshGDriveButtons();
+const openConfigModal = () => {
+  const cfg = getConfig();
+  gdriveClientIdInput.value = cfg.clientId;
+  gdriveApiKeyInput.value = cfg.apiKey;
+  gdriveConfigModal.hidden = false;
+};
+
+const closeConfigModal = () => {
+  gdriveConfigModal.hidden = true;
+  pendingDriveAction = null;
+};
+
+gdriveConfigClose.addEventListener("click", closeConfigModal);
+gdriveConfigCancel.addEventListener("click", closeConfigModal);
+gdriveConfigModal.addEventListener("click", (e) => { if (e.target === gdriveConfigModal) closeConfigModal(); });
+
+gdriveConfigSave.addEventListener("click", async () => {
+  saveConfig(gdriveClientIdInput.value, gdriveApiKeyInput.value);
+  gdriveConfigModal.hidden = true;
+
+  // Resume the action that triggered the config modal
+  if (pendingDriveAction === "import") {
+    pendingDriveAction = null;
+    gdriveImportBtn.click();
+  } else if (pendingDriveAction === "export") {
+    pendingDriveAction = null;
+    gdriveExportBtn.click();
+  } else {
+    pendingDriveAction = null;
+  }
 });
 
-const refreshGDriveButtons = () => {
-  const configured = isConfigured();
-  gdriveImportBtn.disabled = !configured;
-  gdriveImportBtn.title = configured ? "Import MP3 files from Google Drive" : "Configure Google Drive in Settings";
-};
+// Toolbar connect button — opens config if needed, triggers login, or disconnects
+gdriveConnectBtn.addEventListener("click", async () => {
+  if (isSignedIn()) {
+    signOut();
+    updateDriveUI();
+    return;
+  }
+  if (!isConfigured()) {
+    openConfigModal();
+    return;
+  }
+  try {
+    await ensureAuth();
+    updateDriveUI();
+  } catch (err) {
+    if (err.code === NEEDS_CONFIG) openConfigModal();
+    else {
+      console.error("Google Drive sign-in failed:", err);
+      updateStatus(err.message || "Sign-in failed", "error");
+      setTimeout(setIdle, 3000);
+    }
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Google Drive import
 // ---------------------------------------------------------------------------
 gdriveImportBtn.addEventListener("click", async () => {
   try {
-    updateStatus("Opening Google Drive...");
+    updateStatus("Connecting to Google Drive...");
     const files = await pickFiles();
-    if (files.length) await addFiles(files);
-    else setIdle();
+    if (files.length) {
+      updateDriveUI();
+      await addFiles(files);
+    } else {
+      updateDriveUI();
+      setIdle();
+    }
   } catch (err) {
+    if (err.code === NEEDS_CONFIG) {
+      setIdle();
+      pendingDriveAction = "import";
+      openConfigModal();
+      return;
+    }
     console.error("Google Drive import failed:", err);
     updateStatus(err.message || "Google Drive import failed", "error");
     setTimeout(setIdle, 3000);
@@ -948,6 +1003,7 @@ gdriveExportBtn.addEventListener("click", async () => {
     updateStatus("Uploading to Google Drive...");
     showProgress(50);
     const result = await uploadToDrive(lastCompiledBlob, lastCompiledFilename);
+    updateDriveUI();
     showProgress(100);
     setIdle("Saved to Google Drive!");
     if (result.webViewLink) {
@@ -955,6 +1011,13 @@ gdriveExportBtn.addEventListener("click", async () => {
     }
     setTimeout(hideProgress, 1500);
   } catch (err) {
+    if (err.code === NEEDS_CONFIG) {
+      hideProgress();
+      setIdle();
+      pendingDriveAction = "export";
+      openConfigModal();
+      return;
+    }
     console.error("Google Drive export failed:", err);
     hideProgress();
     updateStatus(err.message || "Google Drive upload failed", "error");
@@ -963,5 +1026,5 @@ gdriveExportBtn.addEventListener("click", async () => {
 });
 
 // Init
-refreshGDriveButtons();
+updateDriveUI();
 goToStep("upload");

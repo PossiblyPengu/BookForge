@@ -27,10 +27,16 @@
           <span class="logo-text">M4B Foundry</span>
         </div>
         <div class="toolbar-actions">
-          <button type="button" id="settings-btn" class="btn btn-icon" title="Settings">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          <button type="button" id="gdrive-connect-btn" class="btn btn-ghost btn-sm btn-gdrive-connect" title="Connect Google Drive">
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4.433 22l-1.6-2.7 6.8-11.8 1.6 2.7z" fill="#0066da"/>
+              <path d="M20.167 22H7.033l1.6-2.7h10.134z" fill="#00ac47"/>
+              <path d="M23.767 15.3L17 3.5h-3.2l6.8 11.8z" fill="#ea4335"/>
+              <path d="M8.633 10.2L5.033 3.5H1.833l3.6 6.2z" fill="#00832d"/>
+              <path d="M17 3.5l3.6 6.2-6.8 11.8-3.6-6.2z" fill="#2684fc"/>
+              <path d="M8.633 10.2l1.6 2.7-1.6 2.8H5.433l-1-1.7z" fill="#ffba00"/>
             </svg>
+            <span id="gdrive-connect-label">Connect Drive</span>
           </button>
         </div>
         <div class="toolbar-status" id="toolbar-status">
@@ -104,7 +110,7 @@
           </div>
           <div class="upload-alt-actions">
             <span class="upload-alt-divider">or</span>
-            <button type="button" id="gdrive-import-btn" class="btn btn-ghost btn-gdrive" disabled title="Configure Google Drive in Settings">
+            <button type="button" id="gdrive-import-btn" class="btn btn-ghost btn-gdrive" title="Import MP3 files from Google Drive">
               <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M4.433 22l-1.6-2.7 6.8-11.8 1.6 2.7z" fill="#0066da"/>
                 <path d="M20.167 22H7.033l1.6-2.7h10.134z" fill="#00ac47"/>
@@ -301,35 +307,32 @@
       </form>
     </div>
 
-    <!-- Settings modal -->
-    <div class="modal-overlay" id="settings-modal" hidden>
+    <!-- Google Drive configuration modal -->
+    <div class="modal-overlay" id="gdrive-config-modal" hidden>
       <div class="modal-card">
         <div class="modal-header">
-          <h2>Settings</h2>
-          <button type="button" class="btn btn-icon" id="settings-close">&times;</button>
+          <h2>Connect Google Drive</h2>
+          <button type="button" class="btn btn-icon" id="gdrive-config-close">&times;</button>
         </div>
         <div class="modal-body">
-          <div class="settings-section">
-            <h3>Google Drive</h3>
-            <p class="settings-help">
-              To import/export files with Google Drive you need a
-              <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud</a>
-              project with the <strong>Drive API</strong> and <strong>Picker API</strong> enabled.
-              Create an <em>OAuth Client ID</em> (Web) and an <em>API Key</em>, then paste them below.
-            </p>
-            <label class="field">
-              <span class="field-label">OAuth Client ID</span>
-              <input type="text" id="settings-client-id" placeholder="xxxx.apps.googleusercontent.com" />
-            </label>
-            <label class="field">
-              <span class="field-label">API Key</span>
-              <input type="text" id="settings-api-key" placeholder="AIza..." />
-            </label>
-          </div>
+          <p class="settings-help">
+            One-time setup: create a
+            <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud</a>
+            project, enable the <strong>Drive API</strong> &amp; <strong>Picker API</strong>,
+            then create an <em>OAuth Client ID</em> (Web) and an <em>API Key</em>.
+          </p>
+          <label class="field">
+            <span class="field-label">OAuth Client ID</span>
+            <input type="text" id="gdrive-client-id" placeholder="xxxx.apps.googleusercontent.com" />
+          </label>
+          <label class="field">
+            <span class="field-label">API Key</span>
+            <input type="text" id="gdrive-api-key" placeholder="AIza..." />
+          </label>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-ghost" id="settings-cancel">Cancel</button>
-          <button type="button" class="btn btn-primary" id="settings-save">Save</button>
+          <button type="button" class="btn btn-ghost" id="gdrive-config-cancel">Cancel</button>
+          <button type="button" class="btn btn-primary" id="gdrive-config-save">Save &amp; Connect</button>
         </div>
       </div>
     </div>
