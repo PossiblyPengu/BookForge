@@ -688,17 +688,17 @@ const applyLookupResult = async (result) => {
   if (result.genre) genreInput.value = result.genre;
   if (result.description) descriptionInput.value = result.description;
 
-  // Fetch cover
-  if (result.coverUrl) {
-    updateStatus("Fetching cover...");
-    const blob = await fetchCoverBlob(result.coverUrl);
-    if (blob && blob.size > 0) setCover(blob);
-  }
-
   updateStatus("Fetching book details...");
   const { description, chapters } = await fetchBookDetails(result);
   if (description && !descriptionInput.value.trim()) {
     descriptionInput.value = description;
+  }
+
+  // Cover fetching is optional and independent of metadata selection
+  if (result.coverUrl) {
+    updateStatus("Fetching cover preview...");
+    const blob = await fetchCoverBlob(result.coverUrl);
+    if (blob && blob.size > 0) setCover(blob);
   }
 
   // Fetch and apply chapter names
