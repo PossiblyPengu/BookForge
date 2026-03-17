@@ -47,6 +47,7 @@ const gdrivePickerSelect = $("gdrive-picker-select");
 const gdriveFileList = $("gdrive-file-list");
 const gdriveBreadcrumb = $("gdrive-breadcrumb");
 const gdriveSelectedCount = $("gdrive-selected-count");
+const gdriveSelectAll = $("gdrive-select-all");
 
 
 // Wizard panels & nav
@@ -902,6 +903,7 @@ form.addEventListener("submit", async (e) => {
 const pickerSelected = new Map(); // id → {id, name}
 let pickerResolve = null;
 let pickerBreadcrumbs = [{ id: "root", name: "My Drive" }];
+let pickerCurrentFiles = []; // audio files in current folder view
 
 const openDrivePicker = () => new Promise((resolve) => {
   pickerSelected.clear();
@@ -949,11 +951,14 @@ const renderBreadcrumbs = () => {
 
 const navigateToFolder = async (folderId) => {
   gdriveFileList.innerHTML = '<div class="gdrive-picker-empty">Loading...</div>';
+  gdriveSelectAll.checked = false;
+  pickerCurrentFiles = [];
   renderBreadcrumbs();
 
   try {
     const files = await listFolder(folderId);
     gdriveFileList.textContent = "";
+    pickerCurrentFiles = files.filter((f) => f.mimeType !== "application/vnd.google-apps.folder");
 
     if (!files.length) {
       gdriveFileList.innerHTML = '<div class="gdrive-picker-empty">No MP3 files or folders here</div>';
@@ -1017,6 +1022,16 @@ gdrivePickerClose.addEventListener("click", () => closeDrivePicker([]));
 gdrivePickerCancel.addEventListener("click", () => closeDrivePicker([]));
 gdrivePickerModal.addEventListener("click", (e) => { if (e.target === gdrivePickerModal) closeDrivePicker([]); });
 gdrivePickerSelect.addEventListener("click", () => closeDrivePicker([...pickerSelected.values()]));
+
+gdriveSelectAll.addEventListener("change", () => {
+  const checkAll = gdriveSelectAll.checked;
+  for (const file of pickerCurrentFiles) {
+    if (checkAll) pickerSelected.set(file.id, { id: file.id, name: file.name });
+    else pickerSelected.delete(file.id);
+  }
+  gdriveFileList.querySelectorAll(".gdrive-file-check input").forEach((cb) => { cb.checked = checkAll; });
+  refreshPickerCount();
+});
 
 // ---------------------------------------------------------------------------
 // Google Drive import

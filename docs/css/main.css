@@ -1312,10 +1312,28 @@ textarea {
   white-space: nowrap;
 }
 
+.gdrive-select-all {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.gdrive-select-all input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .gdrive-picker-count {
   flex: 1;
   font-size: 0.78rem;
   color: var(--text-secondary);
+  text-align: right;
 }
 
 /* ---- Selection ---- */
