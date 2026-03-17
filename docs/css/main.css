@@ -127,13 +127,18 @@ form {
 
 /* ---- Drop zone ---- */
 .drop-zone {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
   border: 2px dashed var(--border-hover);
   border-radius: var(--radius);
   padding: 3rem 2rem;
   text-align: center;
   cursor: pointer;
   transition: border-color var(--transition), background var(--transition);
-  background: transparent;
+  background: rgba(15, 20, 35, 0.4);
 }
 
 .drop-zone:hover,
@@ -143,6 +148,8 @@ form {
 }
 
 .drop-zone.compact {
+  flex: 0;
+  min-height: 0;
   padding: 0;
   border: none;
   display: none;
@@ -152,19 +159,25 @@ form {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 
-.drop-icon { color: var(--text-muted); }
+.drop-icon {
+  color: var(--accent);
+  opacity: 0.5;
+  transition: opacity var(--transition);
+}
+
+.drop-zone:hover .drop-icon { opacity: 0.8; }
 
 .drop-heading {
-  font-size: 1.1rem;
+  font-size: 1.3rem;
   font-weight: 600;
   margin: 0;
 }
 
 .drop-sub {
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   color: var(--text-muted);
   margin: 0;
 }

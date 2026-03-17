@@ -710,7 +710,10 @@ clearAllButton.addEventListener("click", () => {
 });
 
 // Drop zone + file input
-dropZone.addEventListener("click", () => fileInput.click());
+dropZone.addEventListener("click", (e) => {
+  e.stopPropagation();
+  fileInput.click();
+});
 addMoreBtn.addEventListener("click", () => fileInput.click());
 
 dropZone.addEventListener("dragover", (e) => {
@@ -721,6 +724,24 @@ dropZone.addEventListener("dragleave", () => {
   dropZone.classList.remove("dragover");
 });
 dropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropZone.classList.remove("dragover");
+  if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+});
+
+// Allow dropping files anywhere on the page
+document.body.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  if (!dropZone.classList.contains("compact")) {
+    dropZone.classList.add("dragover");
+  }
+});
+document.body.addEventListener("dragleave", (e) => {
+  if (!e.relatedTarget || e.relatedTarget === document.documentElement) {
+    dropZone.classList.remove("dragover");
+  }
+});
+document.body.addEventListener("drop", (e) => {
   e.preventDefault();
   dropZone.classList.remove("dragover");
   if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
