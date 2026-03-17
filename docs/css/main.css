@@ -289,11 +289,18 @@ form {
 }
 
 .upload-status {
-  display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
   padding: 2rem;
+}
+
+.upload-status[hidden] {
+  display: none;
+}
+
+.upload-status:not([hidden]) {
+  display: flex;
 }
 
 .upload-spinner {
