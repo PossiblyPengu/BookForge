@@ -588,7 +588,15 @@ const performLookup = async (query) => {
     img.referrerPolicy = "no-referrer";
     img.alt = result.title;
     img.loading = "lazy";
-    img.addEventListener("error", () => { thumb.remove(); });
+    const fallbackUrls = (result.coverUrls || []).slice(1);
+    let fallbackIdx = 0;
+    img.addEventListener("error", () => {
+      if (fallbackIdx < fallbackUrls.length) {
+        img.src = fallbackUrls[fallbackIdx++];
+      } else {
+        thumb.remove();
+      }
+    });
     img.src = result.coverUrl;
     thumb.appendChild(img);
 
@@ -634,11 +642,13 @@ const applyMetadata = async (result) => {
 };
 
 const applyCover = async (result) => {
-  if (!result.coverUrl) return;
+  const urls = result.coverUrls?.length ? result.coverUrls : result.coverUrl ? [result.coverUrl] : [];
+  if (!urls.length) return;
   updateStatus("Fetching cover...");
-  const blob = await fetchCoverBlob(result.coverUrl);
+  const blob = await fetchCoverBlob(urls);
   if (blob && blob.size > 0) setCover(blob);
-  setIdle("Cover loaded");
+  else updateStatus("No usable cover found", "error");
+  setIdle(blob ? "Cover loaded" : "Ready");
   if (onSessionChange) onSessionChange();
 };
 
