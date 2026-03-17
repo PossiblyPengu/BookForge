@@ -307,36 +307,6 @@
       </form>
     </div>
 
-    <!-- Google Drive configuration modal -->
-    <div class="modal-overlay" id="gdrive-config-modal" hidden>
-      <div class="modal-card">
-        <div class="modal-header">
-          <h2>Connect Google Drive</h2>
-          <button type="button" class="btn btn-icon" id="gdrive-config-close">&times;</button>
-        </div>
-        <div class="modal-body">
-          <p class="settings-help">
-            One-time setup: create a
-            <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud</a>
-            project, enable the <strong>Drive API</strong> &amp; <strong>Picker API</strong>,
-            then create an <em>OAuth Client ID</em> (Web) and an <em>API Key</em>.
-          </p>
-          <label class="field">
-            <span class="field-label">OAuth Client ID</span>
-            <input type="text" id="gdrive-client-id" placeholder="xxxx.apps.googleusercontent.com" />
-          </label>
-          <label class="field">
-            <span class="field-label">API Key</span>
-            <input type="text" id="gdrive-api-key" placeholder="AIza..." />
-          </label>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-ghost" id="gdrive-config-cancel">Cancel</button>
-          <button type="button" class="btn btn-primary" id="gdrive-config-save">Save &amp; Connect</button>
-        </div>
-      </div>
-    </div>
-
     <script src="js/app.js" type="module"></script>
   </body>
 </html>

@@ -4,34 +4,22 @@
  * Google Drive integration for BookForge.
  * Handles OAuth2 (via Google Identity Services), the Google Picker for
  * selecting files, and Drive API v3 for downloading / uploading.
- *
- * The user must supply their own Google Cloud Client ID and API Key
- * via the in-app settings dialog. Values are persisted in localStorage.
  */
 
-// ---------------------------------------------------------------------------
-// Configuration (localStorage-backed)
-// ---------------------------------------------------------------------------
-const STORAGE_CLIENT_ID = "m4b_gdrive_client_id";
-const STORAGE_API_KEY = "m4b_gdrive_api_key";
+// Credentials loaded from config.js (gitignored).
+// If missing, Drive features are silently disabled.
+let GOOGLE_CLIENT_ID = "";
+let GOOGLE_API_KEY = "";
 
-export const getConfig = () => ({
-  clientId: localStorage.getItem(STORAGE_CLIENT_ID) || "",
-  apiKey: localStorage.getItem(STORAGE_API_KEY) || "",
-});
+try {
+  const config = await import("./config.js");
+  GOOGLE_CLIENT_ID = config.GOOGLE_CLIENT_ID || "";
+  GOOGLE_API_KEY = config.GOOGLE_API_KEY || "";
+} catch {
+  // config.js not found — Drive features disabled
+}
 
-export const saveConfig = (clientId, apiKey) => {
-  localStorage.setItem(STORAGE_CLIENT_ID, clientId.trim());
-  localStorage.setItem(STORAGE_API_KEY, apiKey.trim());
-  // Reset cached state so next operation re-initialises with new creds
-  tokenClient = null;
-  accessToken = null;
-};
-
-export const isConfigured = () => {
-  const { clientId, apiKey } = getConfig();
-  return clientId.length > 0 && apiKey.length > 0;
-};
+export const isAvailable = () => GOOGLE_CLIENT_ID.length > 0 && GOOGLE_API_KEY.length > 0;
 
 // ---------------------------------------------------------------------------
 // Internal state
@@ -84,32 +72,19 @@ const ensureGAPI = async () => {
 // Auth — Google Identity Services token model (implicit flow)
 // ---------------------------------------------------------------------------
 
-/** Sentinel error code used by app.js to distinguish "needs config" */
-export const NEEDS_CONFIG = "NEEDS_CONFIG";
-
 /**
  * Ensure we have a valid access token. Prompts the user to sign in if
  * no token exists. Returns the token string.
- *
- * Throws with `error.code === NEEDS_CONFIG` when Client ID / API Key
- * have not been configured yet.
  */
 export const ensureAuth = async () => {
   if (accessToken) return accessToken;
 
-  if (!isConfigured()) {
-    const err = new Error("Google Drive is not configured yet.");
-    err.code = NEEDS_CONFIG;
-    throw err;
-  }
-
-  const { clientId } = getConfig();
   await ensureGIS();
 
   return new Promise((resolve, reject) => {
     if (!tokenClient) {
       tokenClient = window.google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
+        client_id: GOOGLE_CLIENT_ID,
         scope: "https://www.googleapis.com/auth/drive.file",
         callback: (resp) => {
           if (resp.error) {
@@ -156,7 +131,6 @@ export const signOut = () => {
  */
 export const pickFiles = async () => {
   const token = await ensureAuth();
-  const { apiKey } = getConfig();
 
   await ensureGAPI();
 
@@ -169,7 +143,7 @@ export const pickFiles = async () => {
       .addView(view)
       .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
       .setOAuthToken(token)
-      .setDeveloperKey(apiKey)
+      .setDeveloperKey(GOOGLE_API_KEY)
       .setTitle("Select MP3 files")
       .setCallback(async (data) => {
         if (data.action === window.google.picker.Action.CANCEL) {
