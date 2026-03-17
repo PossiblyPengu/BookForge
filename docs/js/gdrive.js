@@ -75,7 +75,7 @@ export const ensureAuth = async () => {
     if (!tokenClient) {
       tokenClient = window.google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
-        scope: "https://www.googleapis.com/auth/drive.file",
+        scope: "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file",
         callback: (resp) => {
           if (resp.error) {
             reject(new Error(resp.error_description || resp.error));
@@ -136,6 +136,7 @@ export const pickFiles = async () => {
       .setOAuthToken(token)
       .setDeveloperKey(GOOGLE_API_KEY)
       .setTitle("Select MP3 files")
+      .setSize(900, 550)
       .setCallback(async (data) => {
         if (data.action === window.google.picker.Action.CANCEL) {
           resolve([]);
