@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://esm.sh https://cdnjs.cloudflare.com blob:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' blob: data: https://covers.openlibrary.org https://books.google.com https://www.googleapis.com; connect-src 'self' https://esm.sh https://unpkg.com https://www.googleapis.com https://openlibrary.org https://covers.openlibrary.org blob:; worker-src blob:;" />
     <title>M4B Foundry</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -19,7 +20,7 @@
       <!-- Toolbar -->
       <nav class="toolbar">
         <div class="toolbar-brand">
-          <svg class="logo-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg class="logo-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M9 18V5l12-2v13"/>
             <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
           </svg>
@@ -36,6 +37,30 @@
         <div class="progress-fill" id="progress-fill"></div>
       </div>
 
+      <!-- Wizard step indicator -->
+      <div class="wizard-nav" id="wizard-nav">
+        <button class="wizard-step active" data-step="1">
+          <span class="wizard-step-num">1</span>
+          <span class="wizard-step-label">Upload</span>
+        </button>
+        <div class="wizard-connector"></div>
+        <button class="wizard-step" data-step="2">
+          <span class="wizard-step-num">2</span>
+          <span class="wizard-step-label">Match</span>
+        </button>
+        <div class="wizard-connector"></div>
+        <button class="wizard-step" data-step="3">
+          <span class="wizard-step-num">3</span>
+          <span class="wizard-step-label">Edit</span>
+        </button>
+        <div class="wizard-connector"></div>
+        <button class="wizard-step" data-step="4">
+          <span class="wizard-step-num">4</span>
+          <span class="wizard-step-label">Forge</span>
+        </button>
+      </div>
+
+      <!-- Progress dialog (floating) -->
       <div class="progress-dialog" id="progress-dialog" hidden>
         <div class="progress-dialog-card">
           <div class="progress-dialog-header">
@@ -50,97 +75,88 @@
       </div>
 
       <input id="file-input" type="file" accept="audio/mpeg,.mp3" multiple hidden />
+      <input id="cover-input" type="file" accept="image/jpeg,image/png,image/webp" hidden />
 
       <form id="compile-form">
         <!-- ============================================================
-             STEP 1: Drop zone (hero when empty, compact bar when loaded)
+             STEP 1: Upload
              ============================================================ -->
-        <div class="drop-zone" id="drop-zone">
-          <div class="drop-inner">
-            <div class="drop-step">
-              <div class="step-badge">1</div>
-              <span>Drop your MP3 chapters</span>
+        <section class="wizard-panel active" id="panel-upload">
+          <div class="drop-zone" id="drop-zone">
+            <div class="drop-inner">
+              <div class="drop-icon">
+                <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+              <p class="drop-heading">Drop MP3 chapter files</p>
+              <p class="drop-sub">or click to browse — chapters auto-sort by number</p>
             </div>
-            <div class="drop-icon">
-              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="17 8 12 3 7 8"/>
-                <line x1="12" y1="3" x2="12" y2="15"/>
-              </svg>
-            </div>
-            <p class="drop-heading">Drop MP3 chapter files</p>
-            <p class="drop-sub">or click to browse &middot; chapters auto-sort by number</p>
           </div>
-        </div>
+          <div class="upload-status" id="upload-status" hidden>
+            <div class="upload-spinner"></div>
+            <p class="upload-status-text" id="upload-status-text">Reading metadata...</p>
+          </div>
+        </section>
 
         <!-- ============================================================
-             WORKSPACE: everything below appears after files are added
+             STEP 2: Match Book
              ============================================================ -->
-        <div class="workspace" id="workspace" hidden>
-
-          <!-- File summary bar (replaces hero drop zone) -->
-          <div class="file-bar">
-            <div class="file-bar-info" id="file-bar-info">No files loaded yet.</div>
-            <div class="file-bar-actions">
-              <button type="button" id="add-more-btn" class="btn btn-ghost btn-sm">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Add files
-              </button>
-              <button type="button" id="clear-all" class="btn btn-ghost btn-sm">Clear all</button>
-            </div>
+        <section class="wizard-panel" id="panel-match">
+          <div class="match-header">
+            <h2>Find your book</h2>
+            <p>We auto-searched based on your files. Pick a match to fill in metadata, cover, and chapters — or skip to do it manually.</p>
           </div>
+          <div class="match-search-bar">
+            <div class="lookup-input-wrap">
+              <svg class="lookup-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input type="text" id="lookup-query" placeholder="Search by title, author, or ISBN..." />
+            </div>
+            <button type="button" id="lookup-btn" class="btn btn-accent">Search</button>
+          </div>
+          <div class="match-results" id="match-results">
+            <div class="match-results-grid" id="match-results-grid"></div>
+          </div>
+          <div class="wizard-actions">
+            <button type="button" class="btn btn-ghost" id="match-back-btn">Back</button>
+            <button type="button" class="btn btn-ghost" id="match-skip-btn">Skip — I'll fill it in myself</button>
+          </div>
+        </section>
 
-          <!-- ========================================================
-               STEP 2: Book Lookup — full width, prominent
-               ======================================================== -->
-          <section class="card lookup-section">
-            <div class="lookup-header">
-              <div class="step-badge">2</div>
-              <div>
-                <h2>Find Your Book</h2>
-                <p>Search to auto-fill metadata, cover art, and chapter names</p>
-              </div>
-            </div>
-            <div class="lookup-bar">
-              <div class="lookup-input-wrap">
-                <svg class="lookup-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-                <input type="text" id="lookup-query" placeholder="Search by title, author, or ISBN..." />
-              </div>
-              <button type="button" id="lookup-btn" class="btn btn-accent">Search</button>
-            </div>
-            <div class="lookup-results" id="lookup-results" hidden>
-              <div class="lookup-grid" id="lookup-results-list"></div>
-              <div class="lookup-actions">
-                <button type="button" id="lookup-dismiss" class="btn btn-ghost btn-sm">Dismiss results</button>
-              </div>
-            </div>
-          </section>
-
-          <!-- ========================================================
-               STEP 3: Two-column — Chapters + Metadata/Cover
-               ======================================================== -->
+        <!-- ============================================================
+             STEP 3: Edit Metadata + Chapters
+             ============================================================ -->
+        <section class="wizard-panel" id="panel-edit">
           <div class="editor-grid">
             <!-- Left: Chapters -->
-            <section class="card chapters-card">
+            <div class="card chapters-card">
               <div class="section-header">
                 <div class="section-header-left">
-                  <div class="step-badge">3</div>
                   <h2>Chapters</h2>
+                  <span class="section-header-count" id="chapter-count"></span>
+                </div>
+                <div class="section-header-right">
+                  <button type="button" id="add-more-btn" class="btn btn-ghost btn-xs">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add
+                  </button>
+                  <button type="button" id="clear-all" class="btn btn-ghost btn-xs">Clear</button>
                 </div>
               </div>
               <div class="track-list" id="track-list"></div>
-            </section>
+            </div>
 
             <!-- Right: Cover + Metadata -->
             <aside class="meta-sidebar">
               <!-- Cover Art -->
               <div class="card cover-card">
                 <div class="cover-well" id="cover-preview" title="Click to upload cover art">
-                  <input id="cover-input" type="file" accept="image/jpeg,image/png,image/webp" hidden />
                   <div class="cover-placeholder" id="cover-placeholder">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".4">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".4" aria-hidden="true">
                       <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
                       <circle cx="8.5" cy="8.5" r="1.5"/>
                       <polyline points="21 15 16 10 5 21"/>
@@ -157,24 +173,15 @@
               <!-- Metadata Fields -->
               <div class="card meta-card">
                 <div class="meta-card-body">
-                  <div class="meta-card-header">
-                    <div>
-                      <p class="meta-card-eyebrow">Metadata</p>
-                      <h3>Stamp the finished file</h3>
-                    </div>
-                    <p class="meta-card-hint">Used for the M4B title page, chapters, and cover embed.</p>
-                  </div>
                   <div class="field-group">
-                    <div class="field-row">
-                      <label class="field">
-                        <span class="field-label">Title</span>
-                        <input type="text" name="title" value="Untitled Audiobook" />
-                      </label>
-                      <label class="field">
-                        <span class="field-label">Author</span>
-                        <input type="text" name="author" value="Unknown" />
-                      </label>
-                    </div>
+                    <label class="field">
+                      <span class="field-label">Title</span>
+                      <input type="text" name="title" value="Untitled Audiobook" />
+                    </label>
+                    <label class="field">
+                      <span class="field-label">Author</span>
+                      <input type="text" name="author" value="Unknown" />
+                    </label>
                     <div class="field-row compact">
                       <label class="field">
                         <span class="field-label">Year</span>
@@ -185,36 +192,63 @@
                         <input type="text" name="genre" value="Audiobook" />
                       </label>
                     </div>
+                    <label class="field">
+                      <span class="field-label">Narrator</span>
+                      <input type="text" name="narrator" placeholder="Narrator name..." />
+                    </label>
                     <label class="field textarea-field">
                       <span class="field-label">Description</span>
-                      <textarea name="description" rows="4" placeholder="Synopsis, narrator notes, edition details..."></textarea>
+                      <textarea name="description" rows="3" placeholder="Synopsis, narrator notes, edition details..."></textarea>
                     </label>
                   </div>
                 </div>
               </div>
             </aside>
           </div>
+          <div class="wizard-actions">
+            <button type="button" class="btn btn-ghost" id="edit-back-btn">Back to search</button>
+            <button type="button" class="btn btn-primary" id="edit-next-btn">
+              Review &amp; Forge
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+        </section>
 
-          <!-- ========================================================
-               STEP 4: Compile
-               ======================================================== -->
-          <div class="compile-bar">
-            <div class="compile-info">
-              <div class="step-badge">4</div>
-              <div class="compile-summary" id="compile-summary">Drop MP3 chapters to prep your forge.</div>
+        <!-- ============================================================
+             STEP 4: Review & Forge
+             ============================================================ -->
+        <section class="wizard-panel" id="panel-forge">
+          <div class="forge-review">
+            <div class="forge-cover" id="forge-cover">
+              <div class="cover-placeholder">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".3" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+              </div>
             </div>
+            <div class="forge-details">
+              <h2 class="forge-title" id="forge-title">Untitled Audiobook</h2>
+              <p class="forge-author" id="forge-author">Unknown</p>
+              <div class="forge-meta-pills" id="forge-meta-pills"></div>
+              <p class="forge-description" id="forge-description"></p>
+              <div class="forge-stats" id="forge-stats"></div>
+            </div>
+          </div>
+          <div class="wizard-actions forge-actions">
+            <button type="button" class="btn btn-ghost" id="forge-back-btn">Back to edit</button>
             <button type="submit" class="btn btn-primary btn-lg" id="compile-button">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
               </svg>
               Forge M4B
             </button>
           </div>
-
           <div class="footer-note">
-            Everything runs locally in your browser. First load downloads ~31&nbsp;MB of FFmpeg WASM.
+            Everything runs locally in your browser. First compile downloads ~31&nbsp;MB of FFmpeg WASM.
           </div>
-        </div>
+        </section>
       </form>
     </div>
 

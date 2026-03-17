@@ -25,7 +25,7 @@
 const FILENAME_PATTERNS = [
   // Author - Title - Chapter 01  OR  Author - Title - 01 - Chapter Name
   {
-    re: /^(.+?)\s*[-–—]\s*(.+?)\s*[-–—]\s*(?:(?:ch(?:apter)?\.?\s*)?(\d+)\s*[-–—.]?\s*(.+?))?\.mp3$/i,
+    re: /^(.+?)\s*[-–—]\s*(.+?)\s*[-–—]\s*(?:(?:ch(?:apter)?\.?\s*)?(\d+)\s*(?:[-–—.]\s*(.+?))?)?\.mp3$/i,
     extract: (m) => ({
       author: m[1].trim(),
       title: m[2].trim(),
@@ -216,7 +216,7 @@ const cleanChapterName = (raw) => {
     cleaned = cleaned.replace(noise, "");
   }
   // Remove trailing track numbers like " (1)" or " [01]"
-  cleaned = cleaned.replace(/\s*[(\[]\d+[)\]]\s*$/, "");
+  cleaned = cleaned.replace(/\s*[([]\d+[)\]]\s*$/, "");
   // Collapse underscores / hyphens used as separators
   cleaned = cleaned.replace(/[_]+/g, " ").trim();
   // If the result is just a bare number, it's not a useful name

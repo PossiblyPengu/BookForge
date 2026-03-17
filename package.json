@@ -1,0 +1,31 @@
+{
+  "name": "windsurf-project-2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint docs/js/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PossiblyPengu/windsurf-project-2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/PossiblyPengu/windsurf-project-2/issues"
+  },
+  "homepage": "https://github.com/PossiblyPengu/windsurf-project-2#readme",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.3",
+    "vitest": "^4.1.0"
+  }
+}

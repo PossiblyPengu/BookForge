@@ -94,7 +94,7 @@ const searchOpenLibrary = async (query, maxResults = 5) => {
     return data.docs.map((doc) => {
       const coverId = doc.cover_i;
       const coverUrl = coverId
-        ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg`
+        ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg`
         : null;
       const docDescription =
         normalizeOpenLibraryDescription(doc.description) ||
@@ -172,6 +172,18 @@ const normalizeOpenLibraryDescription = (desc) => {
   return null;
 };
 
+/**
+ * Extract narrator name from text using common patterns like
+ * "read by ...", "narrated by ...", "narrator: ...".
+ */
+const extractNarratorFromText = (text) => {
+  if (!text) return null;
+  const match = text.match(
+    /(?:(?:read|narrated|performed|voiced)\s+by|narrator:\s*)([^.,;(\n]+)/i
+  );
+  return match ? match[1].trim() : null;
+};
+
 const mapChapterTitles = (entries) =>
   entries.map((ch) => ch?.title || ch?.label || ch || "").filter(Boolean).map((name) => String(name));
 
@@ -204,10 +216,11 @@ const fetchOpenLibraryEdition = async (editionKey) => {
  * @returns {Promise<{description: string|null, chapters: string[]|null}>}
  */
 export const fetchBookDetails = async (result) => {
-  if (!result) return { description: null, chapters: null };
+  if (!result) return { description: null, chapters: null, narrator: null };
 
   let description = result.description || null;
   let chapters = result.chapters || null;
+  let narrator = null;
 
   if (result.source === "google" && result.volumeId) {
     try {
@@ -222,6 +235,10 @@ export const fetchBookDetails = async (result) => {
         }
         if (!chapters && info.tableOfContents?.length) {
           chapters = mapChapterTitles(info.tableOfContents);
+        }
+        // Extract narrator from description patterns like "read by ..." or "narrated by ..."
+        if (!narrator && info.description) {
+          narrator = extractNarratorFromText(info.description);
         }
       }
     } catch { /* ignore */ }
@@ -261,7 +278,12 @@ export const fetchBookDetails = async (result) => {
     }
   }
 
-  return { description, chapters };
+  // Try to extract narrator from description if we didn't find one yet
+  if (!narrator && description) {
+    narrator = extractNarratorFromText(description);
+  }
+
+  return { description, chapters, narrator };
 };
 
 /**
