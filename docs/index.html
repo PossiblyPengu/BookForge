@@ -114,6 +114,16 @@
             <div class="upload-spinner"></div>
             <p class="upload-status-text" id="upload-status-text">Reading metadata...</p>
           </div>
+          <div class="upload-file-summary" id="upload-file-summary" hidden>
+            <div class="upload-file-summary-header">
+              <h3 id="upload-file-count"></h3>
+              <div class="upload-file-summary-actions">
+                <button type="button" class="btn btn-ghost btn-sm" id="upload-add-more-btn">Add more files</button>
+                <button type="button" class="btn btn-ghost btn-sm danger" id="upload-clear-btn">Clear all</button>
+              </div>
+            </div>
+            <ul class="upload-file-list" id="upload-file-list"></ul>
+          </div>
         </section>
 
         <!-- ============================================================

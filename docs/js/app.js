@@ -35,6 +35,11 @@ const matchResultsGrid = $("match-results-grid");
 const coverResultsStrip = $("cover-results-strip");
 const uploadStatus = $("upload-status");
 const uploadStatusText = $("upload-status-text");
+const uploadFileSummary = $("upload-file-summary");
+const uploadFileCount = $("upload-file-count");
+const uploadFileList = $("upload-file-list");
+const uploadAddMoreBtn = $("upload-add-more-btn");
+const uploadClearBtn = $("upload-clear-btn");
 
 // Google Drive
 const gdriveImportBtn = $("gdrive-import-btn");
@@ -100,6 +105,37 @@ let onSessionChange = null;
 // ---------------------------------------------------------------------------
 // Wizard navigation
 // ---------------------------------------------------------------------------
+const refreshUploadSummary = () => {
+  if (!tracks.length) {
+    uploadFileSummary.hidden = true;
+    dropZone.hidden = false;
+    return;
+  }
+  dropZone.hidden = true;
+  uploadFileSummary.hidden = false;
+
+  const totalSize = tracks.reduce((s, t) => s + t.file.size, 0);
+  const totalDur = tracks.reduce((s, t) => s + (t.meta?.duration || 0), 0);
+  uploadFileCount.textContent = `${tracks.length} file${tracks.length !== 1 ? "s" : ""} \u00b7 ${formatDuration(totalDur)} \u00b7 ${(totalSize / (1024 * 1024)).toFixed(1)} MB`;
+
+  uploadFileList.textContent = "";
+  for (const track of tracks) {
+    const li = document.createElement("li");
+    li.className = "upload-file-item";
+    const name = document.createElement("span");
+    name.className = "upload-file-name";
+    name.textContent = track.file.name;
+    const detail = document.createElement("span");
+    detail.className = "upload-file-detail";
+    const parts = [];
+    if (track.meta?.duration) parts.push(formatDuration(track.meta.duration));
+    parts.push(`${(track.file.size / (1024 * 1024)).toFixed(1)} MB`);
+    detail.textContent = parts.join(" \u00b7 ");
+    li.append(name, detail);
+    uploadFileList.appendChild(li);
+  }
+};
+
 const goToStep = (step) => {
   const nextIdx = stepOrder.indexOf(step);
   if (nextIdx < 0) return;
@@ -125,6 +161,9 @@ const goToStep = (step) => {
   connectors.forEach((c, i) => {
     c.classList.toggle("done", i < nextIdx);
   });
+
+  // If entering upload step, show file summary if tracks exist
+  if (step === "upload") refreshUploadSummary();
 
   // If entering forge step, populate review
   if (step === "forge") populateForgeReview();
@@ -867,6 +906,8 @@ clearAllButton.addEventListener("click", () => {
 // Drop zone + file input
 dropZone.addEventListener("click", (e) => { e.stopPropagation(); fileInput.click(); });
 addMoreBtn.addEventListener("click", () => fileInput.click());
+uploadAddMoreBtn.addEventListener("click", () => fileInput.click());
+uploadClearBtn.addEventListener("click", () => clearAllButton.click());
 
 dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
 dropZone.addEventListener("dragleave", () => { dropZone.classList.remove("dragover"); });
