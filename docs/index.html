@@ -31,7 +31,7 @@
         </div>
       </nav>
 
-      <!-- Progress bar (full-width under toolbar) -->
+      <!-- Progress bar -->
       <div class="progress-track" id="progress-track" hidden>
         <div class="progress-fill" id="progress-fill"></div>
       </div>
@@ -39,9 +39,15 @@
       <input id="file-input" type="file" accept="audio/mpeg,.mp3" multiple hidden />
 
       <form id="compile-form">
-        <!-- Drop zone -->
+        <!-- ============================================================
+             STEP 1: Drop zone (hero when empty, compact bar when loaded)
+             ============================================================ -->
         <div class="drop-zone" id="drop-zone">
           <div class="drop-inner">
+            <div class="drop-step">
+              <div class="step-badge">1</div>
+              <span>Drop your MP3 chapters</span>
+            </div>
             <div class="drop-icon">
               <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -54,50 +60,70 @@
           </div>
         </div>
 
-        <!-- Main workspace (hidden until files added) -->
+        <!-- ============================================================
+             WORKSPACE: everything below appears after files are added
+             ============================================================ -->
         <div class="workspace" id="workspace" hidden>
-          <div class="workspace-grid">
-            <!-- Left: Tracks -->
-            <section class="card tracks-card">
-              <div class="card-header">
-                <h2>Chapters</h2>
-                <div class="card-header-actions">
-                  <button type="button" id="add-more-btn" class="btn btn-ghost btn-sm">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    Add files
-                  </button>
-                  <button type="button" id="clear-all" class="btn btn-ghost btn-sm">Clear all</button>
+
+          <!-- File summary bar (replaces hero drop zone) -->
+          <div class="file-bar">
+            <div class="file-bar-info" id="file-bar-info">No files loaded yet.</div>
+            <div class="file-bar-actions">
+              <button type="button" id="add-more-btn" class="btn btn-ghost btn-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add files
+              </button>
+              <button type="button" id="clear-all" class="btn btn-ghost btn-sm">Clear all</button>
+            </div>
+          </div>
+
+          <!-- ========================================================
+               STEP 2: Book Lookup — full width, prominent
+               ======================================================== -->
+          <section class="card lookup-section">
+            <div class="lookup-header">
+              <div class="step-badge">2</div>
+              <div>
+                <h2>Find Your Book</h2>
+                <p>Search to auto-fill metadata, cover art, and chapter names</p>
+              </div>
+            </div>
+            <div class="lookup-bar">
+              <div class="lookup-input-wrap">
+                <svg class="lookup-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input type="text" id="lookup-query" placeholder="Search by title, author, or ISBN..." />
+              </div>
+              <button type="button" id="lookup-btn" class="btn btn-accent">Search</button>
+            </div>
+            <div class="lookup-results" id="lookup-results" hidden>
+              <div class="lookup-grid" id="lookup-results-list"></div>
+              <div class="lookup-actions">
+                <button type="button" id="lookup-dismiss" class="btn btn-ghost btn-sm">Dismiss results</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- ========================================================
+               STEP 3: Two-column — Chapters + Metadata/Cover
+               ======================================================== -->
+          <div class="editor-grid">
+            <!-- Left: Chapters -->
+            <section class="card chapters-card">
+              <div class="section-header">
+                <div class="section-header-left">
+                  <div class="step-badge">3</div>
+                  <h2>Chapters</h2>
                 </div>
               </div>
               <div class="track-list" id="track-list"></div>
             </section>
 
-            <!-- Right: Sidebar -->
-            <aside class="sidebar">
-              <!-- Lookup -->
-              <div class="card lookup-card">
-                <div class="card-header">
-                  <h2>Book Lookup</h2>
-                </div>
-                <div class="lookup-bar">
-                  <input type="text" id="lookup-query" placeholder="Search title or author..." />
-                  <button type="button" id="lookup-btn" class="btn btn-accent btn-sm">Search</button>
-                </div>
-                <div class="lookup-results" id="lookup-results" hidden>
-                  <div class="lookup-scroll" id="lookup-results-list"></div>
-                  <button type="button" id="lookup-dismiss" class="btn btn-ghost btn-xs">Dismiss</button>
-                </div>
-              </div>
-
+            <!-- Right: Cover + Metadata -->
+            <aside class="meta-sidebar">
               <!-- Cover Art -->
               <div class="card cover-card">
-                <div class="card-header">
-                  <h2>Cover Art</h2>
-                  <div class="card-header-actions">
-                    <button type="button" id="cover-upload-btn" class="btn btn-ghost btn-xs">Upload</button>
-                    <button type="button" id="cover-remove-btn" class="btn btn-ghost btn-xs" hidden>Remove</button>
-                  </div>
-                </div>
                 <div class="cover-well" id="cover-preview" title="Click to upload cover art">
                   <input id="cover-input" type="file" accept="image/jpeg,image/png,image/webp" hidden />
                   <div class="cover-placeholder" id="cover-placeholder">
@@ -109,11 +135,14 @@
                     <span>Click to add cover</span>
                   </div>
                 </div>
+                <div class="cover-actions">
+                  <button type="button" id="cover-upload-btn" class="btn btn-ghost btn-xs">Upload</button>
+                  <button type="button" id="cover-remove-btn" class="btn btn-ghost btn-xs" hidden>Remove</button>
+                </div>
               </div>
 
               <!-- Metadata Fields -->
               <div class="card meta-card">
-                <div class="card-header"><h2>Metadata</h2></div>
                 <div class="field-group">
                   <label class="field">
                     <span class="field-label">Title</span>
@@ -139,22 +168,27 @@
                   </label>
                 </div>
               </div>
-
-              <div class="sidebar-note">
-                Everything runs locally in your browser. First load downloads ~31&nbsp;MB of FFmpeg WASM.
-              </div>
             </aside>
           </div>
 
-          <!-- Compile bar -->
+          <!-- ========================================================
+               STEP 4: Compile
+               ======================================================== -->
           <div class="compile-bar">
-            <div class="compile-summary" id="compile-summary"></div>
+            <div class="compile-info">
+              <div class="step-badge">4</div>
+              <div class="compile-summary" id="compile-summary">Drop MP3 chapters to prep your forge.</div>
+            </div>
             <button type="submit" class="btn btn-primary btn-lg" id="compile-button">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
               </svg>
               Forge M4B
             </button>
+          </div>
+
+          <div class="footer-note">
+            Everything runs locally in your browser. First load downloads ~31&nbsp;MB of FFmpeg WASM.
           </div>
         </div>
       </form>

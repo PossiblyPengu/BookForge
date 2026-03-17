@@ -15,6 +15,7 @@ const addMoreBtn = document.getElementById("add-more-btn");
 const clearAllButton = document.getElementById("clear-all");
 const compileButton = document.getElementById("compile-button");
 const compileSummary = document.getElementById("compile-summary");
+const fileBarInfo = document.getElementById("file-bar-info");
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
 const progressTrack = document.getElementById("progress-track");
@@ -34,6 +35,7 @@ const lookupBtn = document.getElementById("lookup-btn");
 const lookupResults = document.getElementById("lookup-results");
 const lookupResultsList = document.getElementById("lookup-results-list");
 const lookupDismiss = document.getElementById("lookup-dismiss");
+const defaultCompileSummary = "Drop MP3 chapters to prep your forge.";
 
 // ---------------------------------------------------------------------------
 // State
@@ -241,7 +243,8 @@ const refreshTrackList = () => {
     trackList.innerHTML =
       '<div class="track-list-empty">No chapters added yet. Drop MP3 files above.</div>';
     compileButton.disabled = true;
-    compileSummary.textContent = "";
+    compileSummary.textContent = defaultCompileSummary;
+    if (fileBarInfo) fileBarInfo.textContent = "No files loaded yet.";
     workspace.hidden = true;
     dropZone.classList.remove("compact");
     return;
@@ -257,7 +260,13 @@ const refreshTrackList = () => {
     0
   );
   const totalSize = tracks.reduce((s, t) => s + t.file.size, 0);
-  compileSummary.textContent = `${tracks.length} chapter${tracks.length !== 1 ? "s" : ""} \u00b7 ${formatDuration(totalDuration)} \u00b7 ${(totalSize / (1024 * 1024)).toFixed(1)} MB`;
+  const durationLabel = formatDuration(totalDuration);
+  const sizeLabel = (totalSize / (1024 * 1024)).toFixed(1);
+  const chapterLabel = `${tracks.length} chapter${tracks.length !== 1 ? "s" : ""}`;
+  compileSummary.textContent = `${chapterLabel} \u00b7 ${durationLabel} \u00b7 ${sizeLabel} MB`;
+  if (fileBarInfo) {
+    fileBarInfo.textContent = `${chapterLabel} ready \u00b7 ${durationLabel} total \u00b7 ${sizeLabel} MB`;
+  }
 
   tracks.forEach((track, index) => {
     const row = document.createElement("div");
