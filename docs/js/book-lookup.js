@@ -373,12 +373,14 @@ const fetchSingleCover = async (url) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.referrerPolicy = "no-referrer";
-    const timeout = setTimeout(() => resolve(null), 8000);
+    const cleanup = () => { img.onload = null; img.onerror = null; img.src = ""; };
+    const timeout = setTimeout(() => { cleanup(); resolve(null); }, 8000);
     img.onload = () => {
       clearTimeout(timeout);
       try {
         // Reject tiny placeholder images (< 50px in either dimension)
         if (img.naturalWidth < 50 || img.naturalHeight < 50) {
+          cleanup();
           resolve(null);
           return;
         }
@@ -386,18 +388,20 @@ const fetchSingleCover = async (url) => {
         canvas.width = img.naturalWidth;
         canvas.height = img.naturalHeight;
         const ctx = canvas.getContext("2d");
-        if (!ctx) { resolve(null); return; }
+        if (!ctx) { cleanup(); resolve(null); return; }
         ctx.drawImage(img, 0, 0);
+        cleanup();
         canvas.toBlob(
           (blob) => resolve(blob && blob.size > 1000 ? blob : null),
           "image/jpeg",
           0.92
         );
       } catch {
+        cleanup();
         resolve(null);
       }
     };
-    img.onerror = () => { clearTimeout(timeout); resolve(null); };
+    img.onerror = () => { clearTimeout(timeout); cleanup(); resolve(null); };
     img.src = url;
   });
 };

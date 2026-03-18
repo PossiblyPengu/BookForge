@@ -19,7 +19,16 @@ const NUM_BARS = Math.floor(CANVAS_WIDTH / (BAR_WIDTH + BAR_GAP));
 const extractPeaks = async (file) => {
   const arrayBuffer = await file.arrayBuffer();
   const audioCtx = new OfflineAudioContext(1, 1, 44100);
-  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  let audioBuffer;
+  try {
+    audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  } finally {
+    // Release audio context resources immediately
+    await audioCtx.startRendering().catch(() => {});
+    if (typeof audioCtx.close === "function") {
+      await audioCtx.close().catch(() => {});
+    }
+  }
   const channelData = audioBuffer.getChannelData(0);
   const samplesPerBar = Math.floor(channelData.length / NUM_BARS);
   const peaks = new Float32Array(NUM_BARS);

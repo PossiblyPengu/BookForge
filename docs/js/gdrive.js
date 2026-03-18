@@ -16,6 +16,7 @@ let accessToken = null;
 let tokenClient = null;
 let gisLoaded = false;
 let authChangeCallback = null;
+let tokenExpiryTimer = null;
 
 /**
  * Register a callback that fires whenever sign-in state changes.
@@ -62,8 +63,10 @@ const restoreCachedToken = () => {
     const expiry = Number(sessionStorage.getItem(TOKEN_EXPIRY_KEY));
     if (cached && expiry && Date.now() < expiry) {
       accessToken = cached;
-      // Schedule expiry cleanup
-      setTimeout(() => {
+      // Schedule expiry cleanup (cancel any previous timer first)
+      if (tokenExpiryTimer) clearTimeout(tokenExpiryTimer);
+      tokenExpiryTimer = setTimeout(() => {
+        tokenExpiryTimer = null;
         accessToken = null;
         sessionStorage.removeItem(TOKEN_STORAGE_KEY);
         sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
@@ -111,7 +114,9 @@ const initTokenClient = (resolve, reject, promptMode) => {
         }
         accessToken = resp.access_token;
         cacheToken(accessToken, resp.expires_in);
-        setTimeout(() => {
+        if (tokenExpiryTimer) clearTimeout(tokenExpiryTimer);
+        tokenExpiryTimer = setTimeout(() => {
+          tokenExpiryTimer = null;
           accessToken = null;
           sessionStorage.removeItem(TOKEN_STORAGE_KEY);
           sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
@@ -168,6 +173,7 @@ export const signOut = () => {
   if (accessToken) {
     window.google.accounts.oauth2.revoke(accessToken);
     accessToken = null;
+    if (tokenExpiryTimer) { clearTimeout(tokenExpiryTimer); tokenExpiryTimer = null; }
     try {
       sessionStorage.removeItem(TOKEN_STORAGE_KEY);
       sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
@@ -246,19 +252,26 @@ export const downloadFiles = async (items, onProgress) => {
     const total = parseInt(resp.headers.get("Content-Length") || "0", 10);
     if (onProgress && resp.body && total > 0) {
       const reader = resp.body.getReader();
-      const chunks = [];
-      let loaded = 0;
-      onProgress(i, item.name, 0, total, false);
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        loaded += value.length;
-        onProgress(i, item.name, loaded, total, false);
+      try {
+        const chunks = [];
+        let loaded = 0;
+        onProgress(i, item.name, 0, total, false);
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          loaded += value.length;
+          onProgress(i, item.name, loaded, total, false);
+        }
+        const blob = new Blob(chunks, { type: "audio/mpeg" });
+        files.push(new File([blob], item.name, { type: "audio/mpeg" }));
+        onProgress(i, item.name, total, total, true);
+      } catch (err) {
+        console.warn(`Stream read failed for ${item.name}:`, err);
+        onProgress(i, item.name, 0, 0, true);
+      } finally {
+        reader.releaseLock();
       }
-      const blob = new Blob(chunks, { type: "audio/mpeg" });
-      files.push(new File([blob], item.name, { type: "audio/mpeg" }));
-      onProgress(i, item.name, total, total, true);
     } else {
       onProgress?.(i, item.name, 0, 0, false);
       const blob = await resp.blob();

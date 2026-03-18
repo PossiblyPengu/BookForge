@@ -240,8 +240,10 @@ const showProgressDialog = () => {
 };
 
 const hideProgressDialogDelayed = () => {
+  if (progressHideTimer) { clearTimeout(progressHideTimer); progressHideTimer = null; }
   if (!progressDialog.hidden) {
     progressHideTimer = setTimeout(() => {
+      progressHideTimer = null;
       progressDialog.hidden = true;
       progressList.textContent = "";
       progressDismissedManually = false;
@@ -249,6 +251,7 @@ const hideProgressDialogDelayed = () => {
   } else if (progressDismissedManually) {
     // Dialog was dismissed but work finished — clean up after delay
     progressHideTimer = setTimeout(() => {
+      progressHideTimer = null;
       progressList.textContent = "";
       progressDismissedManually = false;
     }, 1200);
@@ -385,7 +388,11 @@ previewAudio.addEventListener("ended", stopPreview);
 // ---------------------------------------------------------------------------
 // Track list UI (step 3)
 // ---------------------------------------------------------------------------
+let waveformGeneration = 0;
+
 const refreshTrackList = () => {
+  // Increment generation to invalidate any in-flight waveform renders
+  const thisGeneration = ++waveformGeneration;
   trackList.textContent = "";
 
   if (!tracks.length) {
@@ -504,13 +511,18 @@ const refreshTrackList = () => {
 
   // Lazily render waveforms (don't block the UI)
   requestAnimationFrame(() => {
+    // Bail out if a newer refresh has already started
+    if (thisGeneration !== waveformGeneration) return;
     const slots = trackList.querySelectorAll(".track-waveform-slot");
     slots.forEach(async (slot) => {
       const idx = parseInt(slot.dataset.trackIndex, 10);
       const track = tracks[idx];
       if (!track) return;
       const canvas = await createWaveform(track.file);
-      if (canvas && slot.isConnected) slot.appendChild(canvas);
+      // Only append if this render is still the current generation
+      if (canvas && slot.isConnected && thisGeneration === waveformGeneration) {
+        slot.appendChild(canvas);
+      }
     });
   });
 };
