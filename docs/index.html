@@ -12,6 +12,8 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="css/main.css" />
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#f0a040" />
     <script>window.coi = { coepCredentialless: () => true };</script>
     <script src="coi-serviceworker.js"></script>
   </head>
@@ -26,7 +28,16 @@
           </svg>
           <span class="logo-text">BookForge</span>
         </div>
-        <div class="toolbar-actions"></div>
+        <div class="toolbar-actions">
+          <button type="button" class="theme-toggle" id="theme-toggle" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">
+            <svg id="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+            <svg id="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+              <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+          </button>
+        </div>
         <div class="toolbar-status" id="toolbar-status">
           <span class="status-dot" id="status-dot"></span>
           <span class="status-text" id="status-text">Ready</span>
@@ -62,8 +73,8 @@
       </div>
 
       <!-- Progress dialog (floating) -->
-      <div class="progress-dialog" id="progress-dialog" hidden>
-        <div class="progress-dialog-card">
+      <div class="progress-dialog" id="progress-dialog" hidden aria-live="polite" aria-atomic="false">
+        <div class="progress-dialog-card" role="status">
           <div class="progress-dialog-header">
             <div>
               <p class="progress-dialog-eyebrow">Activity</p>
@@ -187,6 +198,16 @@
                   <span class="section-header-count" id="chapter-count"></span>
                 </div>
                 <div class="section-header-right">
+                  <div class="rename-dropdown" id="rename-dropdown">
+                    <button type="button" class="btn btn-ghost btn-xs" id="rename-btn" title="Batch rename chapters">Rename</button>
+                    <div class="rename-menu" id="rename-menu" hidden>
+                      <button type="button" class="rename-option" data-pattern="chapter-num">Chapter 1, Chapter 2...</button>
+                      <button type="button" class="rename-option" data-pattern="part-num">Part 1, Part 2...</button>
+                      <button type="button" class="rename-option" data-pattern="filename">Use filenames</button>
+                      <button type="button" class="rename-option" data-pattern="custom">Custom prefix...</button>
+                      <button type="button" class="rename-option" data-pattern="paste">Paste list...</button>
+                    </div>
+                  </div>
                   <button type="button" id="add-more-btn" class="btn btn-ghost btn-xs">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Add
@@ -243,6 +264,16 @@
                       <span class="field-label">Narrator</span>
                       <input type="text" name="narrator" placeholder="Narrator name..." />
                     </label>
+                    <div class="field-row compact">
+                      <label class="field">
+                        <span class="field-label">Series</span>
+                        <input type="text" name="series" placeholder="Series name..." />
+                      </label>
+                      <label class="field">
+                        <span class="field-label">Book #</span>
+                        <input type="text" name="booknum" placeholder="e.g. 1 of 3" />
+                      </label>
+                    </div>
                     <label class="field textarea-field">
                       <span class="field-label">Description</span>
                       <textarea name="description" rows="3" placeholder="Synopsis, narrator notes, edition details..."></textarea>
@@ -283,6 +314,17 @@
               <div class="forge-stats" id="forge-stats"></div>
             </div>
           </div>
+          <div class="forge-options">
+            <label class="forge-option">
+              <span class="forge-option-label">Audio Quality</span>
+              <select id="bitrate-select" class="forge-select">
+                <option value="64k">64 kbps — Smallest</option>
+                <option value="96k" selected>96 kbps — Standard</option>
+                <option value="128k">128 kbps — High</option>
+                <option value="192k">192 kbps — Best</option>
+              </select>
+            </label>
+          </div>
           <div class="wizard-actions forge-actions">
             <button type="button" class="btn btn-ghost" id="forge-back-btn">Back to edit</button>
             <div class="forge-actions-right">
@@ -313,11 +355,11 @@
     </div>
 
     <!-- Custom Google Drive file picker -->
-    <div class="modal-overlay" id="gdrive-picker-modal" hidden>
+    <div class="modal-overlay" id="gdrive-picker-modal" hidden role="dialog" aria-modal="true" aria-labelledby="gdrive-picker-heading">
       <div class="modal-card gdrive-picker">
         <div class="modal-header">
-          <h2>Google Drive</h2>
-          <button type="button" class="btn btn-icon" id="gdrive-picker-close">&times;</button>
+          <h2 id="gdrive-picker-heading">Google Drive</h2>
+          <button type="button" class="btn btn-icon" id="gdrive-picker-close" aria-label="Close">&times;</button>
         </div>
         <div class="gdrive-picker-breadcrumb" id="gdrive-breadcrumb">
           <button type="button" class="btn btn-ghost btn-xs gdrive-crumb" data-id="root">My Drive</button>
@@ -338,5 +380,10 @@
     </div>
 
     <script src="js/app.js" type="module"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("sw.js").catch(() => {});
+      }
+    </script>
   </body>
 </html>

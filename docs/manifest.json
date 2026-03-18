@@ -1,0 +1,16 @@
+{
+  "name": "BookForge",
+  "short_name": "BookForge",
+  "description": "Convert MP3 chapters into M4B audiobooks — entirely in your browser.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#111110",
+  "theme_color": "#f0a040",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

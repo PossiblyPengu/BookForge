@@ -95,6 +95,17 @@ export const signOut = () => {
 };
 
 // ---------------------------------------------------------------------------
+// Fetch with timeout (for metadata calls, not large downloads)
+// ---------------------------------------------------------------------------
+const FETCH_TIMEOUT_MS = 15000;
+
+const fetchWithTimeout = (url, opts = {}) => {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(id));
+};
+
+// ---------------------------------------------------------------------------
 // Drive API — List files in a folder
 // ---------------------------------------------------------------------------
 const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
@@ -113,7 +124,7 @@ export const listFolder = async (folderId = "root") => {
   const orderBy = "folder,name";
   const url = `${DRIVE_FILES_URL}?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(fields)}&orderBy=${encodeURIComponent(orderBy)}&pageSize=200`;
 
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -207,7 +218,7 @@ export const uploadToDrive = async (blob, filename) => {
 
   const body = new Blob([metaPart, mediaPart, blob, closePart]);
 
-  const resp = await fetch(
+  const resp = await fetchWithTimeout(
     "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
     {
       method: "POST",

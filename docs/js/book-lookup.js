@@ -5,6 +5,14 @@
  * Returns a unified result format from both sources.
  */
 
+const FETCH_TIMEOUT_MS = 15000;
+
+const fetchWithTimeout = (url, opts = {}) => {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(id));
+};
+
 /**
  * @typedef {Object} BookResult
  * @property {string} title
@@ -28,7 +36,7 @@
 const searchGoogleBooks = async (query, maxResults = 5) => {
   const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=${maxResults}&printType=books`;
   try {
-    const resp = await fetch(url);
+    const resp = await fetchWithTimeout(url);
     if (!resp.ok) return [];
     const data = await resp.json();
     if (!data.items?.length) return [];
@@ -68,6 +76,10 @@ const searchGoogleBooks = async (query, maxResults = 5) => {
       if (isbn10?.identifier) {
         coverUrls.push(`https://covers.openlibrary.org/b/isbn/${isbn10.identifier}-L.jpg`);
       }
+      // Also try medium-size OL covers as fallback
+      if (isbn13?.identifier) {
+        coverUrls.push(`https://covers.openlibrary.org/b/isbn/${isbn13.identifier}-M.jpg`);
+      }
       const coverUrl = coverUrls[0] || null;
       // Extract chapter names from table of contents if available
       let chapters = null;
@@ -104,7 +116,7 @@ const searchGoogleBooks = async (query, maxResults = 5) => {
 const searchOpenLibrary = async (query, maxResults = 5) => {
   const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=${maxResults}&fields=key,title,author_name,first_publish_year,subject,isbn,publisher,cover_i,edition_key,description,first_sentence`;
   try {
-    const resp = await fetch(url);
+    const resp = await fetchWithTimeout(url);
     if (!resp.ok) return [];
     const data = await resp.json();
     if (!data.docs?.length) return [];
@@ -120,6 +132,13 @@ const searchOpenLibrary = async (query, maxResults = 5) => {
       // Also try ISBN-based lookups as fallback (first few ISBNs)
       if (doc.isbn?.length) {
         for (const isbnVal of doc.isbn.slice(0, 3)) {
+          coverUrls.push(`https://covers.openlibrary.org/b/isbn/${isbnVal}-L.jpg`);
+        }
+      }
+      // Try Amazon cover via ISBN (common CDN pattern)
+      if (doc.isbn?.length) {
+        for (const isbnVal of doc.isbn.slice(0, 2)) {
+          // Amazon cover images via Open Library proxy
           coverUrls.push(`https://covers.openlibrary.org/b/isbn/${isbnVal}-L.jpg`);
         }
       }
@@ -220,7 +239,7 @@ const fetchOpenLibraryEdition = async (editionKey) => {
   if (!editionKey) return null;
   const url = `https://openlibrary.org/api/books?bibkeys=OLID:${editionKey}&format=json&jscmd=data`;
   try {
-    const resp = await fetch(url);
+    const resp = await fetchWithTimeout(url);
     if (!resp.ok) return null;
     const data = await resp.json();
     const entry = data[`OLID:${editionKey}`];
@@ -253,7 +272,7 @@ export const fetchBookDetails = async (result) => {
 
   if (result.source === "google" && result.volumeId) {
     try {
-      const resp = await fetch(
+      const resp = await fetchWithTimeout(
         `https://www.googleapis.com/books/v1/volumes/${result.volumeId}`
       );
       if (resp.ok) {
@@ -275,7 +294,7 @@ export const fetchBookDetails = async (result) => {
 
   if (result.source === "openlibrary" && result.workKey) {
     try {
-      const resp = await fetch(
+      const resp = await fetchWithTimeout(
         `https://openlibrary.org${result.workKey}.json`
       );
       if (resp.ok) {
@@ -337,7 +356,7 @@ const fetchSingleCover = async (url) => {
 
   // Try direct fetch first (fast path)
   try {
-    const resp = await fetch(url, { mode: "cors" });
+    const resp = await fetchWithTimeout(url, { mode: "cors" });
     if (resp.ok) {
       const blob = await resp.blob();
       // Open Library returns a 1x1 transparent gif (43 bytes) or a small
@@ -367,6 +386,7 @@ const fetchSingleCover = async (url) => {
         canvas.width = img.naturalWidth;
         canvas.height = img.naturalHeight;
         const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(null); return; }
         ctx.drawImage(img, 0, 0);
         canvas.toBlob(
           (blob) => resolve(blob && blob.size > 1000 ? blob : null),

@@ -49,7 +49,12 @@ export const saveSession = async (state) => {
     });
     db.close();
   } catch (err) {
-    console.warn("Session save failed:", err);
+    if (err?.name === "QuotaExceededError") {
+      console.warn("Session save failed: IndexedDB storage quota exceeded");
+    } else {
+      console.warn("Session save failed:", err);
+    }
+    return { error: err?.name || "unknown" };
   }
 };
 

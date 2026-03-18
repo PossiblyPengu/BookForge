@@ -1,10 +1,11 @@
-import { FFmpeg } from "https://esm.sh/@ffmpeg/ffmpeg@0.12.10";
-import { fetchFile, toBlobURL } from "https://esm.sh/@ffmpeg/util@0.12.1";
-import { inferBook, extractSortKey } from "./book-parser.js";
+import { inferBook, extractSortKey, detectSeries } from "./book-parser.js";
 import { searchBooks, fetchCoverBlob, fetchBookDetails } from "./book-lookup.js";
 import { extractMetadata } from "./metadata.js";
-import { ensureAuth, listFolder, downloadFiles, uploadToDrive } from "./gdrive.js";
 import { saveSession, loadSession, clearSession } from "./session.js";
+import { compileM4B } from "./compiler.js";
+import { createWaveform } from "./waveform.js";
+import { pushState, undo, redo, clearHistory } from "./history.js";
+import { importFromDrive, exportToDrive, gdriveDownloading, isPickerHidden, setPickerVisible } from "./drive-ui.js";
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -42,24 +43,9 @@ const uploadAddMoreBtn = $("upload-add-more-btn");
 const uploadClearBtn = $("upload-clear-btn");
 const uploadNextBtn = $("upload-next-btn");
 
-// Google Drive
+// Google Drive buttons (picker UI is in drive-ui.js)
 const gdriveImportBtn = $("gdrive-import-btn");
 const gdriveExportBtn = $("gdrive-export-btn");
-
-// Custom Drive picker
-const gdrivePickerModal = $("gdrive-picker-modal");
-const gdrivePickerClose = $("gdrive-picker-close");
-const gdrivePickerCancel = $("gdrive-picker-cancel");
-const gdrivePickerSelect = $("gdrive-picker-select");
-const gdriveFileList = $("gdrive-file-list");
-const gdriveBreadcrumb = $("gdrive-breadcrumb");
-const gdriveSelectedCount = $("gdrive-selected-count");
-const gdriveSelectAll = $("gdrive-select-all");
-const gdriveSelectAllLabel = gdriveSelectAll.closest("label");
-const gdrivePickerFooter = $("gdrive-picker-footer");
-const gdriveDownloadProgress = $("gdrive-download-progress");
-const gdriveDownloadList = $("gdrive-download-list");
-
 
 // Wizard panels & nav
 const panels = {
@@ -77,6 +63,8 @@ const authorInput = form.elements.namedItem("author");
 const yearInput = form.elements.namedItem("year");
 const genreInput = form.elements.namedItem("genre");
 const narratorInput = form.elements.namedItem("narrator");
+const seriesInput = form.elements.namedItem("series");
+const booknumInput = form.elements.namedItem("booknum");
 const descriptionInput = form.elements.namedItem("description");
 
 // Forge review elements
@@ -88,13 +76,37 @@ const forgeStats = $("forge-stats");
 const forgeCover = $("forge-cover");
 
 // ---------------------------------------------------------------------------
+// Theme toggle
+// ---------------------------------------------------------------------------
+const themeToggle = $("theme-toggle");
+const themeIconDark = $("theme-icon-dark");
+const themeIconLight = $("theme-icon-light");
+
+const applyTheme = (theme) => {
+  document.documentElement.dataset.theme = theme;
+  themeIconDark.hidden = theme === "dark";
+  themeIconLight.hidden = theme === "light";
+};
+
+// Init theme from localStorage or system preference
+const savedTheme = localStorage.getItem("bf-theme");
+if (savedTheme) {
+  applyTheme(savedTheme);
+} else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+  applyTheme("light");
+}
+
+themeToggle.addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  applyTheme(next);
+  localStorage.setItem("bf-theme", next);
+});
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 let currentStep = "upload";
 let tracks = [];
-let ffmpeg = null;
-let ffmpegReady = false;
-let ffmpegLoadingPromise = null;
 let inferredBook = null;
 let coverFile = null;
 let coverObjectURL = null;
@@ -263,8 +275,8 @@ progressDismiss?.addEventListener("click", () => {
 // Click anywhere on the progress dialog to reopen Drive download modal
 progressDialog?.addEventListener("click", (e) => {
   if (e.target.closest(".btn")) return; // don't interfere with Hide button
-  if (gdriveDownloading && gdrivePickerModal.hidden) {
-    gdrivePickerModal.hidden = false;
+  if (gdriveDownloading && isPickerHidden()) {
+    setPickerVisible(true);
   }
 });
 
@@ -272,8 +284,8 @@ progressDialog?.addEventListener("click", (e) => {
 const toolbarStatus = $("toolbar-status");
 toolbarStatus?.addEventListener("click", () => {
   // Reopen Drive download modal if a download is in progress
-  if (gdriveDownloading && gdrivePickerModal.hidden) {
-    gdrivePickerModal.hidden = false;
+  if (gdriveDownloading && isPickerHidden()) {
+    setPickerVisible(true);
     return;
   }
   // Reopen progress dialog if it was dismissed
@@ -340,39 +352,35 @@ const removeCover = () => {
 };
 
 // ---------------------------------------------------------------------------
-// FFmpeg.wasm setup
+// Audio preview
 // ---------------------------------------------------------------------------
-const loadFFmpeg = async () => {
-  if (ffmpegReady) return;
-  if (ffmpegLoadingPromise) { await ffmpegLoadingPromise; return; }
+const previewAudio = new Audio();
+let previewingIndex = -1;
+let previewObjectURL = null;
 
-  ffmpegLoadingPromise = (async () => {
-    updateStatus("Loading FFmpeg...");
-    showProgress(10);
-    ffmpeg = new FFmpeg();
-    ffmpeg.on("progress", ({ progress }) => showProgress(20 + progress * 70));
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm";
-    try {
-      const [coreURL, wasmURL, workerURL] = await Promise.all([
-        toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-        toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-        toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, "text/javascript"),
-      ]);
-      await ffmpeg.load({ coreURL, wasmURL, workerURL });
-      ffmpegReady = true;
-      hideProgress();
-      setIdle("FFmpeg ready");
-    } catch (err) {
-      console.error("FFmpeg failed to load", err);
-      hideProgress();
-      updateStatus("FFmpeg failed to load", "error");
-      throw err;
-    } finally {
-      ffmpegLoadingPromise = null;
-    }
-  })();
-  return ffmpegLoadingPromise;
+const stopPreview = () => {
+  previewAudio.pause();
+  previewAudio.currentTime = 0;
+  if (previewObjectURL) { URL.revokeObjectURL(previewObjectURL); previewObjectURL = null; }
+  const prev = trackList.querySelector(".track-play-btn.playing");
+  if (prev) prev.classList.remove("playing");
+  previewingIndex = -1;
 };
+
+const togglePreview = (index) => {
+  if (previewingIndex === index) { stopPreview(); return; }
+  stopPreview();
+  const track = tracks[index];
+  if (!track) return;
+  previewObjectURL = URL.createObjectURL(track.file);
+  previewAudio.src = previewObjectURL;
+  previewAudio.play();
+  previewingIndex = index;
+  const btn = trackList.querySelectorAll(".track-play-btn")[index];
+  if (btn) btn.classList.add("playing");
+};
+
+previewAudio.addEventListener("ended", stopPreview);
 
 // ---------------------------------------------------------------------------
 // Track list UI (step 3)
@@ -397,10 +405,50 @@ const refreshTrackList = () => {
   tracks.forEach((track, index) => {
     const row = document.createElement("div");
     row.className = "track-row";
+    row.draggable = true;
+    row.dataset.index = index;
+    row.addEventListener("dragstart", (e) => {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(index));
+      row.classList.add("dragging");
+    });
+    row.addEventListener("dragend", () => {
+      row.classList.remove("dragging");
+      trackList.querySelectorAll(".drag-over").forEach((r) => r.classList.remove("drag-over"));
+    });
+    row.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      trackList.querySelectorAll(".drag-over").forEach((r) => r.classList.remove("drag-over"));
+      row.classList.add("drag-over");
+    });
+    row.addEventListener("dragleave", () => row.classList.remove("drag-over"));
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      row.classList.remove("drag-over");
+      const fromIdx = parseInt(e.dataTransfer.getData("text/plain"), 10);
+      const toIdx = parseInt(row.dataset.index, 10);
+      if (fromIdx !== toIdx && Number.isFinite(fromIdx) && Number.isFinite(toIdx)) {
+        const [item] = tracks.splice(fromIdx, 1);
+        tracks.splice(toIdx, 0, item);
+        stopPreview();
+        refreshTrackList();
+        if (onSessionChange) onSessionChange();
+      }
+    });
 
     const num = document.createElement("span");
     num.className = "track-num";
     num.textContent = String(index + 1).padStart(2, "0");
+
+    const playBtn = document.createElement("button");
+    playBtn.type = "button";
+    playBtn.className = "track-play-btn" + (previewingIndex === index ? " playing" : "");
+    playBtn.title = "Preview";
+    playBtn.innerHTML = previewingIndex === index
+      ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'
+      : '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>';
+    playBtn.addEventListener("click", () => togglePreview(index));
 
     const body = document.createElement("div");
     body.className = "track-body";
@@ -424,7 +472,12 @@ const refreshTrackList = () => {
     parts.push(`${(track.file.size / (1024 * 1024)).toFixed(1)} MB`);
     detail.textContent = parts.join(" \u00b7 ");
 
-    body.append(nameInput, detail);
+    // Waveform placeholder — rendered lazily
+    const waveformSlot = document.createElement("div");
+    waveformSlot.className = "track-waveform-slot";
+    waveformSlot.dataset.trackIndex = index;
+
+    body.append(nameInput, detail, waveformSlot);
 
     const actions = document.createElement("div");
     actions.className = "track-actions";
@@ -444,11 +497,64 @@ const refreshTrackList = () => {
     const removeBtn = mkBtn("\u2715", "danger", () => removeTrack(index));
 
     actions.append(upBtn, downBtn, removeBtn);
-    row.append(num, body, actions);
+    row.append(num, playBtn, body, actions);
     fragment.append(row);
   });
   trackList.append(fragment);
+
+  // Lazily render waveforms (don't block the UI)
+  requestAnimationFrame(() => {
+    const slots = trackList.querySelectorAll(".track-waveform-slot");
+    slots.forEach(async (slot) => {
+      const idx = parseInt(slot.dataset.trackIndex, 10);
+      const track = tracks[idx];
+      if (!track) return;
+      const canvas = await createWaveform(track.file);
+      if (canvas && slot.isConnected) slot.appendChild(canvas);
+    });
+  });
 };
+
+// ---------------------------------------------------------------------------
+// Batch chapter rename
+// ---------------------------------------------------------------------------
+const renameBtn = $("rename-btn");
+const renameMenu = $("rename-menu");
+
+renameBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  renameMenu.hidden = !renameMenu.hidden;
+});
+document.addEventListener("click", () => { renameMenu.hidden = true; });
+
+renameMenu.addEventListener("click", (e) => {
+  const opt = e.target.closest(".rename-option");
+  if (!opt) return;
+  renameMenu.hidden = true;
+  const pattern = opt.dataset.pattern;
+  if (!tracks.length) return;
+
+  if (pattern === "chapter-num") {
+    tracks.forEach((t, i) => { t.chapterName = `Chapter ${i + 1}`; });
+  } else if (pattern === "part-num") {
+    tracks.forEach((t, i) => { t.chapterName = `Part ${i + 1}`; });
+  } else if (pattern === "filename") {
+    tracks.forEach((t) => { t.chapterName = t.file.name.replace(/\.mp3$/i, ""); });
+  } else if (pattern === "custom") {
+    const prefix = prompt("Enter prefix (number will be appended):", "Chapter");
+    if (prefix != null) {
+      tracks.forEach((t, i) => { t.chapterName = `${prefix} ${i + 1}`; });
+    } else return;
+  } else if (pattern === "paste") {
+    const list = prompt("Paste chapter names, one per line:");
+    if (list != null) {
+      const names = list.split("\n").map((s) => s.trim()).filter(Boolean);
+      names.forEach((name, i) => { if (i < tracks.length) tracks[i].chapterName = name; });
+    } else return;
+  }
+  refreshTrackList();
+  if (onSessionChange) onSessionChange();
+});
 
 // ---------------------------------------------------------------------------
 // Track management
@@ -502,9 +608,13 @@ const addFiles = async (fileList) => {
     return a.file.name.localeCompare(b.file.name, undefined, { numeric: true });
   });
 
-  // Extract metadata
+  // Extract metadata (use allSettled so one bad file doesn't block the rest)
   uploadStatusText.textContent = "Reading ID3 metadata...";
-  await Promise.all(newTracks.map(async (t) => { t.meta = await extractMetadata(t.file); }));
+  const metaResults = await Promise.allSettled(newTracks.map(async (t) => { t.meta = await extractMetadata(t.file); }));
+  const metaFailures = metaResults.filter((r) => r.status === "rejected");
+  if (metaFailures.length) {
+    console.warn(`Metadata extraction failed for ${metaFailures.length} file(s):`, metaFailures.map((r) => r.reason));
+  }
 
   // Re-sort with ID3 track numbers
   sortTracks();
@@ -518,6 +628,17 @@ const addFiles = async (fileList) => {
     inferredBook.chapters.forEach((name, i) => {
       if (i < tracks.length) tracks[i].chapterName = name;
     });
+  }
+
+  // Detect series from inferred title
+  const seriesInfo = detectSeries(inferredBook.title);
+  if (seriesInfo) {
+    seriesInput.value = seriesInfo.series;
+    booknumInput.value = seriesInfo.totalBooks
+      ? `${seriesInfo.bookNum} of ${seriesInfo.totalBooks}`
+      : String(seriesInfo.bookNum);
+    // Use the series name as the title instead of the full "Title, Book X" string
+    inferredBook.title = seriesInfo.series;
   }
 
   // Auto-populate metadata fields (only if defaults)
@@ -696,6 +817,15 @@ const performLookup = async (query) => {
 };
 
 const applyMetadata = async (result) => {
+  // Detect series from search result title
+  const lookupSeries = detectSeries(result.title);
+  if (lookupSeries) {
+    seriesInput.value = lookupSeries.series;
+    booknumInput.value = lookupSeries.totalBooks
+      ? `${lookupSeries.bookNum} of ${lookupSeries.totalBooks}`
+      : String(lookupSeries.bookNum);
+  }
+
   // Fill metadata immediately from search result
   if (result.title) titleInput.value = result.title;
   if (result.author) authorInput.value = result.author;
@@ -746,6 +876,12 @@ const populateForgeReview = () => {
   if (yearInput.value) pills.push(yearInput.value);
   if (genreInput.value) pills.push(genreInput.value);
   if (narratorInput.value) pills.push(`Narrated by ${narratorInput.value}`);
+  if (seriesInput.value) {
+    const seriesLabel = booknumInput.value
+      ? `${seriesInput.value} #${booknumInput.value}`
+      : seriesInput.value;
+    pills.push(seriesLabel);
+  }
   for (const text of pills) {
     const pill = document.createElement("span");
     pill.className = "forge-pill";
@@ -793,98 +929,38 @@ const populateForgeReview = () => {
 };
 
 // ---------------------------------------------------------------------------
-// Compile to M4B
+// Compile to M4B (delegates to compiler.js)
 // ---------------------------------------------------------------------------
-const compileM4B = async () => {
-  await loadFFmpeg();
+const ui = { updateStatus, showProgress, hideProgress, setIdle };
 
-  // eslint-disable-next-line no-control-regex
-  const sanitizeMeta = (s) => s.replace(/[\x00-\x1f\x7f]/g, " ").trim();
-  const titleVal = sanitizeMeta(titleInput.value) || "Untitled Audiobook";
-  const authorVal = sanitizeMeta(authorInput.value) || "Unknown";
-  const yearVal = sanitizeMeta(yearInput.value);
-  const genreVal = sanitizeMeta(genreInput.value);
-  const descVal = sanitizeMeta(descriptionInput.value);
+const bitrateSelect = $("bitrate-select");
 
-  updateStatus("Reading files...");
-  showProgress(5);
+const doCompile = async () => {
+  const { blob, filename } = await compileM4B({
+    tracks,
+    coverFile,
+    formValues: {
+      title: titleInput.value,
+      author: authorInput.value,
+      year: yearInput.value,
+      genre: genreInput.value,
+      narrator: narratorInput.value,
+      description: descriptionInput.value,
+    },
+    bitrate: bitrateSelect.value,
+    onChapterProgress: (index, total, phase) => {
+      if (phase === "reading") {
+        updateStatus(`Reading chapter ${index + 1} of ${total}...`);
+      }
+    },
+    ui,
+  });
 
-  const filenames = [];
-  for (let i = 0; i < tracks.length; i++) {
-    const fname = `input_${String(i).padStart(3, "0")}.mp3`;
-    filenames.push(fname);
-    await ffmpeg.writeFile(fname, await fetchFile(tracks[i].file));
-    showProgress(5 + ((i + 1) / tracks.length) * 10);
-  }
-
-  const listContent = filenames.map((f) => `file '${f}'`).join("\n");
-  await ffmpeg.writeFile("inputs.txt", new TextEncoder().encode(listContent));
-
-  let hasCover = false;
-  if (coverFile) {
-    await ffmpeg.writeFile("cover.jpg", await fetchFile(coverFile));
-    hasCover = true;
-  }
-
-  // Build FFMETADATA1
-  let meta = ";FFMETADATA1\n";
-  meta += `title=${titleVal}\n`;
-  meta += `artist=${authorVal}\n`;
-  if (yearVal) meta += `date=${yearVal}\n`;
-  if (genreVal) meta += `genre=${genreVal}\n`;
-  if (descVal) meta += `comment=${descVal}\n`;
-
-  let cursorMs = 0;
-  for (let i = 0; i < tracks.length; i++) {
-    const track = tracks[i];
-    const dur = track.meta?.duration || 0;
-    const durationMs = Math.round(dur * 1000);
-    if (durationMs > 0) {
-      const chTitle = sanitizeMeta(
-        track.chapterName || track.meta?.title || track.file.name.replace(/\.mp3$/i, "")
-      );
-      meta += "\n[CHAPTER]\nTIMEBASE=1/1000\n";
-      meta += `START=${cursorMs}\n`;
-      meta += `END=${cursorMs + durationMs}\n`;
-      meta += `title=${chTitle}\n`;
-      cursorMs += durationMs;
-    }
-  }
-  await ffmpeg.writeFile("chapters.txt", new TextEncoder().encode(meta));
-
-  updateStatus("Concatenating...");
-  showProgress(18);
-  await ffmpeg.exec(["-y", "-f", "concat", "-safe", "0", "-i", "inputs.txt", "-c", "copy", "combined.mp3"]);
-
-  updateStatus("Converting to M4B...");
-  showProgress(25);
-
-  const args = ["-y", "-i", "combined.mp3", "-i", "chapters.txt"];
-  if (hasCover) {
-    args.push("-i", "cover.jpg", "-map", "0:a", "-map", "2:v");
-    args.push("-c:v", "mjpeg", "-disposition:v", "attached_pic");
-  }
-  args.push("-map_metadata", "1", "-map_chapters", "1", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", "-f", "mp4", "audiobook.m4b");
-  if (!hasCover) args.splice(args.indexOf("-f"), 0, "-vn");
-  await ffmpeg.exec(args);
-
-  updateStatus("Preparing download...");
-  showProgress(95);
-  const data = await ffmpeg.readFile("audiobook.m4b");
-
-  // Cleanup
-  const cleanup = [...filenames, "inputs.txt", "chapters.txt", "combined.mp3", "audiobook.m4b"];
-  if (hasCover) cleanup.push("cover.jpg");
-  for (const f of cleanup) {
-    await ffmpeg.deleteFile(f).catch((err) => console.warn(`cleanup: failed to delete ${f}`, err));
-  }
-
-  const slug = titleVal.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "audiobook";
-  const blob = new Blob([data.buffer], { type: "audio/x-m4b" });
+  // Download
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `${slug}.m4b`;
+  anchor.download = filename;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -892,7 +968,7 @@ const compileM4B = async () => {
 
   // Retain for Google Drive export
   lastCompiledBlob = blob;
-  lastCompiledFilename = `${slug}.m4b`;
+  lastCompiledFilename = filename;
   gdriveExportBtn.hidden = false;
 
   showProgress(100);
@@ -929,7 +1005,7 @@ lookupQuery.addEventListener("keydown", (e) => {
 });
 
 // Clear all
-clearAllButton.addEventListener("click", () => {
+clearAllButton.addEventListener("click", async () => {
   tracks = [];
   inferredBook = null;
   removeCover();
@@ -938,10 +1014,13 @@ clearAllButton.addEventListener("click", () => {
   yearInput.value = "";
   genreInput.value = "Audiobook";
   narratorInput.value = "";
+  seriesInput.value = "";
+  booknumInput.value = "";
   descriptionInput.value = "";
   lookupQuery.value = "";
   refreshTrackList();
-  clearSession();
+  clearHistory();
+  await clearSession();
   goToStep("upload");
 });
 
@@ -996,7 +1075,7 @@ form.addEventListener("submit", async (e) => {
   if (!tracks.length) { updateStatus("Add MP3 files first", "error"); return; }
   compileButton.disabled = true;
   try {
-    await compileM4B();
+    await doCompile();
   } catch (err) {
     console.error(err);
     updateStatus(err.message || "Conversion failed", "error");
@@ -1009,298 +1088,24 @@ form.addEventListener("submit", async (e) => {
 
 
 // ---------------------------------------------------------------------------
-// Custom Google Drive file picker
+// Google Drive import / export (picker UI in drive-ui.js)
 // ---------------------------------------------------------------------------
-const pickerSelected = new Map(); // id → {id, name}
-let pickerResolve = null;
-let pickerBreadcrumbs = [{ id: "root", name: "My Drive" }];
-let pickerCurrentFiles = []; // audio files in current folder view
-
-const openDrivePicker = () => new Promise((resolve) => {
-  pickerSelected.clear();
-  pickerBreadcrumbs = [{ id: "root", name: "My Drive" }];
-  pickerResolve = resolve;
-  gdrivePickerModal.hidden = false;
-  refreshPickerCount();
-  navigateToFolder("root");
-});
-
-const closeDrivePicker = (result) => {
-  gdrivePickerModal.hidden = true;
-  if (pickerResolve) {
-    pickerResolve(result || []);
-    pickerResolve = null;
-  }
-};
-
-const refreshPickerCount = () => {
-  const n = pickerSelected.size;
-  gdriveSelectedCount.textContent = `${n} file${n !== 1 ? "s" : ""} selected`;
-  gdrivePickerSelect.disabled = n === 0;
-};
-
-const renderBreadcrumbs = () => {
-  gdriveBreadcrumb.textContent = "";
-  pickerBreadcrumbs.forEach((crumb, i) => {
-    if (i > 0) {
-      const sep = document.createElement("span");
-      sep.className = "gdrive-crumb-sep";
-      sep.textContent = "/";
-      gdriveBreadcrumb.appendChild(sep);
-    }
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "btn btn-ghost btn-xs gdrive-crumb";
-    btn.textContent = crumb.name;
-    btn.addEventListener("click", () => {
-      pickerBreadcrumbs = pickerBreadcrumbs.slice(0, i + 1);
-      navigateToFolder(crumb.id);
-    });
-    gdriveBreadcrumb.appendChild(btn);
-  });
-};
-
-const navigateToFolder = async (folderId) => {
-  gdriveFileList.textContent = "";
-  const loadingDiv = document.createElement("div");
-  loadingDiv.className = "gdrive-picker-empty";
-  loadingDiv.textContent = "Loading...";
-  gdriveFileList.appendChild(loadingDiv);
-  gdriveSelectAll.checked = false;
-  gdriveSelectAllLabel.hidden = true;
-  pickerCurrentFiles = [];
-  renderBreadcrumbs();
-
-  try {
-    const files = await listFolder(folderId);
-    gdriveFileList.textContent = "";
-    pickerCurrentFiles = files.filter((f) => f.mimeType !== "application/vnd.google-apps.folder");
-
-    if (!files.length) {
-      const emptyDiv = document.createElement("div");
-      emptyDiv.className = "gdrive-picker-empty";
-      emptyDiv.textContent = "No MP3 files or folders here";
-      gdriveFileList.appendChild(emptyDiv);
-      return;
-    }
-
-    gdriveSelectAllLabel.hidden = pickerCurrentFiles.length === 0;
-
-    for (const file of files) {
-      const isFolder = file.mimeType === "application/vnd.google-apps.folder";
-      const row = document.createElement("div");
-      row.className = "gdrive-file-row";
-
-      if (isFolder) {
-        const iconSpan = document.createElement("span");
-        iconSpan.className = "gdrive-file-icon gdrive-folder-icon";
-        const folderSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        folderSvg.setAttribute("width", "18"); folderSvg.setAttribute("height", "18");
-        folderSvg.setAttribute("viewBox", "0 0 24 24"); folderSvg.setAttribute("fill", "none");
-        folderSvg.setAttribute("stroke", "currentColor"); folderSvg.setAttribute("stroke-width", "2");
-        folderSvg.setAttribute("stroke-linecap", "round"); folderSvg.setAttribute("stroke-linejoin", "round");
-        folderSvg.innerHTML = '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>';
-        iconSpan.appendChild(folderSvg);
-        const nameSpan = document.createElement("span");
-        nameSpan.className = "gdrive-file-name";
-        nameSpan.textContent = file.name;
-        row.append(iconSpan, nameSpan);
-        row.addEventListener("click", () => {
-          pickerBreadcrumbs.push({ id: file.id, name: file.name });
-          navigateToFolder(file.id);
-        });
-      } else {
-        const checked = pickerSelected.has(file.id);
-        const size = file.size ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : "";
-        const checkLabel = document.createElement("label");
-        checkLabel.className = "gdrive-file-check";
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = checked;
-        checkLabel.appendChild(checkbox);
-        const fileIconSpan = document.createElement("span");
-        fileIconSpan.className = "gdrive-file-icon";
-        const musicSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        musicSvg.setAttribute("width", "18"); musicSvg.setAttribute("height", "18");
-        musicSvg.setAttribute("viewBox", "0 0 24 24"); musicSvg.setAttribute("fill", "none");
-        musicSvg.setAttribute("stroke", "currentColor"); musicSvg.setAttribute("stroke-width", "2");
-        musicSvg.setAttribute("stroke-linecap", "round"); musicSvg.setAttribute("stroke-linejoin", "round");
-        musicSvg.innerHTML = '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>';
-        fileIconSpan.appendChild(musicSvg);
-        const fileNameSpan = document.createElement("span");
-        fileNameSpan.className = "gdrive-file-name";
-        fileNameSpan.textContent = file.name;
-        const fileSizeSpan = document.createElement("span");
-        fileSizeSpan.className = "gdrive-file-size";
-        fileSizeSpan.textContent = size;
-        row.append(checkLabel, fileIconSpan, fileNameSpan, fileSizeSpan);
-        const toggleSelect = () => {
-          if (pickerSelected.has(file.id)) {
-            pickerSelected.delete(file.id);
-            checkbox.checked = false;
-          } else {
-            pickerSelected.set(file.id, { id: file.id, name: file.name });
-            checkbox.checked = true;
-          }
-          refreshPickerCount();
-        };
-        checkbox.addEventListener("change", toggleSelect);
-        row.addEventListener("click", (e) => {
-          if (e.target !== checkbox) toggleSelect();
-        });
-      }
-
-      gdriveFileList.appendChild(row);
-    }
-  } catch (err) {
-    gdriveFileList.textContent = "";
-    const errDiv = document.createElement("div");
-    errDiv.className = "gdrive-picker-empty";
-    errDiv.textContent = `Error: ${err.message}`;
-    gdriveFileList.appendChild(errDiv);
-  }
-};
-
-let gdriveDownloading = false;
-
-gdrivePickerClose.addEventListener("click", () => {
-  if (gdriveDownloading) { gdrivePickerModal.hidden = true; return; }
-  closeDrivePicker([]);
-});
-gdrivePickerCancel.addEventListener("click", () => {
-  if (gdriveDownloading) { gdrivePickerModal.hidden = true; return; }
-  closeDrivePicker([]);
-});
-gdrivePickerModal.addEventListener("click", (e) => {
-  if (e.target !== gdrivePickerModal) return;
-  if (gdriveDownloading) { gdrivePickerModal.hidden = true; return; }
-  closeDrivePicker([]);
-});
-gdrivePickerSelect.addEventListener("click", () => closeDrivePicker([...pickerSelected.values()]));
-
-gdriveSelectAll.addEventListener("change", () => {
-  const checkAll = gdriveSelectAll.checked;
-  for (const file of pickerCurrentFiles) {
-    if (checkAll) pickerSelected.set(file.id, { id: file.id, name: file.name });
-    else pickerSelected.delete(file.id);
-  }
-  gdriveFileList.querySelectorAll(".gdrive-file-check input").forEach((cb) => { cb.checked = checkAll; });
-  refreshPickerCount();
-});
-
-// ---------------------------------------------------------------------------
-// Google Drive import — download progress UI
-// ---------------------------------------------------------------------------
-const formatBytes = (bytes) => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-const showDownloadProgress = (items) => {
-  // Hide file list & footer, show download progress
-  gdriveFileList.hidden = true;
-  gdriveBreadcrumb.hidden = true;
-  gdrivePickerFooter.hidden = true;
-  gdriveDownloadProgress.hidden = false;
-  gdriveDownloadList.textContent = "";
-
-  const rows = [];
-  for (let i = 0; i < items.length; i++) {
-    const row = document.createElement("div");
-    row.className = "gdrive-dl-item";
-
-    const info = document.createElement("div");
-    info.className = "gdrive-dl-info";
-    const name = document.createElement("span");
-    name.className = "gdrive-dl-name";
-    name.textContent = items[i].name;
-    const size = document.createElement("span");
-    size.className = "gdrive-dl-size";
-    size.textContent = "Waiting...";
-    info.append(name, size);
-
-    const bar = document.createElement("div");
-    bar.className = "gdrive-dl-bar";
-    const fill = document.createElement("div");
-    fill.className = "gdrive-dl-fill";
-    bar.appendChild(fill);
-
-    row.append(info, bar);
-    gdriveDownloadList.appendChild(row);
-    rows.push({ row, fill, size });
-  }
-  return rows;
-};
-
-const hideDownloadProgress = () => {
-  gdriveDownloadProgress.hidden = true;
-  gdriveFileList.hidden = false;
-  gdriveBreadcrumb.hidden = false;
-  gdrivePickerFooter.hidden = false;
-};
-
 gdriveImportBtn.addEventListener("click", async () => {
   try {
-    updateStatus("Connecting to Google Drive...");
-    await ensureAuth();
-    setIdle();
-
-    const selected = await openDrivePicker();
-    if (!selected.length) return;
-
-    // Switch modal to download progress view
-    const progressRows = showDownloadProgress(selected);
-
-    // Re-show modal (picker closed it)
-    gdrivePickerModal.hidden = false;
-    gdriveDownloading = true;
-
-    updateStatus(`Downloading ${selected.length} file${selected.length > 1 ? "s" : ""}...`);
-
-    const files = await downloadFiles(selected, (index, _name, loaded, total, done) => {
-      const pr = progressRows[index];
-      if (!pr) return;
-      if (total > 0) {
-        const pct = Math.min(100, (loaded / total) * 100);
-        pr.fill.style.width = `${pct}%`;
-        pr.size.textContent = done ? formatBytes(total) : `${formatBytes(loaded)} / ${formatBytes(total)}`;
-      } else if (done) {
-        pr.fill.style.width = "100%";
-        pr.size.textContent = loaded > 0 ? formatBytes(loaded) : "Failed";
-      }
-      if (done) pr.row.classList.add("done");
-    });
-
-    // Brief pause so user sees 100% state
-    await new Promise((r) => setTimeout(r, 600));
-    gdriveDownloading = false;
-    gdrivePickerModal.hidden = true;
-    hideDownloadProgress();
-
+    const files = await importFromDrive(ui);
     if (files.length) await addFiles(files);
     else setIdle();
   } catch (err) {
     console.error("Google Drive import failed:", err);
-    gdriveDownloading = false;
-    gdrivePickerModal.hidden = true;
-    hideDownloadProgress();
     updateStatus(err.message || "Google Drive import failed", "error");
     setTimeout(setIdle, 3000);
   }
 });
 
-// ---------------------------------------------------------------------------
-// Google Drive export
-// ---------------------------------------------------------------------------
 gdriveExportBtn.addEventListener("click", async () => {
   if (!lastCompiledBlob || !lastCompiledFilename) return;
   try {
-    updateStatus("Uploading to Google Drive...");
-    showProgress(50);
-    const result = await uploadToDrive(lastCompiledBlob, lastCompiledFilename);
-    showProgress(100);
-    setIdle("Saved to Google Drive!");
+    const result = await exportToDrive(lastCompiledBlob, lastCompiledFilename, ui);
     if (result.webViewLink) {
       window.open(result.webViewLink, "_blank", "noopener");
     }
@@ -1312,7 +1117,6 @@ gdriveExportBtn.addEventListener("click", async () => {
     setTimeout(setIdle, 3000);
   }
 });
-
 // ---------------------------------------------------------------------------
 // Session persistence
 // ---------------------------------------------------------------------------
@@ -1324,6 +1128,8 @@ const gatherState = () => ({
     year: yearInput.value,
     genre: genreInput.value,
     narrator: narratorInput.value,
+    series: seriesInput.value,
+    booknum: booknumInput.value,
     description: descriptionInput.value,
   },
   inferredBook,
@@ -1356,6 +1162,8 @@ const restoreState = (saved) => {
   if (f.year) yearInput.value = f.year;
   if (f.genre) genreInput.value = f.genre;
   if (f.narrator) narratorInput.value = f.narrator;
+  if (f.series) seriesInput.value = f.series;
+  if (f.booknum) booknumInput.value = f.booknum;
   if (f.description) descriptionInput.value = f.description;
 
   // Restore inferred book
@@ -1372,15 +1180,68 @@ const restoreState = (saved) => {
 let sessionSaveTimer = null;
 const debouncedSave = () => {
   clearTimeout(sessionSaveTimer);
-  sessionSaveTimer = setTimeout(() => saveSession(gatherState()), 1000);
+  sessionSaveTimer = setTimeout(async () => {
+    const result = await saveSession(gatherState());
+    if (result?.error === "QuotaExceededError") {
+      updateStatus("Storage full — session not saved", "error");
+    }
+  }, 1000);
 };
 
+// ---------------------------------------------------------------------------
+// Undo / Redo
+// ---------------------------------------------------------------------------
+const getUndoState = () => ({
+  chapterNames: tracks.map((t) => t.chapterName),
+  trackOrder: tracks.map((t) => t.file.name),
+  form: {
+    title: titleInput.value, author: authorInput.value, year: yearInput.value,
+    genre: genreInput.value, narrator: narratorInput.value,
+    series: seriesInput.value, booknum: booknumInput.value,
+    description: descriptionInput.value,
+  },
+});
+
+const applyUndoState = (state) => {
+  // Reorder tracks to match saved order
+  const byName = new Map(tracks.map((t) => [t.file.name, t]));
+  const reordered = state.trackOrder.map((n) => byName.get(n)).filter(Boolean);
+  // Keep any tracks not in saved order at the end
+  const remaining = tracks.filter((t) => !state.trackOrder.includes(t.file.name));
+  tracks = [...reordered, ...remaining];
+
+  state.chapterNames.forEach((name, i) => { if (i < tracks.length) tracks[i].chapterName = name; });
+  const f = state.form;
+  titleInput.value = f.title; authorInput.value = f.author; yearInput.value = f.year;
+  genreInput.value = f.genre; narratorInput.value = f.narrator;
+  seriesInput.value = f.series; booknumInput.value = f.booknum;
+  descriptionInput.value = f.description;
+  refreshTrackList();
+};
+
+// Push initial state on any tracked change
+const pushUndoState = () => pushState(getUndoState);
+
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+    e.preventDefault();
+    undo(getUndoState, applyUndoState);
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+    e.preventDefault();
+    redo(getUndoState, applyUndoState);
+  }
+});
+
 // Wire up the session change callback (used by goToStep, etc.)
-onSessionChange = debouncedSave;
+onSessionChange = () => { pushUndoState(); debouncedSave(); };
 
 // Save on form field changes
-[titleInput, authorInput, yearInput, genreInput, narratorInput, descriptionInput]
-  .forEach((el) => el.addEventListener("input", debouncedSave));
+[titleInput, authorInput, yearInput, genreInput, narratorInput, seriesInput, booknumInput, descriptionInput]
+  .forEach((el) => {
+    el.addEventListener("input", debouncedSave);
+    el.addEventListener("change", pushUndoState);
+  });
 
 // Init — restore session or start fresh
 (async () => {

@@ -300,6 +300,47 @@ export const inferBook = (files, metadataList) => {
 };
 
 // ---------------------------------------------------------------------------
+// 5. Series detection
+// ---------------------------------------------------------------------------
+
+const SERIES_PATTERNS = [
+  // "Series Name, Book 3" or "Series Name, Book 3 of 10"
+  /^(.+?),\s*book\s+(\d+)(?:\s+of\s+(\d+))?$/i,
+  // "Series Name #3" or "Series Name #3/10"
+  /^(.+?)\s*#(\d+)(?:\s*[/of]+\s*(\d+))?$/i,
+  // "Series Name (Book 3)" or "Series Name (Book 3 of 10)"
+  /^(.+?)\s*\(\s*book\s+(\d+)(?:\s+of\s+(\d+))?\s*\)$/i,
+  // "Series Name - Vol. 3" or "Series Name - Volume 3"
+  /^(.+?)\s*[-–—]\s*vol(?:ume)?\.?\s*(\d+)(?:\s+of\s+(\d+))?$/i,
+  // "Series Name: Book Three" (word numbers 1-20)
+  /^(.+?)[:\s-]+book\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)$/i,
+];
+
+const WORD_NUMS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
+
+/**
+ * Detect series name and book number from a title string.
+ * @param {string} title
+ * @returns {{ series: string, bookNum: number, totalBooks: number|null }|null}
+ */
+export const detectSeries = (title) => {
+  if (!title) return null;
+  for (const pattern of SERIES_PATTERNS) {
+    const m = title.match(pattern);
+    if (m) {
+      const bookNum = WORD_NUMS[m[2]?.toLowerCase()] || parseInt(m[2], 10);
+      if (!Number.isFinite(bookNum)) continue;
+      return {
+        series: m[1].trim(),
+        bookNum,
+        totalBooks: m[3] ? parseInt(m[3], 10) : null,
+      };
+    }
+  }
+  return null;
+};
+
+// ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
 
