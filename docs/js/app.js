@@ -109,6 +109,7 @@ const TRACK_RENDER_BATCH_SIZE = 20;
 const MAX_WAVEFORM_CONCURRENCY = 2;
 const WAVEFORM_TRACK_LIMIT = 80;
 const AUTO_LOOKUP_IDLE_DELAY = 1600;
+const hasIntersectionObserver = typeof window !== "undefined" && "IntersectionObserver" in window;
 
 const supportsIdleCallback = typeof window.requestIdleCallback === "function";
 const supportsIdleCancel = typeof window.cancelIdleCallback === "function";
@@ -130,11 +131,6 @@ const cancelScheduled = (handle) => {
     clearTimeout(handle.id);
   }
 };
-
-const waitForIdle = (timeout = 50) =>
-  new Promise((resolve) => {
-    scheduleIdle(() => resolve(), timeout);
-  });
 
 // ---------------------------------------------------------------------------
 // State
@@ -503,7 +499,7 @@ const attachWaveformSlot = (slot, generation) => {
   }
 };
 
-const buildTrackRow = (track, index, generation) => {
+const buildTrackRow = (track, index, generation, renderWaveforms) => {
   const row = document.createElement("div");
   row.className = "track-row";
   row.draggable = true;
@@ -576,7 +572,11 @@ const buildTrackRow = (track, index, generation) => {
   const waveformSlot = document.createElement("div");
   waveformSlot.className = "track-waveform-slot";
   waveformSlot.dataset.trackIndex = index;
-  attachWaveformSlot(waveformSlot, generation);
+  if (renderWaveforms) {
+    attachWaveformSlot(waveformSlot, generation);
+  } else {
+    waveformSlot.classList.add("waveform-disabled");
+  }
 
   body.append(nameInput, detail, waveformSlot);
 
@@ -621,8 +621,10 @@ const refreshTrackList = () => {
   const totalSize = tracks.reduce((s, t) => s + t.file.size, 0);
   chapterCount.textContent = `${tracks.length} chapters \u00b7 ${formatDuration(totalDuration)} \u00b7 ${(totalSize / (1024 * 1024)).toFixed(1)} MB`;
 
-  if (typeof IntersectionObserver === "function") {
-    waveformObserver = new IntersectionObserver((entries, observer) => {
+  const shouldRenderWaveforms = tracks.length <= WAVEFORM_TRACK_LIMIT;
+
+  if (shouldRenderWaveforms && hasIntersectionObserver) {
+    waveformObserver = new window.IntersectionObserver((entries, observer) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
           observer.unobserve(entry.target);
@@ -638,7 +640,7 @@ const refreshTrackList = () => {
     const fragment = document.createDocumentFragment();
     const end = Math.min(tracks.length, renderState.index + TRACK_RENDER_BATCH_SIZE);
     for (let i = renderState.index; i < end; i += 1) {
-      fragment.appendChild(buildTrackRow(tracks[i], i, thisGeneration));
+      fragment.appendChild(buildTrackRow(tracks[i], i, thisGeneration, shouldRenderWaveforms));
     }
     trackList.appendChild(fragment);
     renderState.index = end;
@@ -646,7 +648,9 @@ const refreshTrackList = () => {
       rowRenderHandle = scheduleIdle(renderBatch, 32);
     } else {
       rowRenderHandle = null;
-      pumpWaveformQueue();
+      if (shouldRenderWaveforms) {
+        pumpWaveformQueue();
+      }
       pruneWaveformCache(tracks.map((t) => t.file));
     }
   };
