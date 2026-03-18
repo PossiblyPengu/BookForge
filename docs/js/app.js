@@ -103,6 +103,34 @@ themeToggle.addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Performance helpers
+// ---------------------------------------------------------------------------
+const TRACK_RENDER_BATCH_SIZE = 20;
+const MAX_WAVEFORM_CONCURRENCY = 2;
+const AUTO_LOOKUP_IDLE_DELAY = 1600;
+
+const supportsIdleCallback = typeof window.requestIdleCallback === "function";
+const supportsIdleCancel = typeof window.cancelIdleCallback === "function";
+
+const scheduleIdle = (fn, timeout = 500) => {
+  if (supportsIdleCallback) {
+    const id = window.requestIdleCallback(fn, { timeout });
+    return { type: "idle", id };
+  }
+  const id = window.setTimeout(fn, timeout);
+  return { type: "timeout", id };
+};
+
+const cancelScheduled = (handle) => {
+  if (!handle) return;
+  if (handle.type === "idle" && supportsIdleCancel) {
+    window.cancelIdleCallback(handle.id);
+  } else if (handle.type === "timeout") {
+    clearTimeout(handle.id);
+  }
+};
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 let currentStep = "upload";
@@ -114,6 +142,28 @@ let lookupDebounceTimer = null;
 let lastCompiledBlob = null;
 let lastCompiledFilename = null;
 let onSessionChange = null;
+let autoLookupHandle = null;
+let rowRenderHandle = null;
+let waveformQueue = [];
+let waveformWorkers = 0;
+let waveformObserver = null;
+let undoScheduleHandle = null;
+let sessionSaveHandle = null;
+
+const scheduleAutoLookup = (query) => {
+  cancelScheduled(autoLookupHandle);
+  if (!query) return;
+  autoLookupHandle = scheduleIdle(() => {
+    autoLookupHandle = null;
+    performLookup(query);
+  }, AUTO_LOOKUP_IDLE_DELAY);
+};
+
+const cancelAutoLookup = () => {
+  if (!autoLookupHandle) return;
+  cancelScheduled(autoLookupHandle);
+  autoLookupHandle = null;
+};
 
 // ---------------------------------------------------------------------------
 // Upload file summary (shown when returning to upload step with files)
@@ -390,9 +440,162 @@ previewAudio.addEventListener("ended", stopPreview);
 // ---------------------------------------------------------------------------
 let waveformGeneration = 0;
 
+const teardownTrackRendering = () => {
+  cancelScheduled(rowRenderHandle);
+  rowRenderHandle = null;
+  waveformQueue = [];
+  waveformWorkers = 0;
+  if (waveformObserver) {
+    waveformObserver.disconnect();
+    waveformObserver = null;
+  }
+};
+
+const queueWaveformSlot = (slot) => {
+  const index = parseInt(slot.dataset.trackIndex, 10);
+  const generation = Number(slot.dataset.waveformGeneration);
+  if (!Number.isFinite(index) || !Number.isFinite(generation)) return;
+  waveformQueue.push({ slot, index, generation });
+  pumpWaveformQueue();
+};
+
+const pumpWaveformQueue = () => {
+  while (waveformQueue.length && waveformWorkers < MAX_WAVEFORM_CONCURRENCY) {
+    const task = waveformQueue.shift();
+    if (!task) continue;
+    processWaveformTask(task);
+  }
+};
+
+const processWaveformTask = async ({ slot, index, generation }) => {
+  waveformWorkers += 1;
+  try {
+    if (generation !== waveformGeneration || !slot.isConnected) return;
+    const track = tracks[index];
+    if (!track) return;
+    const canvas = await createWaveform(track.file);
+    if (canvas && slot.isConnected && generation === waveformGeneration) {
+      slot.appendChild(canvas);
+    }
+  } catch (err) {
+    console.warn("Waveform render failed", err);
+  } finally {
+    waveformWorkers = Math.max(0, waveformWorkers - 1);
+    pumpWaveformQueue();
+  }
+};
+
+const attachWaveformSlot = (slot, generation) => {
+  slot.dataset.waveformGeneration = String(generation);
+  if (waveformObserver) {
+    waveformObserver.observe(slot);
+  } else {
+    queueWaveformSlot(slot);
+  }
+};
+
+const buildTrackRow = (track, index, generation) => {
+  const row = document.createElement("div");
+  row.className = "track-row";
+  row.draggable = true;
+  row.dataset.index = index;
+  row.addEventListener("dragstart", (e) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+    row.classList.add("dragging");
+  });
+  row.addEventListener("dragend", () => {
+    row.classList.remove("dragging");
+    trackList.querySelectorAll(".drag-over").forEach((r) => r.classList.remove("drag-over"));
+  });
+  row.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    trackList.querySelectorAll(".drag-over").forEach((r) => r.classList.remove("drag-over"));
+    row.classList.add("drag-over");
+  });
+  row.addEventListener("dragleave", () => row.classList.remove("drag-over"));
+  row.addEventListener("drop", (e) => {
+    e.preventDefault();
+    row.classList.remove("drag-over");
+    const fromIdx = parseInt(e.dataTransfer.getData("text/plain"), 10);
+    const toIdx = parseInt(row.dataset.index, 10);
+    if (fromIdx !== toIdx && Number.isFinite(fromIdx) && Number.isFinite(toIdx)) {
+      const [item] = tracks.splice(fromIdx, 1);
+      tracks.splice(toIdx, 0, item);
+      stopPreview();
+      refreshTrackList();
+      if (onSessionChange) onSessionChange();
+    }
+  });
+
+  const num = document.createElement("span");
+  num.className = "track-num";
+  num.textContent = String(index + 1).padStart(2, "0");
+
+  const playBtn = document.createElement("button");
+  playBtn.type = "button";
+  playBtn.className = "track-play-btn" + (previewingIndex === index ? " playing" : "");
+  playBtn.title = "Preview";
+  playBtn.innerHTML = previewingIndex === index
+    ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'
+    : '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>';
+  playBtn.addEventListener("click", () => togglePreview(index));
+
+  const body = document.createElement("div");
+  body.className = "track-body";
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.className = "track-chapter-input";
+  nameInput.value = track.chapterName || `Chapter ${index + 1}`;
+  nameInput.addEventListener("change", () => {
+    track.chapterName = nameInput.value.trim() || `Chapter ${index + 1}`;
+    if (onSessionChange) onSessionChange();
+  });
+
+  const detail = document.createElement("span");
+  detail.className = "track-detail";
+  const parts = [track.file.name];
+  if (track.meta) {
+    parts.push(formatDuration(track.meta.duration));
+    parts.push(`${track.meta.bitrate || "?"}kbps`);
+  }
+  parts.push(`${(track.file.size / (1024 * 1024)).toFixed(1)} MB`);
+  detail.textContent = parts.join(" \u00b7 ");
+
+  const waveformSlot = document.createElement("div");
+  waveformSlot.className = "track-waveform-slot";
+  waveformSlot.dataset.trackIndex = index;
+  attachWaveformSlot(waveformSlot, generation);
+
+  body.append(nameInput, detail, waveformSlot);
+
+  const actions = document.createElement("div");
+  actions.className = "track-actions";
+  const mkBtn = (label, cls, handler) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `btn btn-icon${cls ? " " + cls : ""}`;
+    b.textContent = label;
+    b.addEventListener("click", handler);
+    return b;
+  };
+
+  const upBtn = mkBtn("\u2191", "", () => moveTrack(index, index - 1));
+  upBtn.disabled = index === 0;
+  const downBtn = mkBtn("\u2193", "", () => moveTrack(index, index + 1));
+  downBtn.disabled = index === tracks.length - 1;
+  const removeBtn = mkBtn("\u2715", "danger", () => removeTrack(index));
+
+  actions.append(upBtn, downBtn, removeBtn);
+  row.append(num, playBtn, body, actions);
+  return row;
+};
+
 const refreshTrackList = () => {
-  // Increment generation to invalidate any in-flight waveform renders
   const thisGeneration = ++waveformGeneration;
+  teardownTrackRendering();
   trackList.textContent = "";
 
   if (!tracks.length) {
@@ -401,6 +604,7 @@ const refreshTrackList = () => {
     empty.textContent = "No chapters added yet.";
     trackList.appendChild(empty);
     chapterCount.textContent = "";
+    pruneWaveformCache([]);
     return;
   }
 
@@ -408,123 +612,37 @@ const refreshTrackList = () => {
   const totalSize = tracks.reduce((s, t) => s + t.file.size, 0);
   chapterCount.textContent = `${tracks.length} chapters \u00b7 ${formatDuration(totalDuration)} \u00b7 ${(totalSize / (1024 * 1024)).toFixed(1)} MB`;
 
-  const fragment = document.createDocumentFragment();
-  tracks.forEach((track, index) => {
-    const row = document.createElement("div");
-    row.className = "track-row";
-    row.draggable = true;
-    row.dataset.index = index;
-    row.addEventListener("dragstart", (e) => {
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", String(index));
-      row.classList.add("dragging");
-    });
-    row.addEventListener("dragend", () => {
-      row.classList.remove("dragging");
-      trackList.querySelectorAll(".drag-over").forEach((r) => r.classList.remove("drag-over"));
-    });
-    row.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      trackList.querySelectorAll(".drag-over").forEach((r) => r.classList.remove("drag-over"));
-      row.classList.add("drag-over");
-    });
-    row.addEventListener("dragleave", () => row.classList.remove("drag-over"));
-    row.addEventListener("drop", (e) => {
-      e.preventDefault();
-      row.classList.remove("drag-over");
-      const fromIdx = parseInt(e.dataTransfer.getData("text/plain"), 10);
-      const toIdx = parseInt(row.dataset.index, 10);
-      if (fromIdx !== toIdx && Number.isFinite(fromIdx) && Number.isFinite(toIdx)) {
-        const [item] = tracks.splice(fromIdx, 1);
-        tracks.splice(toIdx, 0, item);
-        stopPreview();
-        refreshTrackList();
-        if (onSessionChange) onSessionChange();
-      }
-    });
+  if (typeof IntersectionObserver === "function") {
+    waveformObserver = new IntersectionObserver((entries, observer) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          observer.unobserve(entry.target);
+          queueWaveformSlot(entry.target);
+        }
+      });
+    }, { root: trackList, rootMargin: "200px 0px", threshold: 0.1 });
+  }
 
-    const num = document.createElement("span");
-    num.className = "track-num";
-    num.textContent = String(index + 1).padStart(2, "0");
-
-    const playBtn = document.createElement("button");
-    playBtn.type = "button";
-    playBtn.className = "track-play-btn" + (previewingIndex === index ? " playing" : "");
-    playBtn.title = "Preview";
-    playBtn.innerHTML = previewingIndex === index
-      ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'
-      : '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>';
-    playBtn.addEventListener("click", () => togglePreview(index));
-
-    const body = document.createElement("div");
-    body.className = "track-body";
-
-    const nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.className = "track-chapter-input";
-    nameInput.value = track.chapterName || `Chapter ${index + 1}`;
-    nameInput.addEventListener("change", () => {
-      track.chapterName = nameInput.value.trim() || `Chapter ${index + 1}`;
-      if (onSessionChange) onSessionChange();
-    });
-
-    const detail = document.createElement("span");
-    detail.className = "track-detail";
-    const parts = [track.file.name];
-    if (track.meta) {
-      parts.push(formatDuration(track.meta.duration));
-      parts.push(`${track.meta.bitrate || "?"}kbps`);
-    }
-    parts.push(`${(track.file.size / (1024 * 1024)).toFixed(1)} MB`);
-    detail.textContent = parts.join(" \u00b7 ");
-
-    // Waveform placeholder — rendered lazily
-    const waveformSlot = document.createElement("div");
-    waveformSlot.className = "track-waveform-slot";
-    waveformSlot.dataset.trackIndex = index;
-
-    body.append(nameInput, detail, waveformSlot);
-
-    const actions = document.createElement("div");
-    actions.className = "track-actions";
-    const mkBtn = (label, cls, handler) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = `btn btn-icon${cls ? " " + cls : ""}`;
-      b.textContent = label;
-      b.addEventListener("click", handler);
-      return b;
-    };
-
-    const upBtn = mkBtn("\u2191", "", () => moveTrack(index, index - 1));
-    upBtn.disabled = index === 0;
-    const downBtn = mkBtn("\u2193", "", () => moveTrack(index, index + 1));
-    downBtn.disabled = index === tracks.length - 1;
-    const removeBtn = mkBtn("\u2715", "danger", () => removeTrack(index));
-
-    actions.append(upBtn, downBtn, removeBtn);
-    row.append(num, playBtn, body, actions);
-    fragment.append(row);
-  });
-  trackList.append(fragment);
-
-  // Lazily render waveforms (don't block the UI)
-  requestAnimationFrame(() => {
-    // Bail out if a newer refresh has already started
+  const renderState = { index: 0 };
+  const renderBatch = () => {
     if (thisGeneration !== waveformGeneration) return;
-    const slots = trackList.querySelectorAll(".track-waveform-slot");
-    slots.forEach(async (slot) => {
-      const idx = parseInt(slot.dataset.trackIndex, 10);
-      const track = tracks[idx];
-      if (!track) return;
-      const canvas = await createWaveform(track.file);
-      // Only append if this render is still the current generation
-      if (canvas && slot.isConnected && thisGeneration === waveformGeneration) {
-        slot.appendChild(canvas);
-      }
-    });
-  });
+    const fragment = document.createDocumentFragment();
+    const end = Math.min(tracks.length, renderState.index + TRACK_RENDER_BATCH_SIZE);
+    for (let i = renderState.index; i < end; i += 1) {
+      fragment.appendChild(buildTrackRow(tracks[i], i, thisGeneration));
+    }
+    trackList.appendChild(fragment);
+    renderState.index = end;
+    if (renderState.index < tracks.length) {
+      rowRenderHandle = scheduleIdle(renderBatch, 32);
+    } else {
+      rowRenderHandle = null;
+      pumpWaveformQueue();
+      pruneWaveformCache(tracks.map((t) => t.file));
+    }
+  };
+
+  renderBatch();
 };
 
 // ---------------------------------------------------------------------------
@@ -683,8 +801,9 @@ const addFiles = async (fileList) => {
   const searchQ = [inferredBook?.title, inferredBook?.author].filter(Boolean).join(" ");
   if (searchQ.length >= 3) {
     lookupQuery.value = searchQ;
-    performLookup(searchQ);
+    scheduleAutoLookup(searchQ);
   } else {
+    cancelAutoLookup();
     matchResultsGrid.textContent = "";
     coverResultsStrip.textContent = "";
     const empty = document.createElement("div");
@@ -999,15 +1118,20 @@ coverRemoveBtn.addEventListener("click", removeCover);
 
 // Lookup (with debounce)
 const debouncedLookup = () => {
+  cancelAutoLookup();
   clearTimeout(lookupDebounceTimer);
   lookupDebounceTimer = setTimeout(() => performLookup(lookupQuery.value), 400);
 };
-lookupBtn.addEventListener("click", () => performLookup(lookupQuery.value));
+lookupBtn.addEventListener("click", () => {
+  cancelAutoLookup();
+  performLookup(lookupQuery.value);
+});
 lookupQuery.addEventListener("input", debouncedLookup);
 lookupQuery.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
     clearTimeout(lookupDebounceTimer);
+    cancelAutoLookup();
     performLookup(lookupQuery.value);
   }
 });
@@ -1185,15 +1309,15 @@ const restoreState = (saved) => {
   goToStep(saved.currentStep || "upload");
 };
 
-let sessionSaveTimer = null;
-const debouncedSave = () => {
-  clearTimeout(sessionSaveTimer);
-  sessionSaveTimer = setTimeout(async () => {
+const scheduleSessionSave = () => {
+  cancelScheduled(sessionSaveHandle);
+  sessionSaveHandle = scheduleIdle(async () => {
+    sessionSaveHandle = null;
     const result = await saveSession(gatherState());
     if (result?.error === "QuotaExceededError") {
       updateStatus("Storage full — session not saved", "error");
     }
-  }, 1000);
+  }, 1200);
 };
 
 // ---------------------------------------------------------------------------
@@ -1229,6 +1353,13 @@ const applyUndoState = (state) => {
 
 // Push initial state on any tracked change
 const pushUndoState = () => pushState(getUndoState);
+const scheduleUndoSnapshot = () => {
+  cancelScheduled(undoScheduleHandle);
+  undoScheduleHandle = scheduleIdle(() => {
+    undoScheduleHandle = null;
+    pushUndoState();
+  }, 600);
+};
 
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
@@ -1242,13 +1373,13 @@ document.addEventListener("keydown", (e) => {
 });
 
 // Wire up the session change callback (used by goToStep, etc.)
-onSessionChange = () => { pushUndoState(); debouncedSave(); };
+onSessionChange = () => { scheduleUndoSnapshot(); scheduleSessionSave(); };
 
 // Save on form field changes
 [titleInput, authorInput, yearInput, genreInput, narratorInput, seriesInput, booknumInput, descriptionInput]
   .forEach((el) => {
-    el.addEventListener("input", debouncedSave);
-    el.addEventListener("change", pushUndoState);
+    el.addEventListener("input", scheduleSessionSave);
+    el.addEventListener("change", scheduleUndoSnapshot);
   });
 
 // Init — restore session or start fresh
