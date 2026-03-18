@@ -17,6 +17,7 @@ const fileInput = $("file-input");
 const coverInput = $("cover-input");
 const trackList = $("track-list");
 const chapterCount = $("chapter-count");
+const waveformToggleBtn = $("waveform-toggle");
 const addMoreBtn = $("add-more-btn");
 const clearAllButton = $("clear-all");
 const compileButton = $("compile-button");
@@ -152,6 +153,24 @@ let waveformObserver = null;
 let undoScheduleHandle = null;
 let sessionSaveHandle = null;
 let savedTrackKeys = new Set();
+let waveformsEnabled = localStorage.getItem("bf-waveforms") !== "off";
+
+const updateWaveformToggleUI = () => {
+  if (!waveformToggleBtn) return;
+  waveformToggleBtn.textContent = waveformsEnabled ? "Waveforms On" : "Waveforms Off";
+  waveformToggleBtn.title = waveformsEnabled ? "Click to hide waveforms" : "Click to show waveforms";
+  waveformToggleBtn.classList.toggle("btn-muted", !waveformsEnabled);
+};
+
+if (waveformToggleBtn) {
+  waveformToggleBtn.addEventListener("click", () => {
+    waveformsEnabled = !waveformsEnabled;
+    localStorage.setItem("bf-waveforms", waveformsEnabled ? "on" : "off");
+    updateWaveformToggleUI();
+    refreshTrackList();
+  });
+  updateWaveformToggleUI();
+}
 
 const scheduleAutoLookup = (query) => {
   cancelScheduled(autoLookupHandle);
@@ -621,7 +640,7 @@ const refreshTrackList = () => {
   const totalSize = tracks.reduce((s, t) => s + t.file.size, 0);
   chapterCount.textContent = `${tracks.length} chapters \u00b7 ${formatDuration(totalDuration)} \u00b7 ${(totalSize / (1024 * 1024)).toFixed(1)} MB`;
 
-  const shouldRenderWaveforms = tracks.length <= WAVEFORM_TRACK_LIMIT;
+  const shouldRenderWaveforms = waveformsEnabled && tracks.length <= WAVEFORM_TRACK_LIMIT;
 
   if (shouldRenderWaveforms && hasIntersectionObserver) {
     waveformObserver = new window.IntersectionObserver((entries, observer) => {
