@@ -1,6 +1,7 @@
 import { inferBook, extractSortKey, detectSeries } from "./book-parser.js";
 import { searchBooks, fetchCoverBlob, fetchBookDetails } from "./book-lookup.js";
 import { extractMetadata } from "./metadata.js";
+import { isSupportedBookFile, extractMetadataFromBookFile } from "./book-file-import.js";
 import { saveSession, loadSession, clearSession } from "./session.js";
 import { compileM4B } from "./compiler.js";
 import { createWaveform, pruneWaveformCache } from "./waveform.js";
@@ -12,6 +13,8 @@ import { importFromDrive, exportToDrive, gdriveDownloading, isPickerHidden, setP
 // ---------------------------------------------------------------------------
 const $ = (id) => document.getElementById(id);
 const form = $("compile-form");
+const DEFAULT_TITLE = "Untitled Audiobook";
+const DEFAULT_AUTHOR = "Unknown";
 const dropZone = $("drop-zone");
 const fileInput = $("file-input");
 const coverInput = $("cover-input");
@@ -382,6 +385,59 @@ const formatDuration = (seconds) => {
 
 const fileKey = (file) => `${file.name}|${file.size}|${file.lastModified}`;
 
+const isMp3File = (file) => file?.type === "audio/mpeg" || file?.name?.toLowerCase().endsWith(".mp3");
+
+const setFieldIfDefault = (input, value, defaultValue) => {
+  if (!input || !value) return false;
+  const trimmed = String(value).trim();
+  if (!trimmed) return false;
+  if (!input.value || input.value === defaultValue) {
+    input.value = trimmed;
+    return true;
+  }
+  return false;
+};
+
+const setFieldIfEmpty = (input, value) => {
+  if (!input || !value) return false;
+  const trimmed = String(value).trim();
+  if (!trimmed || input.value?.trim()) return false;
+  input.value = trimmed;
+  return true;
+};
+
+const applyBookFileMetadata = (meta) => {
+  if (!meta) return;
+  const updated = [];
+  if (setFieldIfDefault(titleInput, meta.title, DEFAULT_TITLE)) updated.push("title");
+  if (setFieldIfDefault(authorInput, meta.author, DEFAULT_AUTHOR)) updated.push("author");
+  if (setFieldIfEmpty(descriptionInput, meta.description)) updated.push("description");
+  if (setFieldIfEmpty(narratorInput, meta.narrator)) updated.push("narrator");
+  if (meta.coverBlob && meta.coverBlob.size) {
+    setCover(meta.coverBlob);
+    updated.push("cover");
+  }
+  if (updated.length && onSessionChange) onSessionChange();
+};
+
+const processBookFiles = async (bookFiles, { keepStatus = false } = {}) => {
+  if (!bookFiles.length) return;
+  uploadStatus.hidden = false;
+  uploadStatusText.textContent = `Reading metadata from ${bookFiles.length} book file${bookFiles.length > 1 ? "s" : ""}...`;
+  for (const file of bookFiles) {
+    try {
+      uploadStatusText.textContent = `Processing ${file.name}...`;
+      const meta = await extractMetadataFromBookFile(file);
+      applyBookFileMetadata(meta);
+    } catch (err) {
+      console.warn("Book file metadata extraction failed for", file.name, err);
+    }
+  }
+  if (!keepStatus) {
+    uploadStatus.hidden = true;
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Cover art management
 // ---------------------------------------------------------------------------
@@ -746,9 +802,15 @@ const sortTracks = () => {
 };
 
 const addFiles = async (fileList) => {
-  const mp3Files = Array.from(fileList).filter(
-    (file) => file.type === "audio/mpeg" || file.name.toLowerCase().endsWith(".mp3")
-  );
+  const files = Array.from(fileList || []);
+  const mp3Files = files.filter((file) => isMp3File(file));
+  const bookFiles = files.filter((file) => !isMp3File(file) && isSupportedBookFile(file));
+  if (!mp3Files.length && !bookFiles.length) return;
+
+  if (bookFiles.length) {
+    await processBookFiles(bookFiles, { keepStatus: mp3Files.length > 0 });
+  }
+
   if (!mp3Files.length) return;
 
   // Show loading state on upload panel
