@@ -56,17 +56,6 @@ export const importFromDrive = async (ui) => {
 
   return files;
 };
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "btn btn-ghost btn-xs gdrive-crumb";
-    btn.textContent = crumb.name;
-    btn.addEventListener("click", () => {
-      pickerBreadcrumbs = pickerBreadcrumbs.slice(0, i + 1);
-      navigateToFolder(crumb.id);
-    });
-    gdriveBreadcrumb.appendChild(btn);
-  });
-};
 
 // ---------------------------------------------------------------------------
 // Folder navigation
