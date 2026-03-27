@@ -100,13 +100,17 @@ const validateToken = async (token) => {
 // Try to restore on module load
 restoreCachedToken();
 
-const SCOPES = "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file";
+const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
-const initTokenClient = (resolve, reject, promptMode) => {
-  if (!tokenClient) {
+
+let lastScope = null;
+const initTokenClient = (scope, resolve, reject, promptMode) => {
+  // If scope changes, re-init the token client
+  if (!tokenClient || lastScope !== scope) {
     tokenClient = window.google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
-      scope: SCOPES,
+      scope,
       callback: (resp) => {
         if (resp.error) {
           reject(new Error(resp.error_description || resp.error));
@@ -129,11 +133,18 @@ const initTokenClient = (resolve, reject, promptMode) => {
         reject(new Error(err.message || "Google sign-in failed"));
       },
     });
+    lastScope = scope;
   }
   tokenClient.requestAccessToken({ prompt: promptMode });
 };
 
-export const ensureAuth = async () => {
+
+/**
+ * Ensure authentication for a given Drive scope.
+ * @param {string} scope - OAuth scope to request (e.g., DRIVE_READONLY_SCOPE or DRIVE_FILE_SCOPE)
+ * @returns {Promise<string>} accessToken
+ */
+export const ensureAuth = async (scope) => {
   // 1. Use in-memory token if available
   if (accessToken) return accessToken;
 
@@ -150,12 +161,16 @@ export const ensureAuth = async () => {
     sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
   }
 
-  await ensureGIS();
+  try {
+    await ensureGIS();
+  } catch (err) {
+    throw new Error("Failed to load Google Identity Services: " + err.message);
+  }
 
   // 3. Try silent re-auth (no popup if user previously consented)
   try {
     return await new Promise((resolve, reject) => {
-      initTokenClient(resolve, reject, "none");
+      initTokenClient(scope, resolve, reject, "none");
     });
   } catch {
     // Silent auth failed — fall through to interactive prompt
@@ -163,7 +178,7 @@ export const ensureAuth = async () => {
 
   // 4. Interactive consent (shows popup)
   return new Promise((resolve, reject) => {
-    initTokenClient(resolve, reject, "consent");
+    initTokenClient(scope, resolve, reject, "consent");
   });
 };
 
@@ -206,7 +221,7 @@ const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
  * @returns {Promise<Array<{id, name, mimeType, size}>>}
  */
 export const listFolder = async (folderId = "root") => {
-  const token = await ensureAuth();
+  const token = await ensureAuth(DRIVE_READONLY_SCOPE);
   const q = `'${folderId}' in parents and trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType = 'audio/mpeg')`;
   const fields = "files(id,name,mimeType,size)";
   const orderBy = "folder,name";
@@ -236,7 +251,7 @@ export const listFolder = async (folderId = "root") => {
  * @returns {Promise<File[]>}
  */
 export const downloadFiles = async (items, onProgress) => {
-  const token = await ensureAuth();
+  const token = await ensureAuth(DRIVE_READONLY_SCOPE);
   const files = [];
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
@@ -293,7 +308,7 @@ export const downloadFiles = async (items, onProgress) => {
  * @returns {Promise<{id: string, webViewLink: string}>}
  */
 export const uploadToDrive = async (blob, filename) => {
-  const token = await ensureAuth();
+  const token = await ensureAuth(DRIVE_FILE_SCOPE);
 
   const metadata = {
     name: filename,

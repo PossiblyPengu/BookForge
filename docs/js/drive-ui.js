@@ -299,10 +299,18 @@ gdriveSelectAll.addEventListener("change", () => {
  * @param {{ updateStatus: Function, setIdle: Function }} ui
  * @returns {Promise<File[]>}
  */
-export const importFromDrive = async (ui) => {
+
+  ui.updateStatus("To import files, BookForge needs permission to read your Google Drive. No files will be modified.", "info");
+  await new Promise((r) => setTimeout(r, 1800));
   ui.updateStatus("Connecting to Google Drive...");
-  await ensureAuth();
-  ui.setIdle();
+  try {
+    await ensureAuth("https://www.googleapis.com/auth/drive.readonly");
+    ui.setIdle();
+  } catch (err) {
+    ui.updateStatus(err.message || "Google Drive authentication failed", "error");
+    setTimeout(ui.setIdle, 3000);
+    return [];
+  }
 
   const selected = await openDrivePicker();
   if (!selected.length) return [];
@@ -346,10 +354,17 @@ export const importFromDrive = async (ui) => {
 export const exportToDrive = async (blob, filename, ui) => {
   ui.updateStatus("Uploading to Google Drive...");
   ui.showProgress(50);
-  const result = await uploadToDrive(blob, filename);
-  ui.showProgress(100);
-  ui.setIdle("Saved to Google Drive!");
-  return result;
+  try {
+    const result = await uploadToDrive(blob, filename);
+    ui.showProgress(100);
+    ui.setIdle("Saved to Google Drive!");
+    return result;
+  } catch (err) {
+    ui.showProgress(0);
+    ui.updateStatus(err.message || "Google Drive upload failed", "error");
+    setTimeout(ui.setIdle, 3000);
+    return {};
+  }
 };
 
 /**
