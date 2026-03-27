@@ -308,8 +308,13 @@ export const importFromDrive = async (ui) => {
     await ensureAuth("https://www.googleapis.com/auth/drive.readonly");
     ui.setIdle();
   } catch (err) {
-    ui.updateStatus(err.message || "Google Drive authentication failed", "error");
-    setTimeout(ui.setIdle, 3000);
+    // Special handling for GIS popup closed/cancelled
+    if (err && (err.message === "Popup window closed" || err.message === "Failed to open popup window" || /popup/i.test(err.message))) {
+      ui.updateStatus("Google sign-in was not completed. Please try again and complete the sign-in in the popup window.", "error");
+    } else {
+      ui.updateStatus(err.message || "Google Drive authentication failed", "error");
+    }
+    setTimeout(ui.setIdle, 4000);
     return [];
   }
 
