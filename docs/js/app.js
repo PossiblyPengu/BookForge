@@ -1316,24 +1316,27 @@ form.addEventListener("submit", async (e) => {
 // ---------------------------------------------------------------------------
 // Google Drive import / export (picker UI in drive-ui.js)
 // ---------------------------------------------------------------------------
-gdriveImportBtn.addEventListener("click", async () => {
-  // iOS detection
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Mac") && "ontouchend" in document);
-  if (isIOS) {
-    updateStatus("Google Drive import is not supported on iOS. Please use a desktop browser.", "error");
-    setTimeout(setIdle, 4000);
-    return;
-  }
-  try {
-    const files = await importFromDrive(ui);
-    if (files.length) await addFiles(files);
-    else setIdle();
-  } catch (err) {
-    console.error("Google Drive import failed:", err);
-    updateStatus(err.message || "Google Drive import failed", "error");
-    setTimeout(setIdle, 3000);
-  }
-});
+if (!gdriveImportBtn._bfClickHandlerAttached) {
+  gdriveImportBtn._bfClickHandlerAttached = true;
+  gdriveImportBtn.addEventListener("click", async () => {
+    // iOS detection
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Mac") && "ontouchend" in document);
+    if (isIOS) {
+      updateStatus("Google Drive import is not supported on iOS. Please use a desktop browser.", "error");
+      setTimeout(setIdle, 4000);
+      return;
+    }
+    try {
+      const files = await importFromDrive(ui);
+      if (files.length) await addFiles(files);
+      else setIdle();
+    } catch (err) {
+      console.error("Google Drive import failed:", err);
+      updateStatus(err.message || "Google Drive import failed", "error");
+      setTimeout(setIdle, 3000);
+    }
+  });
+}
 
 gdriveExportBtn.addEventListener("click", async () => {
   if (!lastCompiledBlob || !lastCompiledFilename) return;
