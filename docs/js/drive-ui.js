@@ -288,7 +288,7 @@ gdriveSelectAll.addEventListener("change", () => {
  * @param {{ updateStatus: Function, setIdle: Function }} ui
  * @returns {Promise<File[]>}
  */
-
+export const importFromDrive = async (ui) => {
   ui.updateStatus("To import files, BookForge needs permission to read your Google Drive. No files will be modified.", "info");
   await new Promise((r) => setTimeout(r, 1800));
   ui.updateStatus("Connecting to Google Drive...");
@@ -331,6 +331,7 @@ gdriveSelectAll.addEventListener("change", () => {
   hideDownloadProgress();
 
   return files;
+};
 };
 
 /**
