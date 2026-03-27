@@ -1319,6 +1319,7 @@ form.addEventListener("submit", async (e) => {
 if (!gdriveImportBtn._bfClickHandlerAttached) {
   gdriveImportBtn._bfClickHandlerAttached = true;
   gdriveImportBtn.addEventListener("click", async () => {
+    console.log("[DIAG] GDrive import button clicked");
     // iOS detection
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Mac") && "ontouchend" in document);
     if (isIOS) {
