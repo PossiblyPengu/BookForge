@@ -385,7 +385,7 @@
     <script src="js/app.js" type="module"></script>
     <script>
       if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("sw.js").then((reg) => {
+        navigator.serviceWorker.register("sw.js", { scope: "./" }).then((reg) => {
           // Tell SW whether to use credentialless COEP (non-Chrome)
           const useCredentialless = !(window.chrome || window.netscape);
           if (navigator.serviceWorker.controller) {
