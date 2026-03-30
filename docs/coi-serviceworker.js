@@ -89,25 +89,8 @@ if (typeof window === 'undefined') {
             return;
         }
 
-        if (n.serviceWorker) {
-            n.serviceWorker.register(window.document.currentScript.src).then(
-                (registration) => {
-                    !coi.quiet && console.log("COOP/COEP Service Worker registered", registration.scope);
-
-                    registration.addEventListener("updatefound", () => {
-                        !coi.quiet && console.log("Reloading page to make use of updated COOP/COEP Service Worker.");
-                        coi.doReload();
-                    });
-
-                    if (registration.active && !n.serviceWorker.controller) {
-                        !coi.quiet && console.log("Reloading page to make use of COOP/COEP Service Worker.");
-                        coi.doReload();
-                    }
-                },
-                (err) => {
-                    !coi.quiet && console.error("COOP/COEP Service Worker failed to register:", err);
-                }
-            );
-        }
+        // Service worker self-registration disabled to avoid multiple SWs.
+        // The main service worker (sw.js) is registered from index.html instead.
+        // If you need to enable this in the future, restore the registration code here.
     })();
 }
