@@ -1,4 +1,3 @@
-
 /* global caches, Headers, Request, Response */
 /**
  * sw.js — BookForge unified service worker
@@ -82,7 +81,7 @@ self.addEventListener("fetch", (event) => {
       ? new Request(r, { credentials: "omit" })
       : r;
     event.respondWith(
-      fetch(request).then((resp) => addIsolationHeaders(resp))
+      fetch(request).then((resp) => addIsolationHeaders(resp, r.url))
     );
     return;
   }
@@ -91,8 +90,8 @@ self.addEventListener("fetch", (event) => {
   if (r.mode === "navigate") {
     event.respondWith(
       fetch(r)
-        .then((resp) => addIsolationHeaders(resp))
-        .catch(() => caches.match("./index.html").then((c) => c ? addIsolationHeaders(c) : c))
+        .then((resp) => addIsolationHeaders(resp, r.url))
+        .catch(() => caches.match("./index.html").then((c) => c ? addIsolationHeaders(c, r.url) : c))
     );
     return;
   }
@@ -107,7 +106,7 @@ self.addEventListener("fetch", (event) => {
             caches.open(CACHE_NAME).then((cache) => cache.put(r, resp));
           }
         }).catch(() => {});
-        return addIsolationHeaders(cached);
+        return addIsolationHeaders(cached, r.url);
       }
       // Not cached — fetch, cache, and return
       return fetch(r).then((resp) => {
@@ -115,7 +114,7 @@ self.addEventListener("fetch", (event) => {
           const clone = resp.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(r, clone));
         }
-        return addIsolationHeaders(resp);
+        return addIsolationHeaders(resp, r.url);
       });
     })
   );
@@ -124,8 +123,12 @@ self.addEventListener("fetch", (event) => {
 /**
  * Add cross-origin isolation headers to a response so SharedArrayBuffer works.
  */
-function addIsolationHeaders(response) {
+function addIsolationHeaders(response, url) {
   if (!response || response.status === 0) return response;
+  // Do NOT add COOP/COEP headers to index.html (main app shell)
+  if (url && /index\.html(\?.*)?$/.test(url)) {
+    return response;
+  }
   const headers = new Headers(response.headers);
   headers.set(
     "Cross-Origin-Embedder-Policy",
