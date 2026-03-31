@@ -38,7 +38,7 @@ const renderBreadcrumbs = () => {
  */
 
 
-import { ensureDriveAuth, listFolder, downloadFiles, uploadToDrive } from "./gdrive.js";
+import { ensureDriveAuth, listFolder, downloadFiles, uploadToDrive, isSignedIn } from "./gdrive.js";
 
 // DOM references
 const $ = (id) => document.getElementById(id);
@@ -304,8 +304,10 @@ gdriveSelectAll.addEventListener("change", () => {
  */
 export const importFromDrive = async (ui) => {
   console.debug("[DriveUI] importFromDrive called", { time: new Date().toISOString(), stack: (new Error().stack) });
-  ui.updateStatus("To import files, BookForge needs permission to read your Google Drive. No files will be modified.", "info");
-  await new Promise((r) => setTimeout(r, 1800));
+  if (!isSignedIn()) {
+    ui.updateStatus("To import files, BookForge needs permission to read your Google Drive. No files will be modified.", "info");
+    await new Promise((r) => setTimeout(r, 1800));
+  }
   ui.updateStatus("Connecting to Google Drive...");
   try {
     console.debug("[DriveUI] Calling ensureAuth", { time: new Date().toISOString() });

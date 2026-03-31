@@ -113,7 +113,13 @@ const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
 
 let lastScope = null;
+let pendingResolve = null;
+let pendingReject = null;
 const initTokenClient = (scope, resolve, reject, promptMode) => {
+  // Always update the pending callbacks so the current caller's promise settles
+  pendingResolve = resolve;
+  pendingReject = reject;
+
   // If scope changes, re-init the token client
   if (!tokenClient || lastScope !== scope) {
     console.debug("[GIS] Initializing token client", { client_id: GOOGLE_CLIENT_ID, scope, promptMode, time: new Date().toISOString(), stack: (new Error().stack) });
@@ -124,7 +130,7 @@ const initTokenClient = (scope, resolve, reject, promptMode) => {
         console.debug("[GIS] Callback response", { resp, time: new Date().toISOString(), stack: (new Error().stack) });
         if (resp.error) {
           console.error("GIS error in callback:", resp.error, resp.error_description);
-          reject(new Error(resp.error_description || resp.error));
+          pendingReject?.(new Error(resp.error_description || resp.error));
           return;
         }
         if (!resp.access_token) {
@@ -141,11 +147,11 @@ const initTokenClient = (scope, resolve, reject, promptMode) => {
           notifyAuthChange();
         }, (resp.expires_in - 60) * 1000);
         notifyAuthChange();
-        resolve(accessToken);
+        pendingResolve?.(accessToken);
       },
       error_callback: (err) => {
         console.error("[GIS] error_callback", { err, time: new Date().toISOString(), stack: (new Error().stack) });
-        reject(new Error(err.message || "Google sign-in failed"));
+        pendingReject?.(new Error(err.message || "Google sign-in failed"));
       },
     });
     lastScope = scope;
@@ -360,7 +366,7 @@ export const uploadToDrive = async (blob, filename) => {
 
   const body = new Blob([metaPart, mediaPart, blob, closePart]);
 
-  const resp = await fetchWithTimeout(
+  const resp = await fetch(
     "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
     {
       method: "POST",
@@ -381,26 +387,87 @@ export const uploadToDrive = async (blob, filename) => {
 };
 
 function isIOS() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.userAgent.includes("Mac") && "ontouchend" in document);
 }
+
+// ---------------------------------------------------------------------------
+// iOS redirect-based OAuth helpers
+// ---------------------------------------------------------------------------
+const REDIRECT_PENDING_KEY = "bf-gdrive-redirect-pending";
+
+/**
+ * Parse the access_token from the URL fragment after an iOS OAuth redirect.
+ * Returns true if a valid token was found and stored.
+ */
+export const handleRedirectReturn = () => {
+  const hash = window.location.hash;
+  if (!hash || !hash.includes("access_token")) return false;
+
+  const params = new URLSearchParams(hash.substring(1));
+  const token = params.get("access_token");
+  const expiresIn = parseInt(params.get("expires_in") || "0", 10);
+  const state = params.get("state");
+
+  if (!token || state !== "drive-ios") return false;
+
+  accessToken = token;
+  cacheToken(token, expiresIn);
+
+  if (tokenExpiryTimer) clearTimeout(tokenExpiryTimer);
+  tokenExpiryTimer = setTimeout(() => {
+    tokenExpiryTimer = null;
+    accessToken = null;
+    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+    sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+    notifyAuthChange();
+  }, (expiresIn - 60) * 1000);
+
+  notifyAuthChange();
+
+  // Clean token from the URL so it isn't leaked in history / referrer
+  window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  return true;
+};
+
+/** Check whether we are returning from an iOS OAuth redirect that should resume import. */
+export const hasPendingRedirect = () => {
+  try { return sessionStorage.getItem(REDIRECT_PENDING_KEY) === "import"; }
+  catch { return false; }
+};
+
+export const clearPendingRedirect = () => {
+  try { sessionStorage.removeItem(REDIRECT_PENDING_KEY); } catch { /* ignore */ }
+};
 
 // Wrapper for Drive auth that handles iOS gracefully
 export const ensureDriveAuth = async (scope) => {
   if (isIOS()) {
-    // Option 1: Use redirect-based OAuth (recommended for iOS)
-    // You must configure your OAuth client for this redirect URI
+    // If we already have a valid token (e.g. from redirect return), use it
+    if (accessToken) return accessToken;
+
+    // For export (drive.file scope), we cannot redirect because the compiled
+    // blob would be lost on page reload. Ask user to import first.
+    if (scope === DRIVE_FILE_SCOPE) {
+      throw new Error("Please import from Google Drive first to sign in, then export will work.");
+    }
+
+    // Set flag so the app auto-resumes import after redirect
+    try { sessionStorage.setItem(REDIRECT_PENDING_KEY, "import"); } catch { /* ignore */ }
+
+    // Request both scopes so the token also covers export later
+    const bothScopes = `${DRIVE_READONLY_SCOPE} ${DRIVE_FILE_SCOPE}`;
     const redirectUri = window.location.origin + window.location.pathname;
     const params = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
       redirect_uri: redirectUri,
       response_type: 'token',
-      scope,
+      scope: bothScopes,
       include_granted_scopes: 'true',
       state: 'drive-ios',
     });
     window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-    // The app should handle the access_token in the URL fragment after redirect
-    return new Promise(() => {}); // Prevent further execution
+    return new Promise(() => {}); // Prevent further execution until redirect
   }
   // Non-iOS: use popup-based flow
   return ensureAuth(scope);

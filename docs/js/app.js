@@ -7,6 +7,7 @@ import { compileM4B } from "./compiler.js";
 import { createWaveform, pruneWaveformCache } from "./waveform.js";
 import { pushState, undo, redo, clearHistory } from "./history.js";
 import { importFromDrive, exportToDrive, gdriveDownloading, isPickerHidden, setPickerVisible } from "./drive-ui.js";
+import { handleRedirectReturn, hasPendingRedirect, clearPendingRedirect } from "./gdrive.js";
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -1320,13 +1321,6 @@ if (!gdriveImportBtn._bfClickHandlerAttached) {
   gdriveImportBtn._bfClickHandlerAttached = true;
   gdriveImportBtn.addEventListener("click", async () => {
     console.log("[DIAG] GDrive import button clicked");
-    // iOS detection
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Mac") && "ontouchend" in document);
-    if (isIOS) {
-      updateStatus("Google Drive import is not supported on iOS. Please use a desktop browser.", "error");
-      setTimeout(setIdle, 4000);
-      return;
-    }
     try {
       const files = await importFromDrive(ui);
       if (files.length) await addFiles(files);
@@ -1337,6 +1331,26 @@ if (!gdriveImportBtn._bfClickHandlerAttached) {
       setTimeout(setIdle, 3000);
     }
   });
+}
+
+// Auto-resume Google Drive import after iOS OAuth redirect
+if (handleRedirectReturn() && hasPendingRedirect()) {
+  clearPendingRedirect();
+  // Token is now stored — trigger the import flow automatically
+  (async () => {
+    try {
+      const files = await importFromDrive(ui);
+      if (files.length) await addFiles(files);
+      else setIdle();
+    } catch (err) {
+      console.error("Google Drive import (redirect resume) failed:", err);
+      updateStatus(err.message || "Google Drive import failed", "error");
+      setTimeout(setIdle, 3000);
+    }
+  })();
+} else {
+  // No redirect — clean up any stale pending flag
+  clearPendingRedirect();
 }
 
 gdriveExportBtn.addEventListener("click", async () => {
