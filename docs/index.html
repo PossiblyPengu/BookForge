@@ -388,27 +388,18 @@
       if ("serviceWorker" in navigator) {
         // Deregister stale coi-serviceworker.js registrations — they inject
         // Cross-Origin-Opener-Policy: same-origin which breaks Google OAuth popups.
+        // If any stale workers are found, unregister them and reload so the
+        // current page is no longer running under that COOP header.
         navigator.serviceWorker.getRegistrations().then((regs) => {
-          regs.forEach((reg) => {
-            if (reg.active && reg.active.scriptURL.includes("coi-serviceworker")) {
-              reg.unregister();
-            }
-          });
-        }).catch(() => {});
-
-        navigator.serviceWorker.register("sw.js", { scope: "./" }).then((reg) => {
-          // Tell SW whether to use credentialless COEP (non-Chrome)
-          const useCredentialless = !(window.chrome || window.netscape);
-          if (navigator.serviceWorker.controller) {
-            navigator.serviceWorker.controller.postMessage({
-              type: "coepCredentialless",
-              value: useCredentialless,
-            });
+          const stale = regs.filter((reg) =>
+            reg.active && reg.active.scriptURL.includes("coi-serviceworker")
+          );
+          if (stale.length > 0) {
+            Promise.all(stale.map((reg) => reg.unregister()))
+              .finally(() => window.location.reload());
+            return;
           }
-          // Reload once to activate cross-origin isolation on first visit
-          if (!window.crossOriginIsolated && reg.active && !navigator.serviceWorker.controller) {
-            window.location.reload();
-          }
+          navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => {});
         }).catch(() => {});
       }
     </script>
