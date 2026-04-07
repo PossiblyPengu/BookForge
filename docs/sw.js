@@ -1,6 +1,6 @@
 
 /* global caches */
-const CACHE_NAME = 'bookforge-cache-v2';
+const CACHE_NAME = 'bookforge-cache-v3';
 const APP_SHELL = [
   './',
   './index.html',
