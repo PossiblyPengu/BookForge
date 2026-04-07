@@ -5,18 +5,30 @@
  * Dynamically loads the jsmediatags library on first use.
  */
 
+let jsmediatagsLoadPromise = null;
+
+const ensureJsmediatags = () => {
+  if (window.jsmediatags) return Promise.resolve();
+  if (jsmediatagsLoadPromise) return jsmediatagsLoadPromise;
+  jsmediatagsLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src =
+      "https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.7/jsmediatags.min.js";
+    script.onload = () => resolve();
+    script.onerror = () => {
+      jsmediatagsLoadPromise = null;
+      reject(new Error("jsmediatags failed to load"));
+    };
+    document.head.appendChild(script);
+  });
+  return jsmediatagsLoadPromise;
+};
+
 const readID3 = (file) =>
   new Promise((resolve) => {
-    if (!window.jsmediatags) {
-      const script = document.createElement("script");
-      script.src =
-        "https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.7/jsmediatags.min.js";
-      script.onload = () => parseTag(file, resolve);
-      script.onerror = () => resolve(null);
-      document.head.appendChild(script);
-    } else {
-      parseTag(file, resolve);
-    }
+    ensureJsmediatags()
+      .then(() => parseTag(file, resolve))
+      .catch(() => resolve(null));
   });
 
 const parseTag = (file, resolve) => {

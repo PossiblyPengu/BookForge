@@ -1232,7 +1232,7 @@ lookupQuery.addEventListener("keydown", (e) => {
 });
 
 // Clear all
-clearAllButton.addEventListener("click", async () => {
+const clearAll = async () => {
   tracks = [];
   inferredBook = null;
   removeCover();
@@ -1249,11 +1249,12 @@ clearAllButton.addEventListener("click", async () => {
   clearHistory();
   await clearSession();
   goToStep("upload");
-});
+};
+clearAllButton.addEventListener("click", clearAll);
 
 // Upload summary buttons
 uploadAddMoreBtn.addEventListener("click", () => fileInput.click());
-uploadClearBtn.addEventListener("click", () => clearAllButton.click());
+uploadClearBtn.addEventListener("click", clearAll);
 uploadNextBtn.addEventListener("click", () => goToStep("match"));
 
 // Drop zone + file input
@@ -1317,21 +1318,17 @@ form.addEventListener("submit", async (e) => {
 // ---------------------------------------------------------------------------
 // Google Drive import / export (picker UI in drive-ui.js)
 // ---------------------------------------------------------------------------
-if (!gdriveImportBtn._bfClickHandlerAttached) {
-  gdriveImportBtn._bfClickHandlerAttached = true;
-  gdriveImportBtn.addEventListener("click", async () => {
-    console.log("[DIAG] GDrive import button clicked");
-    try {
-      const files = await importFromDrive(ui);
-      if (files.length) await addFiles(files);
-      else setIdle();
-    } catch (err) {
-      console.error("Google Drive import failed:", err);
-      updateStatus(err.message || "Google Drive import failed", "error");
-      setTimeout(setIdle, 3000);
-    }
-  });
-}
+gdriveImportBtn.addEventListener("click", async () => {
+  try {
+    const files = await importFromDrive(ui);
+    if (files.length) await addFiles(files);
+    else setIdle();
+  } catch (err) {
+    console.error("Google Drive import failed:", err);
+    updateStatus(err.message || "Google Drive import failed", "error");
+    setTimeout(setIdle, 3000);
+  }
+});
 
 // Auto-resume Google Drive import after iOS OAuth redirect
 if (handleRedirectReturn() && hasPendingRedirect()) {

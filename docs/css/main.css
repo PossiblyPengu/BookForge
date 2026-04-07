@@ -1206,6 +1206,7 @@ textarea {
   white-space: nowrap;
   line-height: 1;
   outline: none;
+  touch-action: manipulation;
 }
 
 .btn:focus-visible {
@@ -1416,11 +1417,54 @@ textarea {
     padding: 0.4rem 0.5rem;
   }
   .track-actions { opacity: 1; }
+  /* Hide waveform canvas — fixed 200px width overflows narrow rows */
+  .track-waveform-slot { display: none; }
+  .track-list { max-height: 320px; }
   .field-row, .field-row.compact { grid-template-columns: 1fr; }
   .forge-review { padding: 1rem; gap: 1rem; }
   .forge-cover { width: 140px; min-height: 140px; }
   .match-search-bar { flex-direction: column; }
   .match-results-grid { grid-template-columns: 1fr; }
+  /* Prevent iOS Safari from zooming into inputs (requires font-size >= 16px) */
+  input[type="text"],
+  textarea,
+  select { font-size: 1rem; }
+  /* Shrink drop zone so it doesn't eat most of the viewport */
+  .drop-zone { min-height: 200px; padding: 1.5rem 1rem; }
+  .drop-icon svg { width: 40px; height: 40px; }
+  .drop-heading { font-size: 1.1rem; }
+  /* Let chapter header controls wrap rather than overflow */
+  .section-header-right { flex-wrap: wrap; row-gap: 0.25rem; justify-content: flex-end; }
+  /* Wrap wizard nav buttons so they don't overflow on 360px phones */
+  .wizard-actions { flex-wrap: wrap; gap: 0.5rem; }
+  .wizard-actions-right { flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem; }
+  .forge-actions-right { flex-wrap: wrap; gap: 0.4rem; }
+}
+
+/* Stack action buttons into single column on very narrow phones */
+@media (max-width: 480px) {
+  .wizard-actions { flex-direction: column; }
+  .wizard-actions > .btn { width: 100%; justify-content: center; }
+  .wizard-actions-right { width: 100%; flex-direction: column; gap: 0.4rem; }
+  .wizard-actions-right .btn { width: 100%; justify-content: center; }
+  .forge-actions-right { width: 100%; flex-direction: column; gap: 0.4rem; }
+  .forge-actions-right .btn { width: 100%; justify-content: center; }
+  /* Progress dialog: span full width instead of floating to the right edge */
+  .progress-dialog { left: 0.75rem; right: 0.75rem; bottom: 0.75rem; }
+  .progress-dialog-card { width: 100%; max-width: none; }
+  /* Drive picker footer: wrap onto two rows */
+  .modal-footer { flex-wrap: wrap; }
+  .gdrive-picker-count { text-align: left; flex: 0 0 100%; }
+}
+
+/* On touch devices: always show track action buttons and remove sticky hover states */
+@media (hover: none) {
+  .track-actions { opacity: 1; }
+  /* Prevent translateY hover states from getting stuck on iOS */
+  .btn:hover:not(:disabled) { transform: none; }
+  .match-card:hover { transform: none; box-shadow: var(--shadow-sm); }
+  .cover-thumb:hover { transform: none; box-shadow: var(--shadow-sm); }
+  .drop-zone:hover .drop-icon { transform: none; }
 }
 
 /* ---- Scrollbar ---- */

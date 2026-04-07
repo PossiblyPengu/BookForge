@@ -135,13 +135,6 @@ const searchOpenLibrary = async (query, maxResults = 5) => {
           coverUrls.push(`https://covers.openlibrary.org/b/isbn/${isbnVal}-L.jpg`);
         }
       }
-      // Try Amazon cover via ISBN (common CDN pattern)
-      if (doc.isbn?.length) {
-        for (const isbnVal of doc.isbn.slice(0, 2)) {
-          // Amazon cover images via Open Library proxy
-          coverUrls.push(`https://covers.openlibrary.org/b/isbn/${isbnVal}-L.jpg`);
-        }
-      }
       const coverUrl = coverUrls[0] || null;
       const docDescription =
         normalizeOpenLibraryDescription(doc.description) ||

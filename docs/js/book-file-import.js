@@ -13,8 +13,8 @@ const decodeXmlEntities = (text) =>
 
 const stripHtml = (text) => text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
-const attrRegex = /(\w[\w:-]*)\s*=\s*("[^"]*"|'[^']*')/g;
 const extractAttributes = (tagSource) => {
+  const attrRegex = /(\w[\w:-]*)\s*=\s*("[^"]*"|'[^']*')/g;
   const attrs = {};
   let match;
   while ((match = attrRegex.exec(tagSource))) {

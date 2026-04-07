@@ -50,7 +50,7 @@ export const saveSession = async (state) => {
     const sessionStore = tx.objectStore(STORE);
     sessionStore.put({
       id: SESSION_KEY,
-      version: 1,
+      version: DB_VERSION,
       savedAt: Date.now(),
       ...rest,
     });

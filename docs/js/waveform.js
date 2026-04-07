@@ -36,16 +36,12 @@ const extractPeaks = async (file) => {
   if (cached) return cached;
 
   const arrayBuffer = await file.arrayBuffer();
-  const audioCtx = new OfflineAudioContext(1, 1, 44100);
+  const audioCtx = new AudioContext();
   let audioBuffer;
   try {
     audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
   } finally {
-    // Release audio context resources immediately
-    await audioCtx.startRendering().catch(() => {});
-    if (typeof audioCtx.close === "function") {
-      await audioCtx.close().catch(() => {});
-    }
+    await audioCtx.close().catch(() => {});
   }
   const channelData = audioBuffer.getChannelData(0);
   const samplesPerBar = Math.floor(channelData.length / NUM_BARS);

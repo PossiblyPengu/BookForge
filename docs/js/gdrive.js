@@ -95,16 +95,6 @@ const cacheToken = (token, expiresInSec) => {
   } catch { /* sessionStorage blocked */ }
 };
 
-/** Validate that a cached token is still accepted by Google. */
-const validateToken = async (token) => {
-  try {
-    const resp = await fetch(`https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${token}`);
-    return resp.ok;
-  } catch {
-    return false;
-  }
-};
-
 // Try to restore on module load
 restoreCachedToken();
 
@@ -122,12 +112,10 @@ const initTokenClient = (scope, resolve, reject, promptMode) => {
 
   // If scope changes, re-init the token client
   if (!tokenClient || lastScope !== scope) {
-    console.debug("[GIS] Initializing token client", { client_id: GOOGLE_CLIENT_ID, scope, promptMode, time: new Date().toISOString(), stack: (new Error().stack) });
     tokenClient = window.google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
       scope,
       callback: (resp) => {
-        console.debug("[GIS] Callback response", { resp, time: new Date().toISOString(), stack: (new Error().stack) });
         if (resp.error) {
           console.error("GIS error in callback:", resp.error, resp.error_description);
           pendingReject?.(new Error(resp.error_description || resp.error));
@@ -150,13 +138,12 @@ const initTokenClient = (scope, resolve, reject, promptMode) => {
         pendingResolve?.(accessToken);
       },
       error_callback: (err) => {
-        console.error("[GIS] error_callback", { err, time: new Date().toISOString(), stack: (new Error().stack) });
+        console.error("[GIS] error_callback:", err);
         pendingReject?.(new Error(err.message || "Google sign-in failed"));
       },
     });
     lastScope = scope;
   }
-  console.debug("[GIS] Requesting access token", { prompt: promptMode, scope, time: new Date().toISOString(), stack: (new Error().stack) });
   tokenClient.requestAccessToken({ prompt: promptMode });
 };
 
@@ -167,32 +154,19 @@ const initTokenClient = (scope, resolve, reject, promptMode) => {
  * @returns {Promise<string>} accessToken
  */
 export const ensureAuth = async (scope) => {
-  console.debug("[GIS] ensureAuth called", { scope, time: new Date().toISOString(), stack: (new Error().stack) });
   // 1. Use in-memory token if available
-  if (accessToken) {
-    console.debug("[GIS] Using in-memory access token", { time: new Date().toISOString(), stack: (new Error().stack) });
-    return accessToken;
-  }
+  if (accessToken) return accessToken;
 
-  // 2. Try cached token from sessionStorage
+  // 2. Try cached token from sessionStorage.
+  // restoreCachedToken already validates the expiry timestamp (with a 60-second
+  // buffer), so a separate tokeninfo round-trip on every page load is unnecessary.
   if (restoreCachedToken()) {
-    console.debug("[GIS] Restored cached token from sessionStorage", { time: new Date().toISOString(), stack: (new Error().stack) });
-    const valid = await validateToken(accessToken);
-    if (valid) {
-      console.debug("[GIS] Cached token is valid", { time: new Date().toISOString(), stack: (new Error().stack) });
-      notifyAuthChange();
-      return accessToken;
-    }
-    // Cached token expired/revoked — clear it
-    console.debug("[GIS] Cached token expired or revoked", { time: new Date().toISOString(), stack: (new Error().stack) });
-    accessToken = null;
-    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-    sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+    notifyAuthChange();
+    return accessToken;
   }
 
   try {
     await ensureGIS();
-    console.debug("[GIS] GIS library loaded", { time: new Date().toISOString(), stack: (new Error().stack) });
   } catch (err) {
     console.error("Failed to load Google Identity Services:", err);
     throw new Error("Failed to load Google Identity Services: " + err.message, { cause: err });
@@ -203,7 +177,6 @@ export const ensureAuth = async (scope) => {
   // cross-origin popup that triggers COOP warnings and burns the user-gesture
   // token, causing the real consent popup to be blocked or to silently fail.
   // Cached-token handling above covers the silent-refresh case.
-  console.debug("[GIS] Requesting interactive GIS consent", { time: new Date().toISOString(), stack: (new Error().stack) });
   return new Promise((resolve, reject) => {
     initTokenClient(scope, resolve, reject, "");
   });
@@ -248,6 +221,11 @@ const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
  * @returns {Promise<Array<{id, name, mimeType, size}>>}
  */
 export const listFolder = async (folderId = "root") => {
+  // Validate folderId to prevent query injection — Drive IDs are alphanumeric + hyphens,
+  // or the special literal "root".
+  if (!/^[a-zA-Z0-9_-]+$/.test(folderId)) {
+    throw new Error(`Invalid folderId: ${folderId}`);
+  }
   const token = await ensureAuth(DRIVE_READONLY_SCOPE);
   const q = `'${folderId}' in parents and trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType = 'audio/mpeg')`;
   const fields = "files(id,name,mimeType,size)";
