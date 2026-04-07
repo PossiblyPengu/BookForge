@@ -90,7 +90,9 @@ export const compileM4B = async ({ tracks, coverFile, formValues, bitrate = "96k
 
   const filenames = [];
   for (let i = 0; i < tracks.length; i++) {
-    const fname = `input_${String(i).padStart(3, "0")}.mp3`;
+    // Preserve real extension so FFmpeg picks the correct demuxer
+    const origExt = (tracks[i].file.name.match(/\.([^.]+)$/) || [])[1]?.toLowerCase() || "mp3";
+    const fname = `input_${String(i).padStart(3, "0")}.${origExt}`;
     filenames.push(fname);
     await ffmpeg.writeFile(fname, await fetchFile(tracks[i].file));
     if (onChapterProgress) onChapterProgress(i, tracks.length, "reading");
@@ -121,7 +123,7 @@ export const compileM4B = async ({ tracks, coverFile, formValues, bitrate = "96k
     const durationMs = Math.round(dur * 1000);
     if (durationMs > 0) {
       const chTitle = sanitizeMeta(
-        track.chapterName || track.meta?.title || track.file.name.replace(/\.mp3$/i, "")
+        track.chapterName || track.meta?.title || track.file.name.replace(/\.[^.]+$/, "")
       );
       meta += "\n[CHAPTER]\nTIMEBASE=1/1000\n";
       meta += `START=${cursorMs}\n`;
@@ -132,19 +134,21 @@ export const compileM4B = async ({ tracks, coverFile, formValues, bitrate = "96k
   }
   await ffmpeg.writeFile("chapters.txt", new TextEncoder().encode(meta));
 
-  ui.updateStatus("Concatenating...");
+  // Stage 1: decode + encode all inputs to AAC — handles MP3, M4A, M4B, AAC, OGG, FLAC, WAV
+  ui.updateStatus("Encoding audio...");
   ui.showProgress(18);
-  await ffmpeg.exec(["-y", "-f", "concat", "-safe", "0", "-i", "inputs.txt", "-c", "copy", "combined.mp3"]);
+  await ffmpeg.exec(["-y", "-f", "concat", "-safe", "0", "-i", "inputs.txt", "-c:a", "aac", "-b:a", bitrate, "combined.m4a"]);
 
-  ui.updateStatus("Converting to M4B...");
-  ui.showProgress(25);
+  // Stage 2: mux AAC stream with chapters + optional cover (stream copy, no re-encode)
+  ui.updateStatus("Building M4B...");
+  ui.showProgress(85);
 
-  const args = ["-y", "-i", "combined.mp3", "-i", "chapters.txt"];
+  const args = ["-y", "-i", "combined.m4a", "-i", "chapters.txt"];
   if (hasCover) {
     args.push("-i", "cover.jpg", "-map", "0:a", "-map", "2:v");
     args.push("-c:v", "mjpeg", "-disposition:v", "attached_pic");
   }
-  args.push("-map_metadata", "1", "-map_chapters", "1", "-c:a", "aac", "-b:a", bitrate, "-movflags", "+faststart", "-f", "mp4", "audiobook.m4b");
+  args.push("-map_metadata", "1", "-map_chapters", "1", "-c:a", "copy", "-movflags", "+faststart", "-f", "mp4", "audiobook.m4b");
   if (!hasCover) args.splice(args.indexOf("-f"), 0, "-vn");
   await ffmpeg.exec(args);
 
@@ -153,7 +157,7 @@ export const compileM4B = async ({ tracks, coverFile, formValues, bitrate = "96k
   const data = await ffmpeg.readFile("audiobook.m4b");
 
   // Cleanup
-  const cleanup = [...filenames, "inputs.txt", "chapters.txt", "combined.mp3", "audiobook.m4b"];
+  const cleanup = [...filenames, "inputs.txt", "chapters.txt", "combined.m4a", "audiobook.m4b"];
   if (hasCover) cleanup.push("cover.jpg");
   for (const f of cleanup) {
     await ffmpeg.deleteFile(f).catch((err) => console.warn(`cleanup: failed to delete ${f}`, err));

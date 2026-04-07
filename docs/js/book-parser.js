@@ -25,7 +25,7 @@
 const FILENAME_PATTERNS = [
   // Author - Title - Chapter 01  OR  Author - Title - 01 - Chapter Name
   {
-    re: /^(.+?)\s*[-–—]\s*(.+?)\s*[-–—]\s*(?:(?:ch(?:apter)?\.?\s*)?(\d+)\s*(?:[-–—.]\s*(.+?))?)?\.mp3$/i,
+    re: /^(.+?)\s*[-–—]\s*(.+?)\s*[-–—]\s*(?:(?:ch(?:apter)?\.?\s*)?(\d+)\s*(?:[-–—.]\s*(.+?))?)?\.[^.]+$/i,
     extract: (m) => ({
       author: m[1].trim(),
       title: m[2].trim(),
@@ -35,7 +35,7 @@ const FILENAME_PATTERNS = [
   },
   // Title - 01 - Chapter Name  OR  Title - Chapter 01
   {
-    re: /^(.+?)\s*[-–—]\s*(?:ch(?:apter)?\.?\s*)?(\d+)\s*(?:[-–—.]\s*(.+?))?\.mp3$/i,
+    re: /^(.+?)\s*[-–—]\s*(?:ch(?:apter)?\.?\s*)?(\d+)\s*(?:[-–—.]\s*(.+?))?\.[^.]+$/i,
     extract: (m) => ({
       author: null,
       title: m[1].trim(),
@@ -43,9 +43,9 @@ const FILENAME_PATTERNS = [
       chapterName: m[3]?.trim() || null,
     }),
   },
-  // Title Ch01.mp3  OR  Title Chapter01.mp3
+  // Title Ch01  OR  Title Chapter01 (any extension)
   {
-    re: /^(.+?)\s+ch(?:apter)?\.?\s*(\d+)\.mp3$/i,
+    re: /^(.+?)\s+ch(?:apter)?\.?\s*(\d+)\.[^.]+$/i,
     extract: (m) => ({
       author: null,
       title: m[1].trim(),
@@ -53,9 +53,9 @@ const FILENAME_PATTERNS = [
       chapterName: null,
     }),
   },
-  // 01 - Chapter Name.mp3
+  // 01 - Chapter Name (any extension)
   {
-    re: /^(\d+)\s*[-–—.]\s*(.+?)\.mp3$/i,
+    re: /^(\d+)\s*[-–—.]\s*(.+?)\.[^.]+$/i,
     extract: (m) => ({
       author: null,
       title: null,
@@ -63,9 +63,9 @@ const FILENAME_PATTERNS = [
       chapterName: m[2].trim(),
     }),
   },
-  // Chapter 01.mp3  OR  Ch01.mp3
+  // Chapter 01  OR  Ch01 (any extension)
   {
-    re: /^ch(?:apter)?\.?\s*(\d+)\.mp3$/i,
+    re: /^ch(?:apter)?\.?\s*(\d+)\.[^.]+$/i,
     extract: (m) => ({
       author: null,
       title: null,
@@ -73,9 +73,9 @@ const FILENAME_PATTERNS = [
       chapterName: null,
     }),
   },
-  // Just a number: 01.mp3
+  // Just a number: 01 (any extension)
   {
-    re: /^(\d+)\.mp3$/i,
+    re: /^(\d+)\.[^.]+$/i,
     extract: (m) => ({
       author: null,
       title: null,
@@ -118,7 +118,7 @@ export const parseFilename = (filename) => {
     author: null,
     title: null,
     chapterNum: null,
-    chapterName: basename.replace(/\.mp3$/i, "").replace(/[_]/g, " ").trim(),
+    chapterName: basename.replace(/\.[^.]+$/, "").replace(/[_]/g, " ").trim(),
   };
 };
 
@@ -137,7 +137,7 @@ export const parseFilename = (filename) => {
  */
 export const extractSortKey = (filename) => {
   const basename = filename.replace(/^.*[\\/]/, "");
-  const stem = basename.replace(/\.mp3$/i, "");
+  const stem = basename.replace(/\.[^.]+$/, "");
 
   // Find all numbers in the stem
   const nums = stem.match(/\d+/g);

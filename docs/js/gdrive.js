@@ -227,7 +227,7 @@ export const listFolder = async (folderId = "root") => {
     throw new Error(`Invalid folderId: ${folderId}`);
   }
   const token = await ensureAuth(DRIVE_READONLY_SCOPE);
-  const q = `'${folderId}' in parents and trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType = 'audio/mpeg')`;
+  const q = `'${folderId}' in parents and trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'audio/')`;
   const fields = "files(id,name,mimeType,size)";
   const orderBy = "folder,name";
   const url = `${DRIVE_FILES_URL}?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(fields)}&orderBy=${encodeURIComponent(orderBy)}&pageSize=200`;

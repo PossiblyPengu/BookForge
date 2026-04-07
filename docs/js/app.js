@@ -362,6 +362,17 @@ const formatDuration = (seconds) => {
 
 const fileKey = (file) => `${file.name}|${file.size}|${file.lastModified}`;
 
+const AUDIO_EXTENSIONS = new Set(["mp3", "m4a", "m4b", "aac", "ogg", "oga", "opus", "flac", "wav"]);
+const AUDIO_MIME_PREFIXES = ["audio/mpeg", "audio/mp4", "audio/x-m4b", "audio/aac", "audio/ogg", "audio/flac", "audio/wav", "audio/x-wav", "audio/opus"];
+
+const isAudioTrackFile = (file) => {
+  if (!file) return false;
+  const ext = file.name?.toLowerCase().match(/\.([^.]+)$/)?.[1] ?? "";
+  if (AUDIO_EXTENSIONS.has(ext)) return true;
+  return AUDIO_MIME_PREFIXES.some((p) => file.type?.startsWith(p));
+};
+
+// Keep for compat — used by compiler to detect if stream-copy is safe
 const isMp3File = (file) => file?.type === "audio/mpeg" || file?.name?.toLowerCase().endsWith(".mp3");
 
 const setFieldIfDefault = (input, value, defaultValue) => {
@@ -398,14 +409,17 @@ const applyBookFileMetadata = (meta) => {
 };
 
 const processBookFiles = async (bookFiles, { keepStatus = false } = {}) => {
-  if (!bookFiles.length) return;
+  if (!bookFiles.length) return null;
   uploadStatus.hidden = false;
   uploadStatusText.textContent = `Reading metadata from ${bookFiles.length} book file${bookFiles.length > 1 ? "s" : ""}...`;
+  let embeddedChapters = null;
   for (const file of bookFiles) {
     try {
       uploadStatusText.textContent = `Processing ${file.name}...`;
       const meta = await extractMetadataFromBookFile(file);
       applyBookFileMetadata(meta);
+      // Capture the first embedded chapter list found
+      if (!embeddedChapters && meta.chapters?.length) embeddedChapters = meta.chapters;
     } catch (err) {
       console.warn("Book file metadata extraction failed for", file.name, err);
     }
@@ -413,6 +427,7 @@ const processBookFiles = async (bookFiles, { keepStatus = false } = {}) => {
   if (!keepStatus) {
     uploadStatus.hidden = true;
   }
+  return embeddedChapters;
 };
 
 // ---------------------------------------------------------------------------
@@ -660,7 +675,7 @@ renameMenu.addEventListener("click", (e) => {
   } else if (pattern === "part-num") {
     tracks.forEach((t, i) => { t.chapterName = `Part ${i + 1}`; });
   } else if (pattern === "filename") {
-    tracks.forEach((t) => { t.chapterName = t.file.name.replace(/\.mp3$/i, ""); });
+    tracks.forEach((t) => { t.chapterName = t.file.name.replace(/\.[^.]+$/, ""); });
   } else if (pattern === "custom") {
     const prefix = prompt("Enter prefix (number will be appended):", "Chapter");
     if (prefix != null) {
@@ -706,15 +721,25 @@ const sortTracks = () => {
 
 const addFiles = async (fileList) => {
   const files = Array.from(fileList || []);
-  const mp3Files = files.filter((file) => isMp3File(file));
-  const bookFiles = files.filter((file) => !isMp3File(file) && isSupportedBookFile(file));
-  if (!mp3Files.length && !bookFiles.length) return;
+  const audioFiles = files.filter((file) => isAudioTrackFile(file));
+  // EPUB and PDF only — M4B is handled as an audio track below
+  const bookFiles = files.filter((file) => !isAudioTrackFile(file) && isSupportedBookFile(file));
+  if (!audioFiles.length && !bookFiles.length) return;
 
   if (bookFiles.length) {
-    await processBookFiles(bookFiles, { keepStatus: mp3Files.length > 0 });
+    await processBookFiles(bookFiles, { keepStatus: audioFiles.length > 0 });
   }
 
-  if (!mp3Files.length) return;
+  // M4B files also carry album/artist/cover and possibly embedded chapter lists
+  const m4bAudioFiles = audioFiles.filter((f) => {
+    const ext = f.name?.toLowerCase().match(/\.([^.]+)$/)?.[1];
+    return ext === "m4b" || f.type === "audio/x-m4b";
+  });
+  const embeddedChapters = m4bAudioFiles.length
+    ? await processBookFiles(m4bAudioFiles, { keepStatus: true })
+    : null;
+
+  if (!audioFiles.length) return;
 
   // Show loading state on upload panel
   dropZone.hidden = true;
@@ -722,9 +747,9 @@ const addFiles = async (fileList) => {
   const altActions = document.querySelector(".upload-alt-actions");
   if (altActions) altActions.hidden = true;
   uploadStatus.hidden = false;
-  uploadStatusText.textContent = `Reading ${mp3Files.length} file${mp3Files.length > 1 ? "s" : ""}...`;
+  uploadStatusText.textContent = `Reading ${audioFiles.length} file${audioFiles.length > 1 ? "s" : ""}...`;
 
-  const newTracks = mp3Files.map((file) => ({ file, meta: null, chapterName: null }));
+  const newTracks = audioFiles.map((file) => ({ file, meta: null, chapterName: null }));
   tracks = [...tracks, ...newTracks];
 
   // Initial sort by filename
@@ -758,9 +783,13 @@ const addFiles = async (fileList) => {
   const allMeta = tracks.map((t) => t.meta);
   inferredBook = inferBook(tracks, allMeta);
 
-  // Apply chapter names
-  if (inferredBook.chapters) {
-    inferredBook.chapters.forEach((name, i) => {
+  // Apply chapter names — prefer embedded chapter list from M4B when inferBook
+  // couldn't find real names (all "Chapter N") and the count matches
+  const hasRealInferredNames = inferredBook.chapters?.some((n) => !/^Chapter \d+$/.test(n));
+  const useEmbedded = !hasRealInferredNames && embeddedChapters?.length === tracks.length;
+  const chaptersToApply = useEmbedded ? embeddedChapters : inferredBook.chapters;
+  if (chaptersToApply) {
+    chaptersToApply.forEach((name, i) => {
       if (i < tracks.length) tracks[i].chapterName = name;
     });
   }

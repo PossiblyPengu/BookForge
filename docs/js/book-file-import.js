@@ -112,12 +112,23 @@ const readM4BFile = async (file) => {
   const common = metadata.common || {};
   const picture = Array.isArray(common.picture) ? common.picture[0] : null;
   const coverBlob = picture ? new Blob([picture.data], { type: picture.format || "image/jpeg" }) : null;
+
+  // Extract embedded chapter list if present (music-metadata-browser exposes
+  // chapter markers as common.chapter[] — each entry has a .title property)
+  let chapters = null;
+  const rawChapters = common.chapter || common.chapters;
+  if (Array.isArray(rawChapters) && rawChapters.length > 0) {
+    const titles = rawChapters.map((c) => c.title || c.name || null).filter(Boolean);
+    if (titles.length) chapters = titles;
+  }
+
   return {
     title: common.album || common.title || null,
     author: common.artist || common.artists?.[0] || null,
     description: (common.comment && common.comment.join("\n").trim()) || null,
     narrator: common.performer || null,
     coverBlob,
+    chapters,
   };
 };
 

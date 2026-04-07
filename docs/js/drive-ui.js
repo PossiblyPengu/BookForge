@@ -91,7 +91,7 @@ const navigateToFolder = async (folderId) => {
     if (!files.length) {
       const emptyDiv = document.createElement("div");
       emptyDiv.className = "gdrive-picker-empty";
-      emptyDiv.textContent = "No MP3 files or folders here";
+      emptyDiv.textContent = "No audio files or folders here";
       gdriveFileList.appendChild(emptyDiv);
       return;
     }
