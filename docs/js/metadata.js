@@ -80,23 +80,31 @@ const readAudioInfo = (file) =>
     audio.preload = "metadata";
     const url = URL.createObjectURL(file);
     audio.src = url;
+
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      audio.src = "";
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ duration: 0, bitrate: 0 }), 10000);
+
     audio.addEventListener(
       "loadedmetadata",
       () => {
         const duration = audio.duration || 0;
         const bitrate =
           duration > 0 ? Math.round((file.size * 8) / duration / 1000) : 0;
-        URL.revokeObjectURL(url);
-        resolve({ duration: Math.round(duration * 100) / 100, bitrate });
+        finish({ duration: Math.round(duration * 100) / 100, bitrate });
       },
       { once: true }
     );
     audio.addEventListener(
       "error",
-      () => {
-        URL.revokeObjectURL(url);
-        resolve({ duration: 0, bitrate: 0 });
-      },
+      () => finish({ duration: 0, bitrate: 0 }),
       { once: true }
     );
   });

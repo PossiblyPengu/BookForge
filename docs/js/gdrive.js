@@ -320,7 +320,7 @@ export const uploadToDrive = async (blob, filename) => {
     mimeType: blob.type || "audio/x-m4b",
   };
 
-  const boundary = "bookforge_boundary_" + Date.now();
+  const boundary = "bookforge_boundary_" + crypto.randomUUID().replace(/-/g, "");
   const metaPart =
     `--${boundary}\r\n` +
     "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
@@ -376,7 +376,28 @@ export const handleRedirectReturn = () => {
   const expiresIn = parseInt(params.get("expires_in") || "0", 10);
   const state = params.get("state");
 
-  if (!token || state !== "drive-ios") return false;
+  // Clean token from the URL immediately, before any validation, so it is
+  // never left in history regardless of whether validation passes.
+  window.history.replaceState(null, "", window.location.pathname + window.location.search);
+
+  if (!token) return false;
+
+  // Validate the CSRF state nonce against what we stored before the redirect
+  let expectedState = null;
+  try { expectedState = sessionStorage.getItem("bf-gdrive-state"); } catch { /* ignore */ }
+  try { sessionStorage.removeItem("bf-gdrive-state"); } catch { /* ignore */ }
+
+  if (!expectedState || state !== expectedState) {
+    console.warn("Google OAuth redirect: state mismatch — ignoring response");
+    return false;
+  }
+
+  // Require a sensible expiry (at least 2 minutes) to avoid a token that
+  // would expire before we can use it.
+  if (!expiresIn || expiresIn < 120) {
+    console.warn("Google OAuth redirect: missing or too-short expires_in — ignoring response");
+    return false;
+  }
 
   accessToken = token;
   cacheToken(token, expiresIn);
@@ -391,9 +412,6 @@ export const handleRedirectReturn = () => {
   }, (expiresIn - 60) * 1000);
 
   notifyAuthChange();
-
-  // Clean token from the URL so it isn't leaked in history / referrer
-  window.history.replaceState(null, "", window.location.pathname + window.location.search);
   return true;
 };
 
@@ -406,6 +424,8 @@ export const hasPendingRedirect = () => {
 export const clearPendingRedirect = () => {
   try { sessionStorage.removeItem(REDIRECT_PENDING_KEY); } catch { /* ignore */ }
 };
+
+const REDIRECT_STATE_KEY = "bf-gdrive-state";
 
 // Wrapper for Drive auth that handles iOS gracefully
 export const ensureDriveAuth = async (scope) => {
@@ -422,6 +442,10 @@ export const ensureDriveAuth = async (scope) => {
     // Set flag so the app auto-resumes import after redirect
     try { sessionStorage.setItem(REDIRECT_PENDING_KEY, "import"); } catch { /* ignore */ }
 
+    // Generate a per-request CSRF nonce and store it so handleRedirectReturn can verify it
+    const stateNonce = crypto.randomUUID();
+    try { sessionStorage.setItem(REDIRECT_STATE_KEY, stateNonce); } catch { /* ignore */ }
+
     // Request both scopes so the token also covers export later
     const bothScopes = `${DRIVE_READONLY_SCOPE} ${DRIVE_FILE_SCOPE}`;
     const redirectUri = window.location.origin + window.location.pathname;
@@ -431,7 +455,7 @@ export const ensureDriveAuth = async (scope) => {
       response_type: 'token',
       scope: bothScopes,
       include_granted_scopes: 'true',
-      state: 'drive-ios',
+      state: stateNonce,
     });
     window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
     return new Promise(() => {}); // Prevent further execution until redirect

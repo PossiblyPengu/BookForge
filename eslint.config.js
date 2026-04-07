@@ -32,6 +32,7 @@ export default [
         getComputedStyle: "readonly",
         requestAnimationFrame: "readonly",
         prompt: "readonly",
+        crypto: "readonly",
       },
     },
     rules: {

@@ -833,10 +833,18 @@ const addFiles = async (fileList) => {
     return a.file.name.localeCompare(b.file.name, undefined, { numeric: true });
   });
 
-  // Extract metadata (use allSettled so one bad file doesn't block the rest)
+  // Extract metadata in batches of 8 to avoid saturating the main thread
   uploadStatusText.textContent = "Reading ID3 metadata...";
-  const metaResults = await Promise.allSettled(newTracks.map(async (t) => { t.meta = await extractMetadata(t.file); }));
-  const metaFailures = metaResults.filter((r) => r.status === "rejected");
+  const META_BATCH = 8;
+  const metaFailures = [];
+  for (let i = 0; i < newTracks.length; i += META_BATCH) {
+    const batch = newTracks.slice(i, i + META_BATCH);
+    const batchResults = await Promise.allSettled(batch.map(async (t) => { t.meta = await extractMetadata(t.file); }));
+    batchResults.forEach((r) => { if (r.status === "rejected") metaFailures.push(r); });
+    if (newTracks.length > META_BATCH) {
+      uploadStatusText.textContent = `Reading ID3 metadata... (${Math.min(i + META_BATCH, newTracks.length)}/${newTracks.length})`;
+    }
+  }
   if (metaFailures.length) {
     console.warn(`Metadata extraction failed for ${metaFailures.length} file(s):`, metaFailures.map((r) => r.reason));
   }
