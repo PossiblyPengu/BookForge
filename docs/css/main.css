@@ -882,15 +882,6 @@ form {
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
-.track-waveform {
-  display: block;
-  width: 200px;
-  height: 32px;
-  border-radius: 3px;
-  opacity: 0.6;
-  margin-top: 0.15rem;
-}
-
 .track-detail {
   font-size: 0.68rem;
   color: var(--text-muted);
@@ -1417,8 +1408,6 @@ textarea {
     padding: 0.4rem 0.5rem;
   }
   .track-actions { opacity: 1; }
-  /* Hide waveform canvas — fixed 200px width overflows narrow rows */
-  .track-waveform-slot { display: none; }
   .track-list { max-height: 320px; }
   .field-row, .field-row.compact { grid-template-columns: 1fr; }
   .forge-review { padding: 1rem; gap: 1rem; }

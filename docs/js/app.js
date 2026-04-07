@@ -4,7 +4,6 @@ import { extractMetadata } from "./metadata.js";
 import { isSupportedBookFile, extractMetadataFromBookFile } from "./book-file-import.js";
 import { saveSession, loadSession, clearSession } from "./session.js";
 import { compileM4B } from "./compiler.js";
-import { createWaveform, pruneWaveformCache } from "./waveform.js";
 import { pushState, undo, redo, clearHistory } from "./history.js";
 import { importFromDrive, exportToDrive, gdriveDownloading, isPickerHidden, setPickerVisible } from "./drive-ui.js";
 import { handleRedirectReturn, hasPendingRedirect, clearPendingRedirect } from "./gdrive.js";
@@ -21,7 +20,6 @@ const fileInput = $("file-input");
 const coverInput = $("cover-input");
 const trackList = $("track-list");
 const chapterCount = $("chapter-count");
-const waveformToggleBtn = $("waveform-toggle");
 const addMoreBtn = $("add-more-btn");
 const clearAllButton = $("clear-all");
 const compileButton = $("compile-button");
@@ -111,10 +109,7 @@ themeToggle.addEventListener("click", () => {
 // Performance helpers
 // ---------------------------------------------------------------------------
 const TRACK_RENDER_BATCH_SIZE = 20;
-const MAX_WAVEFORM_CONCURRENCY = 2;
-const WAVEFORM_TRACK_LIMIT = 80;
 const AUTO_LOOKUP_IDLE_DELAY = 1600;
-const hasIntersectionObserver = typeof window !== "undefined" && "IntersectionObserver" in window;
 
 const supportsIdleCallback = typeof window.requestIdleCallback === "function";
 const supportsIdleCancel = typeof window.cancelIdleCallback === "function";
@@ -151,30 +146,9 @@ let lastCompiledFilename = null;
 let onSessionChange = null;
 let autoLookupHandle = null;
 let rowRenderHandle = null;
-let waveformQueue = [];
-let waveformWorkers = 0;
-let waveformObserver = null;
 let undoScheduleHandle = null;
 let sessionSaveHandle = null;
 let savedTrackKeys = new Set();
-let waveformsEnabled = localStorage.getItem("bf-waveforms") !== "off";
-
-const updateWaveformToggleUI = () => {
-  if (!waveformToggleBtn) return;
-  waveformToggleBtn.textContent = waveformsEnabled ? "Waveforms On" : "Waveforms Off";
-  waveformToggleBtn.title = waveformsEnabled ? "Click to hide waveforms" : "Click to show waveforms";
-  waveformToggleBtn.classList.toggle("btn-muted", !waveformsEnabled);
-};
-
-if (waveformToggleBtn) {
-  waveformToggleBtn.addEventListener("click", () => {
-    waveformsEnabled = !waveformsEnabled;
-    localStorage.setItem("bf-waveforms", waveformsEnabled ? "on" : "off");
-    updateWaveformToggleUI();
-    refreshTrackList();
-  });
-  updateWaveformToggleUI();
-}
 
 const scheduleAutoLookup = (query) => {
   cancelScheduled(autoLookupHandle);
@@ -519,63 +493,12 @@ previewAudio.addEventListener("ended", stopPreview);
 // ---------------------------------------------------------------------------
 // Track list UI (step 3)
 // ---------------------------------------------------------------------------
-let waveformGeneration = 0;
-
 const teardownTrackRendering = () => {
   cancelScheduled(rowRenderHandle);
   rowRenderHandle = null;
-  waveformQueue = [];
-  waveformWorkers = 0;
-  if (waveformObserver) {
-    waveformObserver.disconnect();
-    waveformObserver = null;
-  }
 };
 
-const queueWaveformSlot = (slot) => {
-  const index = parseInt(slot.dataset.trackIndex, 10);
-  const generation = Number(slot.dataset.waveformGeneration);
-  if (!Number.isFinite(index) || !Number.isFinite(generation)) return;
-  waveformQueue.push({ slot, index, generation });
-  pumpWaveformQueue();
-};
-
-const pumpWaveformQueue = () => {
-  while (waveformQueue.length && waveformWorkers < MAX_WAVEFORM_CONCURRENCY) {
-    const task = waveformQueue.shift();
-    if (!task) continue;
-    processWaveformTask(task);
-  }
-};
-
-const processWaveformTask = async ({ slot, index, generation }) => {
-  waveformWorkers += 1;
-  try {
-    if (generation !== waveformGeneration || !slot.isConnected) return;
-    const track = tracks[index];
-    if (!track) return;
-    const canvas = await createWaveform(track.file);
-    if (canvas && slot.isConnected && generation === waveformGeneration) {
-      slot.appendChild(canvas);
-    }
-  } catch (err) {
-    console.warn("Waveform render failed", err);
-  } finally {
-    waveformWorkers = Math.max(0, waveformWorkers - 1);
-    pumpWaveformQueue();
-  }
-};
-
-const attachWaveformSlot = (slot, generation) => {
-  slot.dataset.waveformGeneration = String(generation);
-  if (waveformObserver) {
-    waveformObserver.observe(slot);
-  } else {
-    queueWaveformSlot(slot);
-  }
-};
-
-const buildTrackRow = (track, index, generation, renderWaveforms) => {
+const buildTrackRow = (track, index) => {
   const row = document.createElement("div");
   row.className = "track-row";
   row.draggable = true;
@@ -645,16 +568,7 @@ const buildTrackRow = (track, index, generation, renderWaveforms) => {
   parts.push(`${(track.file.size / (1024 * 1024)).toFixed(1)} MB`);
   detail.textContent = parts.join(" \u00b7 ");
 
-  const waveformSlot = document.createElement("div");
-  waveformSlot.className = "track-waveform-slot";
-  waveformSlot.dataset.trackIndex = index;
-  if (renderWaveforms) {
-    attachWaveformSlot(waveformSlot, generation);
-  } else {
-    waveformSlot.classList.add("waveform-disabled");
-  }
-
-  body.append(nameInput, detail, waveformSlot);
+  body.append(nameInput, detail);
 
   const actions = document.createElement("div");
   actions.className = "track-actions";
@@ -679,7 +593,6 @@ const buildTrackRow = (track, index, generation, renderWaveforms) => {
 };
 
 const refreshTrackList = () => {
-  const thisGeneration = ++waveformGeneration;
   teardownTrackRendering();
   trackList.textContent = "";
 
@@ -689,7 +602,6 @@ const refreshTrackList = () => {
     empty.textContent = "No chapters added yet.";
     trackList.appendChild(empty);
     chapterCount.textContent = "";
-    pruneWaveformCache([]);
     return;
   }
 
@@ -697,26 +609,12 @@ const refreshTrackList = () => {
   const totalSize = tracks.reduce((s, t) => s + t.file.size, 0);
   chapterCount.textContent = `${tracks.length} chapters \u00b7 ${formatDuration(totalDuration)} \u00b7 ${(totalSize / (1024 * 1024)).toFixed(1)} MB`;
 
-  const shouldRenderWaveforms = waveformsEnabled && tracks.length <= WAVEFORM_TRACK_LIMIT;
-
-  if (shouldRenderWaveforms && hasIntersectionObserver) {
-    waveformObserver = new window.IntersectionObserver((entries, observer) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          observer.unobserve(entry.target);
-          queueWaveformSlot(entry.target);
-        }
-      });
-    }, { root: trackList, rootMargin: "200px 0px", threshold: 0.1 });
-  }
-
   const renderState = { index: 0 };
   const renderBatch = () => {
-    if (thisGeneration !== waveformGeneration) return;
     const fragment = document.createDocumentFragment();
     const end = Math.min(tracks.length, renderState.index + TRACK_RENDER_BATCH_SIZE);
     for (let i = renderState.index; i < end; i += 1) {
-      fragment.appendChild(buildTrackRow(tracks[i], i, thisGeneration, shouldRenderWaveforms));
+      fragment.appendChild(buildTrackRow(tracks[i], i));
     }
     trackList.appendChild(fragment);
     renderState.index = end;
@@ -724,10 +622,6 @@ const refreshTrackList = () => {
       rowRenderHandle = scheduleIdle(renderBatch, 32);
     } else {
       rowRenderHandle = null;
-      if (shouldRenderWaveforms) {
-        pumpWaveformQueue();
-      }
-      pruneWaveformCache(tracks.map((t) => t.file));
     }
   };
 
