@@ -1,4 +1,3 @@
-/* global URLSearchParams */
 /**
  * gdrive.js
  *
@@ -370,113 +369,16 @@ export const uploadToDrive = async (blob, filename) => {
   return resp.json();
 };
 
-function isIOS() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.userAgent.includes("Mac") && "ontouchend" in document);
-}
-
 // ---------------------------------------------------------------------------
-// iOS redirect-based OAuth helpers
+// Drive auth wrapper (all platforms use GIS popup — no redirect URI needed)
 // ---------------------------------------------------------------------------
-const REDIRECT_PENDING_KEY = "bf-gdrive-redirect-pending";
 
-/**
- * Parse the access_token from the URL fragment after an iOS OAuth redirect.
- * Returns true if a valid token was found and stored.
- */
-export const handleRedirectReturn = () => {
-  const hash = window.location.hash;
-  if (!hash || !hash.includes("access_token")) return false;
+// Stubs kept for backward-compatibility with app.js imports.
+// The iOS redirect flow was removed: it requires a redirect_uri registered in
+// Google Cloud Console, which caused redirect_uri_mismatch on mobile.
+// GIS initTokenClient only needs Authorized JavaScript Origins.
+export const handleRedirectReturn = () => false;
+export const hasPendingRedirect = () => false;
+export const clearPendingRedirect = () => {};
 
-  const params = new URLSearchParams(hash.substring(1));
-  const token = params.get("access_token");
-  const expiresIn = parseInt(params.get("expires_in") || "0", 10);
-  const state = params.get("state");
-
-  // Clean token from the URL immediately, before any validation, so it is
-  // never left in history regardless of whether validation passes.
-  window.history.replaceState(null, "", window.location.pathname + window.location.search);
-
-  if (!token) return false;
-
-  // Validate the CSRF state nonce against what we stored before the redirect
-  let expectedState = null;
-  try { expectedState = sessionStorage.getItem("bf-gdrive-state"); } catch { /* ignore */ }
-  try { sessionStorage.removeItem("bf-gdrive-state"); } catch { /* ignore */ }
-
-  if (!expectedState || state !== expectedState) {
-    console.warn("Google OAuth redirect: state mismatch — ignoring response");
-    return false;
-  }
-
-  // Require a sensible expiry (at least 2 minutes) to avoid a token that
-  // would expire before we can use it.
-  if (!expiresIn || expiresIn < 120) {
-    console.warn("Google OAuth redirect: missing or too-short expires_in — ignoring response");
-    return false;
-  }
-
-  accessToken = token;
-  cacheToken(token, expiresIn);
-
-  if (tokenExpiryTimer) clearTimeout(tokenExpiryTimer);
-  tokenExpiryTimer = setTimeout(() => {
-    tokenExpiryTimer = null;
-    accessToken = null;
-    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-    sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
-    notifyAuthChange();
-  }, (expiresIn - 60) * 1000);
-
-  notifyAuthChange();
-  return true;
-};
-
-/** Check whether we are returning from an iOS OAuth redirect that should resume import. */
-export const hasPendingRedirect = () => {
-  try { return sessionStorage.getItem(REDIRECT_PENDING_KEY) === "import"; }
-  catch { return false; }
-};
-
-export const clearPendingRedirect = () => {
-  try { sessionStorage.removeItem(REDIRECT_PENDING_KEY); } catch { /* ignore */ }
-};
-
-const REDIRECT_STATE_KEY = "bf-gdrive-state";
-
-// Wrapper for Drive auth that handles iOS gracefully
-export const ensureDriveAuth = async (scope) => {
-  if (isIOS()) {
-    // If we already have a valid token (e.g. from redirect return), use it
-    if (accessToken) return accessToken;
-
-    // For export (drive.file scope), we cannot redirect because the compiled
-    // blob would be lost on page reload. Ask user to import first.
-    if (scope === DRIVE_FILE_SCOPE) {
-      throw new Error("Please import from Google Drive first to sign in, then export will work.");
-    }
-
-    // Set flag so the app auto-resumes import after redirect
-    try { sessionStorage.setItem(REDIRECT_PENDING_KEY, "import"); } catch { /* ignore */ }
-
-    // Generate a per-request CSRF nonce and store it so handleRedirectReturn can verify it
-    const stateNonce = crypto.randomUUID();
-    try { sessionStorage.setItem(REDIRECT_STATE_KEY, stateNonce); } catch { /* ignore */ }
-
-    // Request both scopes so the token also covers export later
-    const bothScopes = `${DRIVE_READONLY_SCOPE} ${DRIVE_FILE_SCOPE}`;
-    const redirectUri = window.location.origin + window.location.pathname;
-    const params = new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID,
-      redirect_uri: redirectUri,
-      response_type: 'token',
-      scope: bothScopes,
-      include_granted_scopes: 'true',
-      state: stateNonce,
-    });
-    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-    return new Promise(() => {}); // Prevent further execution until redirect
-  }
-  // Non-iOS: use popup-based flow
-  return ensureAuth(scope);
-};
+export const ensureDriveAuth = (scope) => ensureAuth(scope);
