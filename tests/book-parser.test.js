@@ -235,6 +235,32 @@ describe("inferBook", () => {
     expect(r.title).toBe("Dune");
   });
 
+  it("uses unanimous title tag as book title when no album is set", () => {
+    // e.g. expanded M4B virtual tracks all carrying the same common.title
+    const files = [
+      { file: { name: "book_ch001.m4b" } },
+      { file: { name: "book_ch002.m4b" } },
+      { file: { name: "book_ch003.m4b" } },
+    ];
+    const meta = [
+      { album: null, title: "The Hobbit", artist: "Tolkien" },
+      { album: null, title: "The Hobbit", artist: "Tolkien" },
+      { album: null, title: "The Hobbit", artist: "Tolkien" },
+    ];
+    const r = inferBook(files, meta);
+    expect(r.title).toBe("The Hobbit");
+    expect(r.author).toBe("Tolkien");
+  });
+
+  it("uses title tag as book title for a single file with no album", () => {
+    // any single-file format (M4A, FLAC, OGG, WAV, etc.) with only a title tag
+    const files = [{ file: { name: "audiobook.m4a" } }];
+    const meta = [{ album: null, title: "Dune", artist: "Frank Herbert" }];
+    const r = inferBook(files, meta);
+    expect(r.title).toBe("Dune");
+    expect(r.author).toBe("Frank Herbert");
+  });
+
   it("handles empty input", () => {
     const r = inferBook([], []);
     expect(r.title).toBeNull();

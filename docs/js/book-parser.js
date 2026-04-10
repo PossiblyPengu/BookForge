@@ -165,6 +165,9 @@ export const parseFilenames = (filenames) => {
 
   return {
     title: mostCommon(titles) || prefixTitle,
+    // True when title came only from the common-prefix fallback (less reliable
+    // than an explicit regex match or an ID3 unanimous-title).
+    titleFromPrefix: !titles.length && prefixTitle !== null,
     author: mostCommon(authors),
     chapters: parsed,
   };
@@ -282,15 +285,30 @@ export const inferBook = (files, metadataList) => {
   const id3Result = id3Consensus(metadataList);
   const chapters = buildChapterNames(fnResult.chapters, metadataList, filenames);
 
-  // Title priority: ID3 album > filename title > single-file title tag > guessed from track titles
+  // Title priority: ID3 album > filename title > single-file / unanimous title tag > guessed from track titles
   // For a single-file import (e.g. one M4B), common.title is often the book title, not a chapter name.
-  const singleFileTitle = (files.length === 1 && !id3Result.album && id3Result.trackTitles.length === 1)
-    ? id3Result.trackTitles[0]
+  // For a multi-file import where every track carries the same title tag value (e.g. expanded M4B virtual
+  // tracks or files that store the book name in the title field instead of album), also use that value.
+  const singleFileTitle = !id3Result.album && id3Result.trackTitles.length >= 1
+    ? (() => {
+        const unique = new Set(id3Result.trackTitles);
+        if (unique.size === 1) return id3Result.trackTitles[0];
+        if (files.length === 1 && id3Result.trackTitles.length === 1) return id3Result.trackTitles[0];
+        return null;
+      })()
     : null;
+  // Priority:
+  //  1. ID3 album tag (explicit book-level field)
+  //  2. Filename title from a matched pattern (e.g. "Author - Title - 01.mp3")
+  //  3. Unanimous ID3 title tag (all tracks share the same title → it IS the book name)
+  //  4. Common-prefix filename fallback (e.g. "book" from "book_ch001.m4b")
+  //  5. Guessed from track title separators
+  const explicitFnTitle = fnResult.titleFromPrefix ? null : fnResult.title;
   const title =
     id3Result.album ||
-    fnResult.title ||
+    explicitFnTitle ||
     singleFileTitle ||
+    fnResult.title ||
     (id3Result.trackTitles.length > 1 ? guessBookFromTrackTitles(id3Result.trackTitles) : null);
 
   // Author priority: ID3 artist > filename author
