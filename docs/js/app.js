@@ -721,10 +721,15 @@ const sortTracks = () => {
 
 const addFiles = async (fileList) => {
   const files = Array.from(fileList || []);
+  console.log(`[addFiles] received ${files.length} file(s):`, files.map((f) => `${f.name} (${f.type}, ${f.size}B)`));
   const audioFiles = files.filter((file) => isAudioTrackFile(file));
   // EPUB and PDF only — M4B is handled as an audio track below
   const bookFiles = files.filter((file) => !isAudioTrackFile(file) && isSupportedBookFile(file));
-  if (!audioFiles.length && !bookFiles.length) return;
+  console.log(`[addFiles] ${audioFiles.length} audio file(s), ${bookFiles.length} book file(s)`);
+  if (!audioFiles.length && !bookFiles.length) {
+    console.warn("[addFiles] no recognised audio or book files — returning early");
+    return;
+  }
 
   if (bookFiles.length) {
     await processBookFiles(bookFiles, { keepStatus: audioFiles.length > 0 });
@@ -828,9 +833,11 @@ const addFiles = async (fileList) => {
     }
   }
 
+  console.log(`[addFiles] calling refreshTrackList with ${tracks.length} track(s)`);
   refreshTrackList();
 
   // Auto-advance to Match step and trigger search
+  console.log("[addFiles] calling goToStep('match')");
   goToStep("match");
   // Fall back to form field values in case processBookFiles already populated them
   // (e.g. a single M4B whose title/artist was set by readM4BFile but inferBook couldn't
@@ -1321,7 +1328,8 @@ gdriveImportBtn.addEventListener("click", async () => {
       // Auth failed or user cancelled — importFromDrive already managed status
     } else if (files.length) {
       await addFiles(files);
-      setIdle();
+      const n = tracks.length;
+      setIdle(n > 0 ? `${n} file${n !== 1 ? "s" : ""} imported — see Edit tab for track list` : "Ready");
     } else {
       updateStatus("Download failed — check your Drive connection and try again.", "error");
       setTimeout(setIdle, 4000);
