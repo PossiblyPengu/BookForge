@@ -1351,6 +1351,23 @@ textarea {
   font-size: 1rem;
 }
 
+.progress-dialog-bar {
+  height: 4px;
+  background: var(--bg-inset);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+}
+.progress-dialog-bar[hidden] { display: none; }
+
+.progress-dialog-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent) 0%, #e86c50 50%, var(--accent) 100%);
+  background-size: 200% 100%;
+  transition: width 0.25s ease;
+}
+
 .progress-list {
   list-style: none;
   margin: 0;

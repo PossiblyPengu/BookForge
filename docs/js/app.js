@@ -32,6 +32,8 @@ const progressFill = $("progress-fill");
 const progressDialog = $("progress-dialog");
 const progressList = $("progress-list");
 const progressDismiss = $("progress-dismiss");
+const progressDialogBar = $("progress-dialog-bar");
+const progressDialogBarFill = $("progress-dialog-bar-fill");
 const coverPreview = $("cover-preview");
 const coverUploadBtn = $("cover-upload-btn");
 const coverRemoveBtn = $("cover-remove-btn");
@@ -273,13 +275,18 @@ const setIdle = (label = "Ready") => {
 };
 
 const showProgress = (pct) => {
+  const clamped = `${Math.min(100, Math.max(0, pct))}%`;
   progressTrack.hidden = false;
-  progressFill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+  progressFill.style.width = clamped;
+  progressDialogBar.hidden = false;
+  progressDialogBarFill.style.width = clamped;
 };
 
 const hideProgress = () => {
   progressTrack.hidden = true;
   progressFill.style.width = "0%";
+  progressDialogBar.hidden = true;
+  progressDialogBarFill.style.width = "0%";
 };
 
 let progressHideTimer = null;
@@ -813,9 +820,11 @@ const addFiles = async (fileList) => {
   for (let i = 0; i < newTracks.length; i += META_BATCH) {
     const batch = newTracks.slice(i, i + META_BATCH);
     const batchResults = await Promise.allSettled(batch.map(async (t) => {
-      if (t._sourceFile) {
-        // Virtual M4B track — reuse the metadata already parsed from the source
-        // file instead of re-parsing the same large blob N times (iOS crash).
+      if (t._sourceFile || m4bAudioFiles.includes(t.file)) {
+        // M4B file already parsed by processBookFiles — reuse the metadata
+        // instead of calling parseBlob again on the same large file.
+        // Covers both virtual chapter tracks (_sourceFile set) and a single
+        // M4B with no embedded chapters (no expansion, _sourceFile unset).
         t.meta = {
           title: null,
           album: m4bBookMeta?.title ?? null,

@@ -31,6 +31,10 @@ const ensureJsmediatags = () => {
   return jsmediatagsLoadPromise;
 };
 
+const isIOSDevice =
+  /iPad|iPhone|iPod/.test(navigator.userAgent) && !("MSStream" in window);
+const IOS_PARSE_LIMIT = 20 * 1024 * 1024; // 20 MB
+
 let musicMetaPromise = null;
 const loadMusicMetadata = () => {
   if (!musicMetaPromise) {
@@ -135,7 +139,11 @@ const readAudioInfo = (file) =>
 const readMusicMetadata = async (file) => {
   try {
     const { parseBlob } = await loadMusicMetadata();
-    const metadata = await parseBlob(file);
+    const parseOpts = { duration: !isIOSDevice, skipCovers: isIOSDevice };
+    const parseTarget = isIOSDevice && file.size > IOS_PARSE_LIMIT
+      ? file.slice(0, IOS_PARSE_LIMIT)
+      : file;
+    const metadata = await parseBlob(parseTarget, parseOpts);
     const common = metadata.common || {};
     const fmt = metadata.format || {};
 

@@ -1,6 +1,12 @@
 const SUPPORTED_EXTENSIONS = ["m4b", "epub", "pdf"];
 const EPUB_MIME = "application/epub+zip";
 
+// iOS Safari loads the entire blob into a JS ArrayBuffer for parseBlob, so
+// parsing a large M4B can easily exceed the per-tab memory limit and crash
+// (shown to the user as a page refresh).  We cap the input on iOS.
+const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !("MSStream" in window);
+const IOS_M4B_PARSE_LIMIT = 20 * 1024 * 1024; // 20 MB — covers moov+chapters for faststart files
+
 const fileTypeMatches = (file, typePrefix) => file.type?.startsWith(typePrefix);
 
 const decodeXmlEntities = (text) =>
@@ -108,9 +114,32 @@ const loadPdfJs = (() => {
 
 const readM4BFile = async (file) => {
   const { parseBlob } = await loadMusicMetadata();
-  const metadata = await parseBlob(file);
+
+  // duration:false — we never use the duration value returned here, so skip
+  // the expensive audio-data scan that would otherwise double memory use.
+  // On iOS, also cap the input size and skip cover art to stay within the
+  // browser's per-tab memory budget.
+  const parseOpts = { duration: false, skipCovers: isIOSDevice };
+  const parseTarget = isIOSDevice && file.size > IOS_M4B_PARSE_LIMIT
+    ? file.slice(0, IOS_M4B_PARSE_LIMIT)
+    : file;
+
+  let metadata;
+  try {
+    metadata = await parseBlob(parseTarget, parseOpts);
+  } catch (err) {
+    console.warn("[readM4BFile] parseBlob failed, retrying with 5 MB slice:", err);
+    try {
+      metadata = await parseBlob(file.slice(0, 5 * 1024 * 1024), parseOpts);
+    } catch (err2) {
+      console.warn("[readM4BFile] 5 MB retry also failed — returning empty metadata:", err2);
+      return { title: null, author: null, description: null, narrator: null,
+               coverBlob: null, chapters: null, chapterTimings: null };
+    }
+  }
+
   const common = metadata.common || {};
-  const picture = Array.isArray(common.picture) ? common.picture[0] : null;
+  const picture = (!isIOSDevice && Array.isArray(common.picture)) ? common.picture[0] : null;
   const coverBlob = picture ? new Blob([picture.data], { type: picture.format || "image/jpeg" }) : null;
 
   // Extract embedded chapter list if present (music-metadata-browser exposes
