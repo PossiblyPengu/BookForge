@@ -170,18 +170,24 @@ export const ensureAuth = async (scope) => {
     return accessToken;
   }
 
-  try {
-    await ensureGIS();
-  } catch (err) {
-    console.error("Failed to load Google Identity Services:", err);
-    throw new Error("Failed to load Google Identity Services: " + err.message, { cause: err });
-  }
-
   // 3. Interactive consent (shows popup).
   // We skip the prompt:"none" silent attempt intentionally: it opens a transient
   // cross-origin popup that triggers COOP warnings and burns the user-gesture
   // token, causing the real consent popup to be blocked or to silently fail.
   // Cached-token handling above covers the silent-refresh case.
+  //
+  // iOS Safari: only load GIS with await if it is not already loaded.
+  // When gisLoaded=true, calling initTokenClient synchronously (without any
+  // extra await/microtask) keeps requestAccessToken() within the same
+  // user-gesture callback, which is required for iOS to grant popup permission.
+  if (!gisLoaded) {
+    try {
+      await ensureGIS();
+    } catch (err) {
+      console.error("Failed to load Google Identity Services:", err);
+      throw new Error("Failed to load Google Identity Services: " + err.message, { cause: err });
+    }
+  }
   return new Promise((resolve, reject) => {
     initTokenClient(scope, resolve, reject, "");
   });

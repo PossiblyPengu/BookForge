@@ -1,6 +1,6 @@
 
 /* global caches */
-const CACHE_NAME = 'bookforge-cache-v4';
+const CACHE_NAME = 'bookforge-cache-v5';
 const APP_SHELL = [
   './',
   './index.html',
@@ -37,8 +37,13 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-// Fetch: serve from cache, fall back to network
+// Fetch: serve from cache, fall back to network.
+// Only intercept same-origin requests — cross-origin requests (e.g. Google
+// Drive API calls with Authorization headers) must go straight to the network.
+// iOS Safari service workers do not correctly forward custom headers like
+// Authorization on cross-origin requests, causing 401 errors for Drive API.
 self.addEventListener('fetch', event => {
+  if (!event.request.url.startsWith(self.location.origin)) return;
   event.respondWith(
     caches.match(event.request, { ignoreSearch: true }).then(response =>
       response || fetch(event.request)
