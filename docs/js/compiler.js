@@ -1,3 +1,5 @@
+import { readAudioInfo } from "./metadata.js";
+
 /**
  * compiler.js
  *
@@ -115,7 +117,11 @@ export const compileM4B = async ({ tracks, coverFile, formValues, bitrate = "96k
 
     // Build chapter metadata. Use stored chapterStart/End when available;
     // fall back to even distribution across the total file duration.
-    const totalSec = tracks[0].meta?.duration || 0;
+    let totalSec = tracks[0]._sourceDuration ?? tracks[0].meta?.duration ?? 0;
+    if (totalSec === 0) {
+      ui.updateStatus("Reading source duration...");
+      totalSec = (await readAudioInfo(srcFile)).duration || 0;
+    }
     let meta = ";FFMETADATA1\n";
     meta += `title=${titleVal}\n`;
     meta += `artist=${authorVal}\n`;

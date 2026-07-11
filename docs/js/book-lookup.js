@@ -366,9 +366,9 @@ const fetchSingleCover = async (url) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.referrerPolicy = "no-referrer";
-    const cleanup = () => { img.onload = null; img.onerror = null; img.src = ""; };
+    const cleanup = () => { img.src = ""; };
     const timeout = setTimeout(() => { cleanup(); resolve(null); }, 8000);
-    img.onload = () => {
+    const onLoad = () => {
       clearTimeout(timeout);
       try {
         // Reject tiny placeholder images (< 50px in either dimension)
@@ -394,7 +394,9 @@ const fetchSingleCover = async (url) => {
         resolve(null);
       }
     };
-    img.onerror = () => { clearTimeout(timeout); cleanup(); resolve(null); };
+    const onError = () => { clearTimeout(timeout); cleanup(); resolve(null); };
+    img.addEventListener("load", onLoad, { once: true });
+    img.addEventListener("error", onError, { once: true });
     img.src = url;
   });
 };

@@ -1,3 +1,5 @@
+import { readAudioInfo } from "./metadata.js";
+
 const SUPPORTED_EXTENSIONS = ["m4b", "epub", "pdf"];
 const EPUB_MIME = "application/epub+zip";
 
@@ -124,6 +126,10 @@ const readM4BFile = async (file) => {
     ? file.slice(0, IOS_M4B_PARSE_LIMIT)
     : file;
 
+  // Read the audio duration/bitrate via the <audio> element. This is used by
+  // the compiler for the last-chapter end timestamp and by the UI for stats.
+  const audioInfoPromise = readAudioInfo(file);
+
   let metadata;
   try {
     metadata = await parseBlob(parseTarget, parseOpts);
@@ -133,8 +139,9 @@ const readM4BFile = async (file) => {
       metadata = await parseBlob(file.slice(0, 5 * 1024 * 1024), parseOpts);
     } catch (err2) {
       console.warn("[readM4BFile] 5 MB retry also failed — returning empty metadata:", err2);
+      const { duration, bitrate } = await audioInfoPromise;
       return { title: null, author: null, description: null, narrator: null,
-               coverBlob: null, chapters: null, chapterTimings: null };
+               coverBlob: null, chapters: null, chapterTimings: null, duration, bitrate };
     }
   }
 
@@ -173,6 +180,8 @@ const readM4BFile = async (file) => {
     }
   }
 
+  const { duration, bitrate } = await audioInfoPromise;
+
   return {
     title: common.album || common.title || null,
     author: common.artist || common.artists?.[0] || null,
@@ -181,6 +190,8 @@ const readM4BFile = async (file) => {
     coverBlob,
     chapters,
     chapterTimings,
+    duration,
+    bitrate,
   };
 };
 

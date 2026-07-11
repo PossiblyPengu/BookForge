@@ -195,9 +195,16 @@ const refreshUploadSummary = () => {
   if (altActions) altActions.hidden = true;
   uploadFileSummary.hidden = false;
 
-  const totalSize = tracks.reduce((s, t) => s + t.file.size, 0);
-  const totalDur = tracks.reduce((s, t) => s + (t.meta?.duration || 0), 0);
-  uploadFileCount.textContent = `${tracks.length} file${tracks.length !== 1 ? "s" : ""} \u00b7 ${formatDuration(totalDur)} \u00b7 ${(totalSize / (1024 * 1024)).toFixed(1)} MB`;
+  const { totalSize, totalDuration } = tracks.reduce((acc, t) => {
+    const key = sourceKey(t);
+    if (!acc.seen.has(key)) {
+      acc.seen.add(key);
+      acc.totalSize += sourceFileOf(t).size;
+      acc.totalDuration += sourceDurationOf(t);
+    }
+    return acc;
+  }, { seen: new Set(), totalSize: 0, totalDuration: 0 });
+  uploadFileCount.textContent = `${tracks.length} file${tracks.length !== 1 ? "s" : ""} \u00b7 ${formatDuration(totalDuration)} \u00b7 ${(totalSize / (1024 * 1024)).toFixed(1)} MB`;
 
   uploadFileList.textContent = "";
   for (const track of tracks) {
@@ -477,8 +484,11 @@ const isAudioTrackFile = (file) => {
   return AUDIO_MIME_PREFIXES.some((p) => file.type?.startsWith(p));
 };
 
-// Keep for compat — used by compiler to detect if stream-copy is safe
-const isMp3File = (file) => file?.type === "audio/mpeg" || file?.name?.toLowerCase().endsWith(".mp3");
+// Source helpers for single-M4B expansion: virtual tracks wrap the same source
+// file, so totals should be deduplicated by source key.
+const sourceFileOf = (track) => track._sourceFile || track.file;
+const sourceDurationOf = (track) => track._sourceDuration ?? track.meta?.duration ?? 0;
+const sourceKey = (track) => fileKey(sourceFileOf(track));
 
 const setFieldIfDefault = (input, value, defaultValue) => {
   if (!input || !value) return false;
@@ -759,8 +769,15 @@ const refreshTrackList = () => {
     return name.includes(filterText);
   });
 
-  const totalDuration = tracks.reduce((s, t) => s + (t.meta?.duration || 0), 0);
-  const totalSize = tracks.reduce((s, t) => s + t.file.size, 0);
+  const { totalDuration, totalSize } = tracks.reduce((acc, t) => {
+    const key = sourceKey(t);
+    if (!acc.seen.has(key)) {
+      acc.seen.add(key);
+      acc.totalDuration += sourceDurationOf(t);
+      acc.totalSize += sourceFileOf(t).size;
+    }
+    return acc;
+  }, { seen: new Set(), totalDuration: 0, totalSize: 0 });
   chapterCount.textContent = `${tracks.length} chapters \u00b7 ${formatDuration(totalDuration)} \u00b7 ${(totalSize / (1024 * 1024)).toFixed(1)} MB`;
   if (chapterSearchCount) {
     chapterSearchCount.textContent = filterText ? `${pairs.length} of ${tracks.length}` : "";
@@ -933,6 +950,8 @@ const addFiles = async (fileList) => {
         chapterStart: embeddedTimings?.[i]?.start ?? null,
         chapterEnd: embeddedTimings?.[i]?.end ?? null,
         _sourceFile: m4bSourceFile,
+        _sourceDuration: m4bBookMeta?.duration ?? null,
+        _sourceBitrate: m4bBookMeta?.bitrate ?? null,
       }
     : { file, meta: null, chapterName: null }));
   tracks = [...tracks, ...newTracks];
@@ -952,11 +971,17 @@ const addFiles = async (fileList) => {
   for (let i = 0; i < newTracks.length; i += META_BATCH) {
     const batch = newTracks.slice(i, i + META_BATCH);
     const batchResults = await Promise.allSettled(batch.map(async (t) => {
-      if (t._sourceFile || m4bAudioFiles.includes(t.file)) {
+      if (t._sourceFile || (m4bAudioFiles.length === 1 && m4bAudioFiles.includes(t.file))) {
         // M4B file already parsed by processBookFiles — reuse the metadata
         // instead of calling parseBlob again on the same large file.
         // Covers both virtual chapter tracks (_sourceFile set) and a single
         // M4B with no embedded chapters (no expansion, _sourceFile unset).
+        // For virtual chapter tracks, keep per-track duration/bitrate null and
+        // store the source values separately so totals can be deduplicated.
+        if (t._sourceFile != null && m4bBookMeta != null) {
+          t._sourceDuration = m4bBookMeta.duration ?? null;
+          t._sourceBitrate = m4bBookMeta.bitrate ?? null;
+        }
         t.meta = {
           title: null,
           album: m4bBookMeta?.title ?? null,
@@ -966,8 +991,8 @@ const addFiles = async (fileList) => {
           genre: null,
           description: m4bBookMeta?.description ?? null,
           picture: null,
-          duration: null,
-          bitrate: null,
+          duration: t._sourceFile != null ? null : (m4bBookMeta?.duration ?? null),
+          bitrate: t._sourceFile != null ? null : (m4bBookMeta?.bitrate ?? null),
         };
       } else {
         t.meta = await extractMetadata(t.file);
@@ -1277,8 +1302,15 @@ const populateForgeReview = () => {
 
   // Stats
   forgeStats.textContent = "";
-  const totalDuration = tracks.reduce((s, t) => s + (t.meta?.duration || 0), 0);
-  const totalSize = tracks.reduce((s, t) => s + t.file.size, 0);
+  const { totalDuration, totalSize } = tracks.reduce((acc, t) => {
+    const key = sourceKey(t);
+    if (!acc.seen.has(key)) {
+      acc.seen.add(key);
+      acc.totalDuration += sourceDurationOf(t);
+      acc.totalSize += sourceFileOf(t).size;
+    }
+    return acc;
+  }, { seen: new Set(), totalDuration: 0, totalSize: 0 });
   const stats = [
     { value: String(tracks.length), label: "Chapters" },
     { value: formatDuration(totalDuration), label: "Duration" },

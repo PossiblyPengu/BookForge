@@ -37,14 +37,17 @@ export const toast = (message, type = "info", duration = 4000) => {
   el.className = `toast toast-${type}`;
   el.setAttribute("role", type === "error" ? "alert" : "status");
   el.innerHTML = `
-    <span class="toast-icon">${ICONS[type] ?? ICONS.info}</span>
-    <span class="toast-msg">${message}</span>
+    <span class="toast-icon"></span>
+    <span class="toast-msg"></span>
     <button class="toast-close" aria-label="Dismiss" type="button">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
       </svg>
     </button>
   `;
+
+  el.querySelector(".toast-icon").innerHTML = ICONS[type] ?? ICONS.info;
+  el.querySelector(".toast-msg").textContent = message;
 
   let dismissed = false;
   const dismiss = () => {

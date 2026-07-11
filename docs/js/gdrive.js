@@ -39,14 +39,14 @@ const loadScript = (src) =>
     const s = document.createElement("script");
     s.src = src;
     s.async = true;
-    s.onload = () => {
+    s.addEventListener("load", () => {
       console.debug("GIS script loaded:", src);
       resolve();
-    };
-    s.onerror = () => {
+    });
+    s.addEventListener("error", () => {
       console.error("Failed to load GIS script:", src);
       reject(new Error(`Failed to load ${src}`));
-    };
+    });
     document.head.appendChild(s);
   });
 

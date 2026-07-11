@@ -15,7 +15,7 @@ Everything runs locally in the browser using [FFmpeg WASM](https://ffmpegwasm.ne
 
 ## Usage
 
-Visit the [live site](https://possiblypengu.github.io/windsurf-project-2/) or serve the `docs/` directory locally:
+Visit the [live site](https://possiblypengu.github.io/BookForge/) or serve the `docs/` directory locally:
 
 ```bash
 npx serve docs
