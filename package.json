@@ -2,9 +2,11 @@
   "name": "bookforge",
   "version": "1.0.0",
   "description": "Convert MP3 chapters into M4B audiobooks",
-  "main": "index.js",
   "directories": {
     "doc": "docs"
+  },
+  "engines": {
+    "node": ">=20.19.0"
   },
   "type": "module",
   "scripts": {
@@ -19,24 +21,24 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PossiblyPengu/windsurf-project-2.git"
+    "url": "git+https://github.com/PossiblyPengu/BookForge.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/PossiblyPengu/windsurf-project-2/issues"
+    "url": "https://github.com/PossiblyPengu/BookForge/issues"
   },
-  "homepage": "https://possiblypengu.github.io/windsurf-project-2/",
+  "homepage": "https://possiblypengu.github.io/BookForge/",
   "dependencies": {
-    "@capacitor/android": "^6.0.0",
-    "@capacitor/core": "^6.0.0",
-    "@capacitor/ios": "^6.0.0"
+    "@capacitor/android": "^7.6.7",
+    "@capacitor/core": "^7.6.7",
+    "@capacitor/ios": "^7.6.7"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.0.0",
+    "@capacitor/cli": "^7.6.7",
     "@eslint/js": "^10.0.1",
     "eslint": "^10.0.3",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.10"
   }
 }

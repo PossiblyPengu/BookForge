@@ -21,11 +21,11 @@ const ensureJsmediatags = () => {
     const script = document.createElement("script");
     script.src =
       "https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.7/jsmediatags.min.js";
-    script.onload = () => resolve();
-    script.onerror = () => {
+    script.addEventListener("load", () => resolve());
+    script.addEventListener("error", () => {
       jsmediatagsLoadPromise = null;
       reject(new Error("jsmediatags failed to load"));
-    };
+    });
     document.head.appendChild(script);
   });
   return jsmediatagsLoadPromise;
@@ -97,7 +97,7 @@ const parseTag = (file, resolve) => {
   });
 };
 
-const readAudioInfo = (file) =>
+export const readAudioInfo = (file) =>
   new Promise((resolve) => {
     const audio = new Audio();
     audio.preload = "metadata";
