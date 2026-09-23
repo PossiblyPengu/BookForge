@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { patchPiper } from "./patch-piper.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const ROOT = path.join(path.dirname(__filename), "..");
@@ -69,6 +70,8 @@ for (const f of fs.readdirSync(piperDist))
 const piperMain = out("piper/piper-tts-web.js");
 fs.writeFileSync(piperMain, fs.readFileSync(piperMain, "utf8")
   .replace('import("onnxruntime-web/wasm")', 'import("../ort/wasm.js")'));
+// reuse one phonemizer per session (upstream makes an 18 MB WASM instance per sentence)
+patchPiper(piperMain);
 
 // piper phonemize wasm+data live in a separate CDN package; keep local copies
 for (const ext of ["wasm", "data"]) {

@@ -362,29 +362,34 @@ _logger = new WeakMap();
 _TtsSession_instances = new WeakSet();
 predictChunk_fn = async function(text) {
   const input = JSON.stringify([{ text: text.trim() }]);
-  const phonemeIds = await new Promise(async (resolve) => {
-    const module = await __privateGet(this, _createPiperPhonemize).call(this, {
-      print: (data) => {
-        resolve(JSON.parse(data).phoneme_ids);
-      },
-      printErr: (message) => {
-        throw new Error(message);
-      },
+  // Pageturner patch (scripts/patch-piper.js): one phonemizer per session,
+  // reused for every sentence, instead of a new 18 MB WASM instance each.
+  if (!this.__pageturnerPhonemizer) {
+    const sink = { out: null, err: null };
+    this.__pageturnerPhonemizer = __privateGet(this, _createPiperPhonemize).call(this, {
+      print: (data) => { sink.out ??= data; },
+      printErr: (message) => { sink.err ??= message; },
       locateFile: (url) => {
         if (url.endsWith(".wasm")) return __privateGet(this, _wasmPaths).piperWasm;
         if (url.endsWith(".data")) return __privateGet(this, _wasmPaths).piperData;
         return url;
       }
-    });
-    module.callMain([
-      "-l",
-      __privateGet(this, _modelConfig).espeak.voice,
-      "--input",
-      input,
-      "--espeak_data",
-      "/espeak-ng-data"
-    ]);
-  });
+    }).then((module) => ({ module, sink }));
+    this.__pageturnerPhonemizer.catch(() => { this.__pageturnerPhonemizer = null; });
+  }
+  const { module, sink } = await this.__pageturnerPhonemizer;
+  sink.out = sink.err = null;
+  module.callMain([
+    "-l",
+    __privateGet(this, _modelConfig).espeak.voice,
+    "--input",
+    input,
+    "--espeak_data",
+    "/espeak-ng-data"
+  ]);
+  // callMain runs synchronously, so its output (or error) is in by now
+  if (sink.out == null) throw new Error(sink.err || "phonemizer produced no output");
+  const phonemeIds = JSON.parse(sink.out).phoneme_ids;
   const speakerId = 0;
   const noiseScale = __privateGet(this, _modelConfig).inference.noise_scale;
   const lengthScale = __privateGet(this, _modelConfig).inference.length_scale;

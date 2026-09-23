@@ -1,6 +1,6 @@
 
-const CACHE_NAME = 'pageturner-cache-v34';
-const RUNTIME_CACHE = 'pageturner-runtime-v34';
+const CACHE_NAME = 'pageturner-cache-v35';
+const RUNTIME_CACHE = 'pageturner-runtime-v35';
 const APP_SHELL = [
   './',
   './index.html',
@@ -123,7 +123,13 @@ self.addEventListener('fetch', event => {
       if (cached) return cached;
       // Runtime cache: vendor files (pdf worker, wasm, voices) fetch lazily —
       // store them so they keep working offline after first use.
-      return fetch(event.request).then(response => {
+      // Revalidate vendor files rather than trusting the HTTP cache (they're
+      // served with a 7-day max-age), so a patched library reaches installed
+      // apps on the next deploy instead of a week later.
+      const req = event.request.url.includes('/vendor/')
+        ? new Request(event.request, { cache: 'no-cache' })
+        : event.request;
+      return fetch(req).then(response => {
         if (response.ok && event.request.url.includes('/vendor/')) {
           const clone = response.clone();
           caches.open(RUNTIME_CACHE).then(c => c.put(event.request, clone));
