@@ -4,10 +4,10 @@
   Referrer-Policy: no-referrer
 
 /js/*
-  Cache-Control: public, max-age=86400, must-revalidate
+  Cache-Control: no-cache
 
 /css/*
-  Cache-Control: public, max-age=86400, must-revalidate
+  Cache-Control: no-cache
 
 /icons/*
   Cache-Control: public, max-age=86400, must-revalidate

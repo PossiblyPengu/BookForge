@@ -181,8 +181,14 @@ export const ttsController = {
       this._setPlaying(true);
       if (this.eng.kind === "audio" && !this.eng.ready()) {
         this._status("Loading voice…");
+        const loading = this.eng.ensure((p) => this._downloadProgress(p));
+        // Pin where reading starts now, at the tap. Loading a neural voice
+        // can take a while (a first-use download), and the start position
+        // used to be read only once it finished — so swiping while waiting
+        // made read-aloud begin pages from where play was pressed.
+        this._fill(1);
         try {
-          await this.eng.ensure((p) => this._downloadProgress(p));
+          await loading;
         } catch (err) {
           console.warn("neural voice failed to load, using device voice", err);
           toast("Neural voice couldn't load — using device voice", { error: true });

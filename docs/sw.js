@@ -1,6 +1,6 @@
 
-const CACHE_NAME = 'pageturner-cache-v32';
-const RUNTIME_CACHE = 'pageturner-runtime-v32';
+const CACHE_NAME = 'pageturner-cache-v33';
+const RUNTIME_CACHE = 'pageturner-runtime-v33';
 const APP_SHELL = [
   './',
   './index.html',
@@ -69,7 +69,12 @@ const APP_SHELL = [
 // Install: cache app shell
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
+    // cache: "reload" skips the HTTP cache. Without it a new worker could
+    // re-cache day-old copies of the app (js/css are served with max-age),
+    // so a deploy didn't reach installed apps — or reached them half old,
+    // half new.
+    caches.open(CACHE_NAME).then(cache =>
+      cache.addAll(APP_SHELL.map(url => new Request(url, { cache: "reload" }))))
   );
   self.skipWaiting();
 });

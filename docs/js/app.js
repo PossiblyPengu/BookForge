@@ -94,6 +94,13 @@ const initSettings = async () => {
   speechSynthesis.onvoiceschanged = updateVoiceLabel;
   updateVoiceLabel();
 
+  // Show which build the service worker is serving, so an installed app
+  // can be checked against the latest deploy.
+  caches?.keys?.().then((keys) => {
+    const build = keys.map((k) => k.match(/^pageturner-cache-v(\d+)$/)?.[1]).find(Boolean);
+    if (build) $("set-version").textContent = `2.0.0 (build ${build})`;
+  }).catch(() => {});
+
   const est = await storageEstimate();
   if (est) {
     const persisted = await navigator.storage?.persisted?.().catch(() => false);
