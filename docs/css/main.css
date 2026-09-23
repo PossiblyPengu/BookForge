@@ -815,3 +815,4 @@ input, textarea { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation-duration: 0.01s !important; }
 }
+.seg button[hidden] { display: none; }

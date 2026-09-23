@@ -229,9 +229,8 @@ const testFn = async (withPiper) => {
 
     await wait(150);
     const before = said[said.length - 1];
-    const cur = ttsController._cur;
-    const prevText = cur && cur.i > 0 ? cur.chunks[cur.i - 1]
-      : ttsController._history.at(-2)?.chunks.at(-1);
+    const hist = ttsController._history;
+    const prevText = hist[hist.lastIndexOf(ttsController._cur) - 1]?.text;
     const m = said.length;
     ttsController.skip(-1);
     await wait(100);
@@ -273,6 +272,63 @@ const testFn = async (withPiper) => {
       `mute engine pauses on the same sentence → ${refused.length} attempts, playing=${ttsController.playing}`);
     ttsController.stop();
     stub.refuse = 0;
+
+    // 8d. audio-engine path (what iPhone uses): sentences are generated
+    //     ahead and played as clips through one <audio> element. A fake
+    //     engine returns short silent clips, so the real player, queue,
+    //     pause-mid-clip and skip-back all run.
+    {
+      const { engines, settings } = await import("./js/tts-engines.js");
+      const silentClip = (ms) => {
+        const rate = 8000, n = Math.round(rate * ms / 1000), b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
+        const ws = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+        ws(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); ws(8, "WAVE"); ws(12, "fmt "); v.setUint32(16, 16, true);
+        v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+        v.setUint16(32, 2, true); v.setUint16(34, 16, true); ws(36, "data"); v.setUint32(40, n * 2, true);
+        return new Blob([b], { type: "audio/wav" });
+      };
+      const synthed = [];
+      engines.fake = {
+        id: "fake", kind: "audio", ready: () => true, ensure: async () => {},
+        synth: (text) => { synthed.push(text); return new Promise((r) => setTimeout(() => r(silentClip(250)), 20)); },
+      };
+      const voiced = [];
+      const origVoice = ttsController._voice;
+      ttsController._voice = function (s, ses) { if (this.playing && this._cur !== s) voiced.push(s.text); return origVoice.call(this, s, ses); };
+      const prevEngine = settings.engine;
+      settings.engine = "fake";
+      // ground truth: every sentence in document order from the visible start
+      const order = [];
+      { const loc = fv.lastLocation.range; let started = false;
+        for (const b of extractBlocks(liveDoc())) { let from = 0;
+          for (const c of chunk(b.text)) { const f2 = rangeForChunk(b.el, c, from);
+            if (!started && f2 && f2.range.compareBoundaryPoints(Range.START_TO_END, loc) >= 0) started = true;
+            if (started) order.push(c); if (f2) from = f2.end; } } }
+      await ttsController.start(getR, {});
+      await wait(900);
+      const ahead = synthed.length - voiced.length;
+      ttsController.pause();
+      const pausedClip = !!ttsController._pausedClip;
+      const nPaused = voiced.length;
+      await wait(400);
+      const heldWhilePaused = voiced.length === nPaused;
+      ttsController.resume();
+      await wait(700);
+      const inOrder = voiced.every((t, i) => t === order[i]);
+      log(voiced[0] === order[0] && inOrder && voiced.length >= 4,
+        `audio engine reads in order from the page → ${voiced.length} sentences, first "${voiced[0]?.slice(0, 12)}"`);
+      log(ahead >= 1, `audio engine generates ahead of playback → ${ahead} sentence(s) ahead`);
+      log(pausedClip && heldWhilePaused, `pause holds the clip mid-sentence → pausedClip=${pausedClip}, silent while paused=${heldWhilePaused}`);
+      const k3 = voiced.length;
+      const back = ttsController._history.at(-2)?.text;
+      ttsController.skip(-1);
+      await wait(150);
+      log(!!back && voiced[k3] === back, `audio skip back → "${voiced[k3]?.slice(0, 12)}", want "${back?.slice(0, 12)}"`);
+      ttsController.stop();
+      ttsController._voice = origVoice;
+      settings.engine = prevEngine;
+      delete engines.fake;
+    }
 
     await closeReader();
     log(document.getElementById("view-reader").hidden, "reader closes");
@@ -354,7 +410,8 @@ const main = async () => {
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: "shell",
-    args: ["--disable-gpu", "--no-first-run"],
+    // clips play without a real tap in the audio-engine checks
+    args: ["--disable-gpu", "--no-first-run", "--autoplay-policy=no-user-gesture-required"],
   });
   try {
     const page = await browser.newPage();

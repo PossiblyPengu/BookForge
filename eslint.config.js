@@ -41,6 +41,7 @@ export default [
         OfflineAudioContext: "readonly",
         getComputedStyle: "readonly",
         requestAnimationFrame: "readonly",
+        cancelAnimationFrame: "readonly",
         crypto: "readonly",
         caches: "readonly",
         Intl: "readonly",

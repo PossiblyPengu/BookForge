@@ -81,8 +81,10 @@
               <div class="list-row">
                 <span>Engine</span>
                 <div class="seg" id="set-tts-engine">
+                  <button type="button" data-val="auto">Auto</button>
                   <button type="button" data-val="web">Device</button>
                   <button type="button" data-val="piper">Neural</button>
+                  <button type="button" data-val="kokoro" hidden>HQ</button>
                 </div>
               </div>
               <button type="button" class="list-row list-row-btn" id="set-tts-voice">
@@ -101,7 +103,7 @@
                 <span class="list-value" id="set-tts-preview-state">&#9654;</span>
               </button>
             </div>
-            <p class="list-group-note" id="tts-engine-note">Device voices use your system speech. Neural voices download once (~50&nbsp;MB) and run offline on-device. Tap a voice’s ▶ in the picker to hear it first.</p>
+            <p class="list-group-note" id="tts-engine-note">Auto uses neural voices on iPhone and iPad, where they keep reading with the screen locked, and your system voices elsewhere. Neural voices download once (~60&nbsp;MB) and run offline. HQ is a higher-quality voice for devices with WebGPU (~330&nbsp;MB). Tap a voice’s ▶ in the picker to hear it first.</p>
           </div>
           <div class="list-group">
             <p class="list-group-label">Library Data</p>

@@ -10,7 +10,9 @@ import {
 } from "./library.js";
 import { initReader, openReader } from "./reader.js";
 import { initPlayer, openPlayer, playerState, reopenPlayer } from "./player.js";
-import { ttsController, pickVoice, voiceLabel, previewVoice, stopPreview } from "./tts.js";
+import { ttsController } from "./tts.js";
+import { pickVoice, voiceLabel, previewVoice, stopPreview } from "./tts-voices.js";
+import { currentVoice, kokoro } from "./tts-engines.js";
 import { deliverBackup, restoreBackup } from "./backup.js";
 
 // ---------------------------------------------------------------------------
@@ -51,6 +53,9 @@ const initSettings = async () => {
   const s = ttsController.settings;
 
   const eng = $("set-tts-engine");
+  // the high-quality voice only keeps up on WebGPU — don't offer it elsewhere
+  const hq = eng.querySelector("[data-val=kokoro]");
+  if (hq) hq.hidden = !kokoro.available();
   eng.querySelectorAll("button").forEach((b) => {
     b.classList.toggle("active", b.dataset.val === s.engine);
     b.addEventListener("click", async () => {
@@ -81,8 +86,7 @@ const initSettings = async () => {
   // hear the current voice at the current speed without opening the picker
   const previewState = $("set-tts-preview-state");
   $("set-tts-preview").addEventListener("click", () =>
-    previewVoice(s.engine === "piper" ? s.piperVoice : s.voiceURI,
-      (t) => { previewState.textContent = t; }));
+    previewVoice(currentVoice(), (t) => { previewState.textContent = t; }));
 
   const updateVoiceLabel = async () => {
     $("set-tts-voice-name").textContent = await voiceLabel();

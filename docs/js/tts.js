@@ -1,52 +1,37 @@
 /**
  * tts.js — read-aloud controller.
  *
- * Two engines:
- *   web   — speechSynthesis (iOS system voices; free; chunk-bounded for
- *           Safari's long-utterance watchdog)
- *   piper — on-device neural voices (WASM; model downloads once to OPFS)
+ *   renderer.textBlocks()  ─►  Sentences  ─►  ahead[] (synthesising)  ─►  play
  *
- * The controller pulls text blocks from the active renderer's
- * textBlocks() async generator, speaks them in order, and calls
- * renderer.advance() when the current section is exhausted.
+ * - Sentences splits the renderer's blocks into sentence chunks, starting
+ *   from what's on screen, one section at a time; renderer.advance() moves
+ *   to the next section when one runs dry.
+ * - For audio engines (piper, kokoro) the next few sentences are generated
+ *   while the current one plays, then played through a single <audio>
+ *   element — real media playback that survives the iOS lock screen and
+ *   owns the Media Session controls.
+ * - Web Speech (the speech engine) speaks sentences directly.
+ *
+ * A sentence that isn't heard is retried, never skipped; if the engine keeps
+ * refusing, read-aloud pauses on it so the next tap on play retries it.
  */
 
-import { $, toast, listSheet, fmtBytes, chunk } from "./util.js";
-import { kvGet, kvSet } from "./db.js";
+import { $, toast, chunk } from "./util.js";
+import {
+  settings, loadSettings, saveSettings, currentEngine, silentWavUrl, web,
+} from "./tts-engines.js";
 
 export { chunk };
 
-const SETTINGS_KEY = "tts-settings";
-const settings = { engine: "web", voiceURI: "", piperVoice: "en_US-lessac-medium", rate: 1 };
-
+const LOOKAHEAD = 3; // sentences generated ahead of the one playing
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+const asBlock = (v) => (typeof v === "string" ? { text: v } : v);
 
 // --- iOS lock-screen plumbing ------------------------------------------------
-// iOS keeps a page's JS alive while an <audio> element is playing — that's the
-// only reliable way to keep chunk callbacks firing on the lock screen.
-// speechSynthesis is not a media session and AudioContext suspends on lock,
-// so a silent keepalive loop holds the session for web voices, and piper
-// chunks play through a real <audio> element rather than Web Audio.
-// (iOS ignores el.volume, so the keepalive must be truly silent samples.)
-
-const silentWavUrl = (() => {
-  let url = null;
-  return () => {
-    if (url) return url;
-    const rate = 8000, n = Math.floor(rate * 0.25);
-    const buf = new ArrayBuffer(44 + n * 2);
-    const v = new DataView(buf);
-    const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-    ws(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); ws(8, "WAVE");
-    ws(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
-    v.setUint16(22, 1, true); v.setUint32(24, rate, true);
-    v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true);
-    v.setUint16(34, 16, true); ws(36, "data"); v.setUint32(40, n * 2, true);
-    url = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
-    return url;
-  };
-})();
-
+// iOS keeps a page's JS alive while an <audio> element is playing. A silent
+// loop holds the session through the gaps between clips (and under Web
+// Speech, which isn't a media session at all). iOS ignores el.volume, so the
+// keepalive must be truly silent samples.
 const keepalive = {
   el: null,
   start() {
@@ -61,102 +46,14 @@ const keepalive = {
   stop() { try { this.el?.pause(); } catch { /* noop */ } },
 };
 
-// ---------------------------------------------------------------------------
-// Web Speech backend
-// ---------------------------------------------------------------------------
-const web = {
-  _token: null, // the utterance whose watchdog is live
-  speak(text, onDone, onBoundary) {
-    const token = {};
-    this._token = token;
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = settings.rate;
-    const v = speechSynthesis.getVoices().find((v) => v.voiceURI === settings.voiceURI);
-    if (v) u.voice = v;
-    let done = false;
-    let started = false; // did this utterance ever actually produce speech?
-    // The watchdog's cancel() re-enters via onerror in some engines; `forced`
-    // makes sure the verdict it already reached is the one that is reported.
-    let forced = null;
-    const finish = (cont) => {
-      if (done) return;
-      done = true;
-      clearInterval(wd);
-      onDone(forced ?? cont);
-    };
-    u.onstart = () => { started = true; };
-    // word-level sync where supported (Chrome; iOS Safari may never fire it)
-    if (onBoundary) u.onboundary = (e) => {
-      started = true;
-      if (e.charIndex != null) onBoundary(e.charIndex, e.charLength || 0);
-    };
-    const queuedAt = Date.now();
-    // iOS drops an utterance it won't play (no user activation, audio
-    // session busy) by ending it at once without ever starting it. That is
-    // not speech — counting it as spoken is how whole pages went by silently.
-    u.onend = () => finish(started || Date.now() - queuedAt > 250);
-    // Every error means the words weren't heard. (This used to report
-    // not-allowed / audio-busy / synthesis-failed as success, so a refused
-    // utterance advanced the book instead of being retried.)
-    u.onerror = () => finish(false);
-    speechSynthesis.resume(); // iOS can sit stuck in 'paused'
-    speechSynthesis.speak(u);
-    // Watchdog — in some environments (iOS standalone PWA) speak() silently
-    // never starts. Don't hang: bail so the controller can surface it.
-    //
-    // The ceiling has to scale with the text and the rate. A flat 45s cut off
-    // long chunks at slow rates mid-sentence and the controller counted that
-    // as a failure, which is how whole passages went missing.
-    const budget = 15000 + (text.length / Math.max(settings.rate, 0.1)) * 250;
-    let t0 = Date.now();
-    let pausedAt = 0;
-    const wd = setInterval(() => {
-      // A newer utterance owns the engine now. Its speaking/pending state
-      // isn't ours to judge — acting on it would cancel the new utterance.
-      if (web._token && web._token !== token) { clearInterval(wd); return; }
-      if (speechSynthesis.paused) { // legit pause — keep waiting, don't age out
-        if (!pausedAt) pausedAt = Date.now();
-        return;
-      }
-      if (pausedAt) { t0 += Date.now() - pausedAt; pausedAt = 0; }
-      if (speechSynthesis.speaking) started = true;
-      const idle = !speechSynthesis.speaking && !speechSynthesis.pending;
-      // Went quiet after speaking: a dropped 'end' event, not a mute engine.
-      if (idle && Date.now() - t0 > 3000) forced = started;
-      // Overran its budget: move on rather than re-reading or stalling.
-      else if (Date.now() - t0 > budget) forced = true;
-      else return;
-      try { speechSynthesis.cancel(); } catch { /* noop */ }
-      finish(forced);
-    }, 250);
-  },
-  // iOS only lets a page speak once speak() has been called inside a user
-  // gesture. The real first sentence comes after async work (settings,
-  // renderer), outside the tap — so speak a silent one now, synchronously.
-  unlock() {
-    try {
-      speechSynthesis.resume();
-      const u = new SpeechSynthesisUtterance(" ");
-      u.volume = 0;
-      speechSynthesis.speak(u);
-    } catch { /* noop */ }
-  },
-  stop() { try { speechSynthesis.cancel(); } catch { /* noop */ } },
-};
-
-// ---------------------------------------------------------------------------
-// Piper backend (lazy)
-// ---------------------------------------------------------------------------
-const piper = {
-  session: null,
+// One persistent <audio> element for every generated clip. It's unlocked
+// inside the tap by playing a silent clip; after that iOS lets play() run
+// from async continuations.
+const player = {
   el: null,
-  loading: null,
-
-  // A persistent <audio> element, unlocked inside the tap gesture by playing
-  // a silent clip — after that, play() works from async continuations, and
-  // real <audio> playback keeps going on the iOS lock screen (AudioContext
-  // would suspend).
-  ensureEl() {
+  url: null,
+  item: null, // the sentence whose clip is loaded
+  ensure() {
     if (!this.el) {
       this.el = new Audio();
       this.el.preload = "auto";
@@ -164,114 +61,97 @@ const piper = {
     return this.el;
   },
   unlock() {
-    const el = this.ensureEl();
+    const el = this.ensure();
+    this._release();
     el.src = silentWavUrl();
     el.play().catch(() => {});
   },
-
-  async ensure(onProgress) {
-    if (this.session && this.voiceId === settings.piperVoice) return this.session;
-    if (this.loading) return this.loading;
-    this.loading = (async () => {
-      const mod = await import("../vendor/piper/piper-tts-web.js");
-      // TtsSession is a singleton — reset it when the voice changed so create()
-      // actually loads the new model + config instead of reusing the old one.
-      // Keyed off voiceId, not this.session: picking a voice nulls the session
-      // but the singleton survives, so gating on it kept the old voice.
-      if (this.voiceId !== settings.piperVoice) {
-        mod.TtsSession._instance = null;
-        this.session = null;
-      }
-      const wasmBase = new URL("../vendor/piper/", import.meta.url).href;
-      const ortBase = new URL("../vendor/ort/", import.meta.url).href;
-      this.session = await mod.TtsSession.create({
-        voiceId: settings.piperVoice,
-        wasmPaths: {
-          onnxWasm: ortBase,
-          piperWasm: wasmBase + "piper_phonemize.wasm",
-          piperData: wasmBase + "piper_phonemize.data",
-        },
-        progress: onProgress,
-      });
-      this.voiceId = settings.piperVoice;
-      return this.session;
-    })();
-    try { return await this.loading; } finally { this.loading = null; }
-  },
-
-  // Synthesis is serialised (one ORT session can't run two inferences at
-  // once) and memoised, so the next sentence can be generated while this one
-  // plays — otherwise every sentence boundary is a pause the length of an
-  // inference — and a paused sentence restarts without re-synthesising.
-  _queue: Promise.resolve(),
-  _cache: new Map(),
-  _synth(session, text) {
-    const key = settings.piperVoice + "\u0000" + text;
-    let p = this._cache.get(key);
-    if (!p) {
-      p = this._queue = this._queue.catch(() => {}).then(() => session.predict(text));
-      this._cache.set(key, p);
-      p.catch(() => this._cache.delete(key));
-      while (this._cache.size > 6) this._cache.delete(this._cache.keys().next().value);
-    }
-    return p;
-  },
-  /** Warm the cache for upcoming text. Never triggers a model download. */
-  prefetch(text) {
-    if (!text || !this.session || this.voiceId !== settings.piperVoice) return;
-    this._synth(this.session, text).catch(() => {});
-  },
-
-  async speak(text, onDone, onProgress, isStale) {
-    const session = await this.ensure(onProgress);
-    const blob = await this._synth(session, text);
-    // stopped or superseded mid-predict (skip/stop) — don't play stale audio
-    if (!this.session || isStale?.()) return; // dropped — don't speak over the new chunk
-    const url = URL.createObjectURL(blob);
-    const el = this.ensureEl();
-    el.src = url;
+  play(item, blob, { onEnd, onFail }) {
+    const el = this.ensure();
+    this._release();
+    this.url = URL.createObjectURL(blob);
+    this.item = item;
+    el.onended = () => { if (this.item === item) onEnd(); };
+    el.onerror = () => { if (this.item === item) onFail(); };
+    el.src = this.url;
     el.playbackRate = settings.rate;
-    el.onended = () => { URL.revokeObjectURL(url); onDone(true); };
-    el.onerror = () => { URL.revokeObjectURL(url); onDone(false); };
-    await el.play().catch(() => { URL.revokeObjectURL(url); onDone(false); });
+    return el.play().catch(() => { if (this.item === item) onFail(); });
   },
-  stop() {
-    try { this.el?.pause(); } catch { /* noop */ }
+  holds(item) { return !!this.el && this.item === item && !this.el.ended; },
+  pause() { try { this.el?.pause(); } catch { /* noop */ } },
+  resume() { return this.el ? this.el.play() : Promise.reject(new Error("no clip")); },
+  progress() {
+    const el = this.el;
+    return el && el.duration > 0 && isFinite(el.duration) ? el.currentTime / el.duration : null;
+  },
+  stop() { this.pause(); this._release(); },
+  _release() {
+    if (this.el) { this.el.onended = null; this.el.onerror = null; }
+    if (this.url) URL.revokeObjectURL(this.url);
+    this.url = null;
+    this.item = null;
   },
 };
+
+/**
+ * Sentence stream over one section of the renderer. next() resolves to
+ * { text, block, i } or null once the section is exhausted. Calls are
+ * serialised, so concurrent pullers still get sentences in order.
+ */
+export class Sentences {
+  constructor(renderer) {
+    this.gen = renderer?.textBlocks?.() ?? null;
+    this.done = !this.gen;
+    this.pending = [];
+    this._q = Promise.resolve();
+  }
+  next() {
+    const p = this._q.then(() => this._next());
+    this._q = p.catch(() => {});
+    return p;
+  }
+  async _next() {
+    while (!this.pending.length) {
+      if (this.done) return null;
+      const res = await this.gen.next().catch(() => ({ done: true }));
+      if (res.done) { this.done = true; return null; }
+      const block = asBlock(res.value);
+      const chunks = chunk(String(block.text));
+      // a block the page top cut through starts part-way in
+      for (let i = Math.min(block.startChunk ?? 0, chunks.length); i < chunks.length; i++)
+        this.pending.push({ text: chunks[i], block, i });
+    }
+    return this.pending.shift();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Controller
 // ---------------------------------------------------------------------------
 //
-// One narration chain runs per session: _next pulls a block, _speakChunks
-// speaks its chunks one by one, and each chunk's completion drives the next
-// step. `_session` identifies the live session; every await re-checks it, so
-// a stop/restart mid-await can't leave a second chain running. `_cur` is the
-// chunk in flight — replacing it (skip, pause, stop) makes the old chunk's
-// completion callback stale.
-const asBlock = (v) => (typeof v === "string" ? { text: v } : v);
-
+// `_session` identifies the live read-aloud session; every await re-checks
+// it, so a stop/restart mid-await can't leave a second chain running.
+// `_cur` is the sentence being voiced — replacing it (skip, pause, stop)
+// makes the old sentence's completion callback stale.
 export const ttsController = {
   playing: false,
   onStateChange: null,
+  eng: web,
   _getRenderer: null,
-  _gen: null,
-  _session: null,   // token of the live session; null when stopped
-  _cur: null,       // chunk in flight: { chunks, i, block, done }
-  _resumeAt: null,  // chunk to pick up from after a pause
-  _pulling: false,  // _next is awaiting the renderer
-  _peek: null,      // look-ahead result of _gen.next(), consumed by _pull
-  _history: [],     // blocks started in the current section, for skip-back
-  _sleepAt: null,   // timestamp, "chapter", or null
+  _session: null,
+  _src: null,        // Sentences for the current section
+  _ahead: [],        // pulled (and, for audio engines, synthesising) sentences
+  _history: [],      // sentences voiced in this section, for skip-back
+  _cur: null,        // sentence being voiced
+  _resumeAt: null,   // sentence to voice when play is pressed again
+  _pausedClip: null, // audio engines: sentence paused mid-clip
+  _taking: false,    // _next is awaiting the next sentence
+  _sleepAt: null,    // timestamp, "chapter", or null
 
-  async init() {
-    Object.assign(settings, await kvGet(SETTINGS_KEY, {}));
-  },
+  // settings passthroughs used by the settings screen
+  init: loadSettings,
   get settings() { return settings; },
-  async saveSettings() { await kvSet(SETTINGS_KEY, { ...settings }); },
-
-  get engine() { return settings.engine === "piper" ? piper : web; },
+  saveSettings,
 
   async start(getRenderer, meta) {
     if (this._starting || this.playing) return; // double-tap during init
@@ -279,32 +159,55 @@ export const ttsController = {
     this._starting = true;
     this._getRenderer = getRenderer;
     this._meta = meta;
-    this._fails = 0;
-    this._empty = 0;
-    this._spoke = 0;
     try {
-      // unlock + start keepalive while still inside the tap's activation window
-      this.engine.unlock?.();
+      // Everything iOS gates on a user gesture happens before the first await.
+      const eng = currentEngine();
+      if (eng.kind === "speech") eng.unlock();
+      else player.unlock();
       keepalive.start();
       this._media(meta);
-      await this.init();
+      await loadSettings();
       const r = this._renderer();
-      // let the renderer forget what a previous session already spoke, so
-      // re-reading a chapter (or restarting after a jump) works
       r?.beginTts?.();
-      const gen = r?.textBlocks?.();
-      if (!gen) { toast("Nothing to read aloud here"); this.stop(); return; }
-      this._session = {};
-      this._gen = gen;
-      this._peek = null;
-      this._history = [];
-      this._origin = r.bookmark?.() ?? null;
-      this._moved = false;
-      this.playing = true;
-      this.onStateChange?.(true);
-      this._playbackState("playing");
-      this._next();
+      const src = new Sentences(r);
+      if (src.done) { toast("Nothing to read aloud here"); this.stop(); return; }
+      const session = {};
+      Object.assign(this, {
+        _session: session, _src: src, _ahead: [], _history: [], _cur: null,
+        _resumeAt: null, _pausedClip: null, _moved: false,
+        _fails: 0, _empty: 0, _spoke: 0, _origin: r.bookmark?.() ?? null,
+        eng: currentEngine(),
+      });
+      this._setPlaying(true);
+      if (this.eng.kind === "audio" && !this.eng.ready()) {
+        this._status("Loading voice…");
+        try {
+          await this.eng.ensure((p) => this._downloadProgress(p));
+        } catch (err) {
+          console.warn("neural voice failed to load, using device voice", err);
+          toast("Neural voice couldn't load — using device voice", { error: true });
+          this.eng = web;
+        }
+        if (this._session !== session) return;
+      }
+      this._next(session);
     } finally { this._starting = false; }
+  },
+
+  _renderer() { return this._getRenderer?.(); },
+
+  _status(text) { const el = $("tts-status"); if (el) el.textContent = text; },
+  _downloadProgress(p) {
+    if (!p) return;
+    this._status(p.total
+      ? `Downloading voice… ${Math.round((p.loaded / p.total) * 100)}%`
+      : "Downloading voice…");
+  },
+
+  _setPlaying(on) {
+    this.playing = on;
+    this.onStateChange?.(on);
+    this._playbackState(on ? "playing" : "paused");
   },
 
   _media(meta) {
@@ -327,44 +230,55 @@ export const ttsController = {
     try { if ("mediaSession" in navigator) navigator.mediaSession.playbackState = s; } catch { /* noop */ }
   },
 
-  _renderer() { return this._getRenderer?.(); },
+  // --- the sentence queue ----------------------------------------------------
 
-  async _next() {
-    const session = this._session;
-    if (!session) return;
-    const r = this._renderer();
-    if (!r) return this.stop();
-    this._pulling = true;
-    let block;
-    try { block = await this._pull(r, session); }
-    finally { if (this._session === session) this._pulling = false; }
-    if (!block || this._session !== session) return;
-    this._spoke++;
-    const chunks = chunk(String(block.text));
-    this._history.push({ chunks, block });
-    if (this._history.length > 50) this._history.shift();
-    // a block the page top cut through starts part-way in
-    this._hlFrom = block.hlFrom ?? 0;
-    this._speakChunks(chunks, Math.min(block.startChunk ?? 0, chunks.length), block);
+  // Top `_ahead` up to n sentences from the current section, starting
+  // synthesis for each on audio engines. Serialised through the source.
+  _fill(n) {
+    const src = this._src;
+    if (!src) return Promise.resolve();
+    const run = async () => {
+      while (this._src === src && this._ahead.length < n && !src.done) {
+        const s = await src.next();
+        if (this._src !== src || !s) break;
+        this._prepare(s);
+        this._ahead.push(s);
+      }
+    };
+    this._filling = (this._filling || Promise.resolve()).then(run, run);
+    return this._filling;
   },
 
-  // Next speakable block, advancing section by section as each runs dry.
-  // Returns null when the session ended (it has already been stopped).
-  async _pull(r, session) {
+  _prepare(s) {
+    if (this.eng.kind === "audio" && !s.audio) {
+      s.audio = this.eng.synth(s.text);
+      s.audio.catch(() => {}); // surfaced when it's played
+    }
+  },
+
+  // Next sentence to voice, advancing section by section as each runs dry.
+  // Resolves null when the session ended (it has already been stopped).
+  async _take(session) {
     for (;;) {
-      const res = await (this._peek || this._gen.next()).catch(() => ({ done: true }));
-      this._peek = null;
+      await this._fill(1);
       if (this._session !== session) return null;
-      if (!res.done) { this._empty = 0; return asBlock(res.value); }
+      if (this._ahead.length) {
+        const s = this._ahead.shift();
+        this._empty = 0;
+        this._spoke++;
+        this._fill(this.eng.kind === "audio" ? LOOKAHEAD : 1); // keep generating ahead
+        return s;
+      }
+      const r = this._renderer();
+      if (!r) { this.stop(); return null; }
       r.clearHighlight?.();
       if (this._sleepAt === "chapter") {
         toast("Sleep timer ended");
         this.stop();
         return null;
       }
-      // Several sections in and not a word spoken: the book has no text
-      // layer (a scan, a comic). Put the reader back where they were rather
-      // than leave them pages away from it.
+      // Several sections in and not a word found: the book has no text
+      // layer (a scan, a comic). Put the reader back where they were.
       if (!this._spoke && this._empty >= 6) {
         const origin = this._origin;
         toast("Nothing to read aloud here");
@@ -372,64 +286,61 @@ export const ttsController = {
         if (origin) r.gotoBookmark?.(origin);
         return null;
       }
-      if (++this._empty > 40) { this.stop(); return null; } // nothing speakable left
+      if (++this._empty > 40) { this.stop(); return null; }
       const more = await r.advance?.();
       if (this._session !== session) return null;
-      if (!more) { this.stop(); return null; }
+      if (!more) { this.stop(); return null; } // end of book
       await sleep(350); // let the renderer settle
       if (this._session !== session) return null;
       this._history = []; // the old section's elements are gone
-      this._gen = r.textBlocks?.();
-      if (!this._gen) { this.stop(); return null; }
+      this._src = new Sentences(r);
+      if (this._src.done) { this.stop(); return null; }
     }
   },
 
-  // Pull the next block early and synthesise its first chunk, so a neural
-  // voice doesn't go quiet at every paragraph break.
-  _lookahead() {
-    if (this._peek || !this._gen) return;
-    const session = this._session;
-    this._peek = this._gen.next().catch(() => ({ done: true }));
-    this._peek.then((res) => {
-      if (this._session !== session || res.done) return;
-      const b = asBlock(res.value);
-      piper.prefetch(chunk(String(b.text))[b.startChunk ?? 0]);
-    });
+  async _next(session) {
+    if (this._session !== session || this._taking) return;
+    this._taking = true;
+    let s;
+    try { s = await this._take(session); }
+    finally { if (this._session === session) this._taking = false; }
+    if (s && this._session === session) this._voice(s, session);
   },
 
-  _speakChunks(chunks, i, block) {
-    const session = this._session;
-    if (!session) return;
-    if (i >= chunks.length) return this._next();
-    // paused while this step was pending — park it for resume()
-    if (!this.playing) { this._resumeAt = { chunks, i, block }; return; }
-    // timed sleep expires between chunks (and on 'end of chapter' in _pull)
+  // --- voicing one sentence ----------------------------------------------------
+
+  _voice(s, session) {
+    if (this._session !== session) return;
+    // paused while this sentence was on its way — park it for resume()
+    if (!this.playing) { this._resumeAt = s; return; }
     if (typeof this._sleepAt === "number" && Date.now() >= this._sleepAt) {
       toast("Sleep timer ended");
       return this.stop();
     }
-    const text = chunks[i];
-    const cur = { chunks, i, block, done: false };
-    this._cur = cur;
-    // where each chunk sits in the block, so skip-back and resume re-find it
-    const at = (block._at ||= []);
-    if (at[i] != null) this._hlFrom = at[i];
-    this._chunkStart = null;
-    const res = this._renderer()?.highlight?.(block, text, this._hlFrom ?? 0);
-    if (res) {
-      this._hlFrom = res.end;
-      this._chunkStart = at[i] = res.start;
+    this._cur = s;
+    s.done = false;
+    if (this._history[this._history.length - 1] !== s) {
+      this._history.push(s);
+      // keep the last few clips for skip-back; drop older audio (memory)
+      const old = this._history[this._history.length - 5];
+      if (old) old.audio = null;
+      if (this._history.length > 300) this._history.shift();
     }
-    const onDone = (ok) => {
-      if (this._cur !== cur) return; // superseded by a skip, pause or stop
+    this._highlight(s);
+
+    const done = (ok) => {
+      if (this._cur !== s || this._session !== session) return; // superseded
+      this._stopWordSync();
       if (ok) {
-        cur.done = true;
+        s.done = true;
         this._fails = 0;
-        return this._speakChunks(chunks, i + 1, block);
+        this._cur = null;
+        return this._next(session);
       }
       // Not heard. Never move past words that weren't spoken: retry this
       // sentence, and if the engine keeps refusing, pause right here so the
       // next tap on play (a user gesture iOS will honour) picks it up.
+      s.audio = null;
       if (++this._fails >= 3) {
         this._fails = 0;
         this.pause();
@@ -437,79 +348,113 @@ export const ttsController = {
         return;
       }
       setTimeout(() => {
-        if (this._cur !== cur || !this.playing) return;
+        if (this._cur !== s || !this.playing || this._session !== session) return;
         this._cur = null;
-        this._speakChunks(chunks, i, block);
+        this._voice(s, session);
       }, 400);
     };
-    // word-level sync: narrow the highlight to the word being spoken.
-    // charIndex is relative to this chunk — offset by where the chunk starts
-    // in the block's joined text.
-    const onBoundary = (ci, cl) => {
-      const rr = this._renderer();
-      if (this._cur === cur && rr?.highlight && this._chunkStart != null)
-        rr.highlight(block, text.slice(ci, ci + cl), this._chunkStart + ci);
-    };
-    const onProgress = (p) => {
-      const el = $("tts-status");
-      if (!el || p == null) return;
-      // piper reports {url, loaded, total}; tts:// marks inference progress
-      if (p.url?.startsWith("tts://"))
-        el.textContent = `Generating… ${p.loaded}/${p.total}`;
-      else if (p.total)
-        el.textContent = `Downloading voice… ${Math.round((p.loaded / p.total) * 100)}%`;
-      else el.textContent = "Downloading voice…";
-    };
-    if (settings.engine === "piper") {
-      piper.speak(text, onDone, onProgress, () => this._cur !== cur)
-        .then(() => {
-          // playing now — generate what comes next while it does
-          if (this._cur !== cur) return;
-          if (i + 1 < chunks.length) piper.prefetch(chunks[i + 1]);
-          else this._lookahead();
-        })
-        .catch((err) => {
-          if (this._cur !== cur) return;
-          console.warn("piper failed, falling back to device voice", err);
-          toast("Neural voice failed — using device voice", { error: true });
-          settings.engine = "web";
-          this._speakChunks(chunks, i, block);
-        });
+
+    if (this.eng.kind === "audio") {
+      this._status("Reading aloud");
+      this._prepare(s);
+      s.audio.then((blob) => {
+        if (this._cur !== s || this._session !== session) return;
+        if (!this.playing) { this._resumeAt = s; this._cur = null; return; }
+        return player.play(s, blob, { onEnd: () => done(true), onFail: () => done(false) })
+          .then(() => { if (this._cur === s) this._startWordSync(s); });
+      }, () => done(false));
     } else {
-      web.speak(text, onDone, onBoundary);
+      this._status("Reading aloud");
+      web.speak(s.text, done, (ci, cl) => {
+        if (this._cur === s && s.start != null) this._highlightWord(s, s.text.slice(ci, ci + cl), s.start + ci);
+      });
     }
-    $("tts-status").textContent = settings.engine === "piper" ? "Neural voice" : "Reading aloud";
   },
 
+  // --- highlighting --------------------------------------------------------
+
+  _highlight(s) {
+    const r = this._renderer();
+    if (!r?.highlight) return;
+    const b = s.block;
+    const at = (b._at ||= []);
+    // where to look for this sentence in the block: where it was found
+    // before, else just past the previous sentence (or the resume offset)
+    const from = at[s.i] ?? (s.i === (b.startChunk ?? 0) ? (b.hlFrom ?? 0) : (b._next ?? 0));
+    const res = r.highlight(b, s.text, from);
+    if (res) {
+      at[s.i] = s.start = res.start;
+      b._next = res.end;
+    } else s.start = null;
+  },
+
+  _highlightWord(s, word, from) {
+    if (!word.trim()) return;
+    this._renderer()?.highlight?.(s.block, word, from);
+  },
+
+  // Audio clips carry no word timings. Estimate the word from how far
+  // through the clip playback is — close enough to follow along with.
+  _startWordSync(s) {
+    this._stopWordSync();
+    if (s.start == null || typeof requestAnimationFrame !== "function") return;
+    const words = [...s.text.matchAll(/\S+/g)];
+    if (words.length < 2) return;
+    let last = -1;
+    const tick = () => {
+      if (this._cur !== s) return;
+      const f = player.progress();
+      if (f != null && this.playing) {
+        const pos = f * s.text.length;
+        let k = words.findIndex((w) => w.index + w[0].length > pos);
+        if (k < 0) k = words.length - 1;
+        if (k !== last) {
+          last = k;
+          this._highlightWord(s, words[k][0], s.start + words[k].index);
+        }
+      }
+      this._raf = requestAnimationFrame(tick);
+    };
+    this._raf = requestAnimationFrame(tick);
+  },
+  _stopWordSync() {
+    if (this._raf) cancelAnimationFrame(this._raf);
+    this._raf = null;
+  },
+
+  // --- transport -----------------------------------------------------------
+
   /**
-   * Skip to the previous/next sentence. Crosses into the neighbouring
-   * paragraph at either end; back at the very first one it restarts it.
+   * Skip to the previous/next sentence. Back from the first sentence of a
+   * section restarts it.
    */
   skip(dir) {
     const session = this._session;
-    const c = this._cur ?? this._resumeAt;
+    const c = this._cur ?? this._pausedClip ?? this._resumeAt;
     if (!session || !c) return;
-    let to = { chunks: c.chunks, i: c.i + dir, block: c.block };
-    if (to.i < 0) {
-      const h = this._history;
-      if (h.length > 1 && h[h.length - 1].block === c.block) {
-        h.pop();
-        const p = h[h.length - 1];
-        to = { chunks: p.chunks, i: p.chunks.length - 1, block: p.block };
-      } else to.i = 0;
+    const h = this._history;
+    const idx = h.lastIndexOf(c);
+    let to = null; // null → whatever comes next
+    if (dir < 0) {
+      to = idx > 0 ? h[idx - 1] : c;
+      if (to !== c) {
+        h.splice(idx - 1); // both get re-added as they're voiced again
+        this._ahead.unshift(c);
+      }
     }
-    if (to.i >= to.chunks.length) to = null; // past the end → next paragraph
-    this._cur = null; // the interrupted chunk's completion is now stale
+    this._cur = null;
+    this._pausedClip = null;
+    this._stopWordSync();
     this._fails = 0;
     web.stop();
-    piper.stop();
+    player.stop();
     if (!this.playing) { this._resumeAt = to; return; }
     // Chrome drops a speak() issued in the same tick as cancel()
     setTimeout(() => {
       if (this._session !== session || this._cur) return;
-      if (to) this._speakChunks(to.chunks, to.i, to.block);
-      else this._next();
-    }, settings.engine === "web" ? 60 : 0);
+      if (to) this._voice(to, session);
+      else this._next(session);
+    }, this.eng.kind === "speech" ? 60 : 0);
   },
 
   /** minutes → timestamp, "chapter" for end-of-section, null to clear */
@@ -517,27 +462,29 @@ export const ttsController = {
     this._sleepAt = v === "chapter" ? "chapter" : v == null ? null : Date.now() + v * 60000;
   },
 
-  // Pausing cancels the utterance and resume() restarts that sentence.
-  // speechSynthesis.pause() is a no-op on Android and unreliable elsewhere,
-  // and a stalled chain couldn't be restarted by resuming the engine.
+  // Audio clips pause and resume mid-sentence. Web Speech can't be trusted
+  // to (pause() is a no-op on Android), so it's cancelled and the sentence
+  // restarts on resume.
   pause() {
     if (!this.playing) return;
-    this.playing = false;
     const c = this._cur;
-    if (c && !c.done) this._resumeAt = c;
+    this._stopWordSync();
+    if (c && !c.done && this.eng.kind === "audio" && player.holds(c)) {
+      player.pause();
+      this._pausedClip = c;
+    } else {
+      if (c && !c.done) this._resumeAt = c;
+      web.stop();
+      player.stop();
+    }
     this._cur = null;
-    web.stop();
-    piper.stop();
     keepalive.stop();
-    this.onStateChange?.(false);
-    this._playbackState("paused");
+    this._setPlaying(false);
   },
 
   /**
    * The reader navigated by hand (page turn, swipe, slider, contents).
-   * While paused, that means "read from here" on the next play. Only
-   * explicit navigation counts — comparing positions misfired whenever iOS
-   * resized the viewport and the paginator re-laid out the page.
+   * While paused, that means "read from here" on the next play.
    */
   noteUserMove() {
     if (this._session && !this.playing) this._moved = true;
@@ -556,19 +503,26 @@ export const ttsController = {
       this.start(this._getRenderer, this._meta);
       return;
     }
-    this.playing = true;
+    const session = this._session;
     keepalive.start();
-    this.engine.unlock?.();
-    this.onStateChange?.(true);
-    this._playbackState("playing");
+    this._setPlaying(true);
+    const clip = this._pausedClip;
+    this._pausedClip = null;
+    if (clip) {
+      // play() here runs inside the tap, which is what iOS wants
+      this._cur = clip;
+      player.resume().then(
+        () => { if (this._cur === clip) this._startWordSync(clip); },
+        () => { if (this._cur === clip) { this._cur = null; this._voice(clip, session); } },
+      );
+      return;
+    }
+    if (this.eng.kind === "speech") web.unlock();
+    else player.unlock();
     const at = this._resumeAt;
     this._resumeAt = null;
-    if (at) {
-      if (at.block._at?.[at.i] != null) this._hlFrom = at.block._at[at.i];
-      this._speakChunks(at.chunks, at.i, at.block);
-    } else if (!this._pulling && !this._cur) {
-      this._next();
-    }
+    if (at) this._voice(at, session);
+    else if (!this._taking && !this._cur) this._next(session);
   },
 
   toggle() {
@@ -577,19 +531,15 @@ export const ttsController = {
   },
 
   stop() {
-    this._session = null;
-    this.playing = false;
-    this._gen = null;
-    this._peek = null;
-    this._cur = null;
-    this._resumeAt = null;
-    this._moved = false;
-    this._pulling = false;
-    this._history = [];
-    this._sleepAt = null;
+    Object.assign(this, {
+      _session: null, playing: false, _src: null, _ahead: [], _history: [],
+      _cur: null, _resumeAt: null, _pausedClip: null, _moved: false,
+      _taking: false, _sleepAt: null,
+    });
+    this._stopWordSync();
     this._renderer()?.clearHighlight?.();
     web.stop();
-    piper.stop();
+    player.stop();
     keepalive.stop();
     this._playbackState("none");
     if ("mediaSession" in navigator) {
@@ -603,196 +553,10 @@ export const ttsController = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Voice picker
-// ---------------------------------------------------------------------------
-
-const SAMPLE_TEXT =
-  "Chapter one. The lamplight fell across the open page, and the story began.";
-
-const uiLang = () => navigator.language || "en-US";
-const normLang = (l) => String(l || "").replace(/_/g, "-").toLowerCase();
-const baseLang = (l) => normLang(l).split("-")[0];
-
-let displayNames;
-const langLabel = (code) => {
-  const c = normLang(code);
-  if (!c) return "";
-  try {
-    displayNames ||= new Intl.DisplayNames([uiLang()], { type: "language" });
-    return displayNames.of(c) || c;
-  } catch { return c; }
-};
-
-// Voices the reader is most likely to want first: exact locale, then same
-// language, then everything else alphabetically.
-const byRelevance = (a, b) =>
-  a.rank - b.rank || a.title.localeCompare(b.title);
-const rankLang = (lang) =>
-  normLang(lang) === normLang(uiLang()) ? 0 : baseLang(lang) === baseLang(uiLang()) ? 1 : 2;
-
-// getVoices() is empty until the engine has enumerated them, which on iOS
-// happens after first paint — wait briefly rather than showing "no voices".
-const webVoices = () => new Promise((resolve) => {
-  const have = speechSynthesis.getVoices();
-  if (have.length) return resolve(have);
-  let settled = false;
-  const finish = () => {
-    if (settled) return;
-    settled = true;
-    resolve(speechSynthesis.getVoices());
-  };
-  speechSynthesis.addEventListener?.("voiceschanged", finish, { once: true });
-  setTimeout(finish, 1500);
+/** Play a clip outside a read-aloud session (voice previews). */
+export const playClip = (blob) => new Promise((resolve) => {
+  const item = {};
+  player.play(item, blob, { onEnd: resolve, onFail: resolve });
 });
-
-const piperCatalog = async () => {
-  const mod = await import("../vendor/piper/voices_static-D_OtJDHM.js");
-  return Object.values(mod.default);
-};
-
-const piperStored = async () => {
-  try {
-    const mod = await import("../vendor/piper/piper-tts-web.js");
-    return new Set(await mod.stored());
-  } catch { return new Set(); }
-};
-
-const piperSize = (v) =>
-  Object.values(v.files || {}).reduce((n, f) => n + (f.size_bytes || 0), 0);
-
-export const listVoices = async () => {
-  if (settings.engine === "piper") {
-    try {
-      const [list, stored] = await Promise.all([piperCatalog(), piperStored()]);
-      return list.map((v) => ({
-        title: `${v.name} · ${v.quality}`,
-        sub: [langLabel(v.language?.code), v.language?.country_english, fmtBytes(piperSize(v))]
-          .filter(Boolean).join(" · "),
-        badge: stored.has(v.key) ? "On device" : "",
-        checked: v.key === settings.piperVoice,
-        value: v.key,
-        rank: rankLang(v.language?.code),
-      })).sort(byRelevance);
-    } catch {
-      return [];
-    }
-  }
-  const voices = await webVoices();
-  return voices.map((v) => ({
-    title: v.name,
-    sub: [langLabel(v.lang), v.localService ? "On device" : "Online"]
-      .filter(Boolean).join(" · "),
-    badge: v.default ? "System" : "",
-    checked: v.voiceURI === settings.voiceURI,
-    value: v.voiceURI,
-    rank: rankLang(v.lang),
-  })).sort(byRelevance);
-};
-
-// --- preview ----------------------------------------------------------------
-// Speaks a sample in a voice without committing to it. Settings are staged and
-// rolled back, so backing out of the sheet leaves the saved voice untouched.
-
-let previewing = null; // { setLabel } while a preview is running
-
-export const stopPreview = () => {
-  const p = previewing;
-  previewing = null;
-  web.stop();
-  piper.stop();
-  p?.setLabel("▶");
-};
-
-export const previewVoice = async (value, setLabel = () => {}) => {
-  if (ttsController.playing) {
-    toast("Pause read-aloud to preview a voice");
-    return;
-  }
-  if (previewing) { // second tap on the playing row (or a switch) stops it
-    const same = previewing.setLabel === setLabel;
-    stopPreview();
-    if (same) return;
-  }
-  const token = { setLabel };
-  previewing = token;
-  const saved = { voiceURI: settings.voiceURI, piperVoice: settings.piperVoice };
-  const live = () => previewing === token;
-  setLabel("■");
-  try {
-    if (settings.engine === "piper") {
-      settings.piperVoice = value;
-      await piper.ensure((p) => {
-        if (live() && p?.total && !p.url?.startsWith("tts://"))
-          setLabel(`${Math.round((p.loaded / p.total) * 100)}%`);
-      });
-      if (!live()) return;
-      setLabel("…"); // synthesising
-      await new Promise((res) => {
-        piper.speak(SAMPLE_TEXT, res, null, () => !live()).catch(res);
-      });
-    } else {
-      settings.voiceURI = value;
-      web.unlock();
-      await new Promise((res) => web.speak(SAMPLE_TEXT, res));
-    }
-  } catch (err) {
-    console.warn("voice preview failed", err);
-    if (live()) toast("Couldn't preview that voice", { error: true });
-  } finally {
-    Object.assign(settings, saved); // staged only — the pick is what commits
-    if (live()) previewing = null;
-    setLabel("▶");
-  }
-};
-
-/** Friendly name of the voice currently in use, for the settings row. */
-export const voiceLabel = async () => {
-  if (settings.engine === "piper") {
-    try {
-      const v = (await piperCatalog()).find((x) => x.key === settings.piperVoice);
-      return v ? `${v.name} · ${v.quality}` : settings.piperVoice;
-    } catch { return settings.piperVoice; }
-  }
-  const v = speechSynthesis.getVoices().find((x) => x.voiceURI === settings.voiceURI);
-  return v ? v.name : "Default";
-};
-
-export const pickVoice = async () => {
-  const items = await listVoices();
-  if (!items.length) { toast("No voices available"); return; }
-  const note = settings.engine === "piper"
-    ? "Tap ▶ to hear a voice. Each neural voice downloads once, then runs offline."
-    : "Tap ▶ to hear a voice.";
-  listSheet("Voice", items.map((item) => ({
-    ...item,
-    action: {
-      label: "▶",
-      title: `Preview ${item.title}`,
-      onAction: (it, btn) => previewVoice(it.value, (t) => { btn.textContent = t; }),
-    },
-  })), async (val) => {
-    stopPreview();
-    if (settings.engine === "piper") settings.piperVoice = val;
-    else settings.voiceURI = val;
-    piper.session = null; // force re-init with the new voice
-    await ttsController.saveSettings();
-    toast("Voice updated");
-  }, { search: true, note, onClose: stopPreview });
-};
-
-export const pickTtsSleep = () => {
-  const active = ttsController._sleepAt;
-  listSheet("Sleep timer", [
-    { title: "Off", value: null, checked: active == null },
-    { title: "End of chapter", value: "chapter", checked: active === "chapter" },
-    { title: "5 minutes", value: 5 },
-    { title: "15 minutes", value: 15 },
-    { title: "30 minutes", value: 30 },
-    { title: "45 minutes", value: 45 },
-    { title: "60 minutes", value: 60 },
-  ], (v) => {
-    ttsController.setSleep(v);
-    toast(v == null ? "Sleep timer off" : v === "chapter" ? "Stops at end of chapter" : `Sleeping in ${v} min`);
-  });
-};
+export const stopClip = () => player.stop();
+export const unlockClip = () => player.unlock();

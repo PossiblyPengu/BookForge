@@ -94,4 +94,13 @@ cp(nm("node-unrar-js/esm/js/unrar.wasm"), out("unrar.wasm"));
 // --- fflate: full ESM build for zip writing (CBR→CBZ repack) ---
 cp(nm("fflate/esm/browser.js"), out("fflate.mjs"));
 
+// --- kokoro-js: high-quality neural voice (WebGPU only; see tts-engines.js) ---
+// kokoro.web.js inlines transformers.js, which otherwise fetches its ONNX
+// runtime from jsdelivr. Ship the runtime it was built against (transformers
+// is pinned to that version in package.json) and point env.wasmPaths here.
+fs.rmSync(out("kokoro"), { recursive: true, force: true });
+cp(nm("kokoro-js/dist/kokoro.web.js"), out("kokoro/kokoro.web.js"));
+for (const f of ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"])
+  cp(nm(path.join("@huggingface/transformers/dist", f)), out(path.join("kokoro", f)));
+
 console.log("\nVendor build complete → docs/vendor/");
