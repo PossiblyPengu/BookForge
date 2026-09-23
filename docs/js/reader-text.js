@@ -3,7 +3,12 @@
  * Scroll-based; progress persisted as scroll fraction.
  */
 
-import { debounce, rangeForChunk, extractBlocks } from "./util.js";
+import { debounce, rangeForChunk, extractBlocks, resumePoint } from "./util.js";
+
+// The top bar and the read-aloud bar overlay the scroller; text under them
+// isn't really on screen.
+const CHROME_TOP = 64;
+const CHROME_BOTTOM = 120;
 
 const mdToHtml = (src) => {
   const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -85,7 +90,11 @@ export const openTextReader = async (stage, book, fileBlob, { updateProgressUI, 
       d.style.height = `${r.height}px`;
       hlLayer.appendChild(d);
     }
-    block.el.scrollIntoView({ block: "nearest" });
+    // Follow the spoken line, not the paragraph: a long block's top can be
+    // on screen while the words being read have scrolled off the bottom.
+    const r0 = rects.find((r) => r.height >= 1);
+    if (r0 && (r0.top < wr.top + CHROME_TOP || r0.bottom > wr.bottom - CHROME_BOTTOM))
+      wrap.scrollTop += r0.top - wr.top - wrap.clientHeight * 0.3;
     return { start: found?.start ?? searchFrom, end: found?.end ?? searchFrom };
   };
 
@@ -138,11 +147,23 @@ export const openTextReader = async (stage, book, fileBlob, { updateProgressUI, 
         for (const b of extractBlocks(hdoc)) yield { el: null, text: b.text };
         return;
       }
-      const wr = wrap.getBoundingClientRect();
+      // start read-aloud at the visible position, not the document top
+      const chromeUp = !wrap.closest(".chrome-hidden");
+      const top = wrap.getBoundingClientRect().top + (chromeUp ? CHROME_TOP : 0);
+      const above = (rect) => rect.bottom <= top;
       for (const b of extractBlocks(wrap)) {
-        // start read-aloud at the visible position, not the document top
-        if (!ttsStarted && b.el?.isConnected &&
-            b.el.getBoundingClientRect().bottom < wr.top) continue;
+        if (!ttsStarted && b.el?.isConnected) {
+          const rect = b.el.getBoundingClientRect();
+          if (above(rect)) continue;
+          if (rect.top < top) {
+            // cut by the top of the screen — begin at its first visible sentence
+            const at = resumePoint(b.el, b.text, (r) => above(r.getBoundingClientRect()));
+            if (!at) continue;
+            ttsStarted = true;
+            yield { ...b, ...at };
+            continue;
+          }
+        }
         ttsStarted = true;
         yield b;
       }

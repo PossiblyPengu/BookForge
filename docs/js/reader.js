@@ -16,7 +16,7 @@ import { openTextReader } from "./reader-text.js";
 import { openPdfReader } from "./reader-pdf.js";
 import { cbrToCbz } from "./cbr.js";
 import { Overlayer } from "../vendor/foliate/overlayer.js";
-import { rangeForChunk, extractBlocks } from "./util.js";
+import { rangeForChunk, extractBlocks, resumePoint } from "./util.js";
 import { ttsController, pickTtsSleep } from "./tts.js";
 
 let view = null;          // <foliate-view> instance (ebook kind)
@@ -103,13 +103,16 @@ const openFoliate = async (book, file) => {
   // asks whether the block starts before the page ends, which is true of
   // nearly every block on the page, so it skipped the whole visible page and
   // started one page ahead.
-  const endsBeforeLoc = (el, doc) => {
+  const endsBefore = (range, loc) => range.compareBoundaryPoints(Range.START_TO_END, loc) < 0;
+  const startsBefore = (range, loc) => range.compareBoundaryPoints(Range.START_TO_START, loc) < 0;
+  const visibleRange = (doc) => {
     const loc = view.lastLocation?.range;
-    if (!loc || loc.startContainer?.ownerDocument !== doc) return false;
-    const er = doc.createRange();
-    er.selectNodeContents(el);
-    return er.compareBoundaryPoints(Range.START_TO_END, loc) < 0;
+    return loc && loc.startContainer?.ownerDocument === doc ? loc : null;
   };
+
+  // Comics are all images — nothing for read-aloud to find, and trying
+  // would just page through the book in silence.
+  const comic = book.format === "CBZ" || book.format === "CBR";
 
   const renderer = {
     view,
@@ -126,10 +129,25 @@ const openFoliate = async (book, file) => {
       for (const { doc } of view.renderer?.getContents?.() ?? []) {
         if (!doc || spokenDocs.has(doc)) continue;
         spokenDocs.add(doc);
-        const fromLoc = ttsFromLoc;
+        let loc = ttsFromLoc ? visibleRange(doc) : null;
         ttsFromLoc = false;
         for (const b of extractBlocks(doc)) {
-          if (fromLoc && endsBeforeLoc(b.el, doc)) continue;
+          if (loc) {
+            const er = doc.createRange();
+            er.selectNodeContents(b.el);
+            if (endsBefore(er, loc)) continue;
+            // The page opens mid-paragraph: start at the sentence it opens
+            // on, not at the top of a paragraph that's mostly on the page
+            // before.
+            if (startsBefore(er, loc)) {
+              const at = resumePoint(b.el, b.text, (r) => endsBefore(r, loc));
+              if (!at) continue;
+              loc = null;
+              yield { ...b, ...at };
+              continue;
+            }
+            loc = null; // this block and everything after is on or past the page
+          }
           yield b;
         }
       }
@@ -161,6 +179,7 @@ const openFoliate = async (book, file) => {
     destroy: () => { view.remove(); view = null; },
     setFlow: true,
   };
+  if (comic) delete renderer.textBlocks;
 
   view.addEventListener("relocate", (e) => {
     const { fraction, tocItem } = e.detail;
@@ -197,6 +216,14 @@ const openFoliate = async (book, file) => {
 let hlOverlayer = null;
 const HL_OPTS = { color: "#f0a040", padding: 1 };
 
+// Does `range` begin inside the page on screen?
+const onPage = (range) => {
+  const loc = view?.lastLocation?.range;
+  if (!loc || loc.startContainer?.ownerDocument !== range.startContainer?.ownerDocument) return false;
+  return range.compareBoundaryPoints(Range.START_TO_START, loc) >= 0 &&
+    range.compareBoundaryPoints(Range.END_TO_START, loc) < 0;
+};
+
 const foliateHighlight = (block, chunkText, searchFrom = 0) => {
   if (!block?.el || !view) return null;
   const c = (view.renderer.getContents?.() ?? []).find((c) => c.doc === block.doc);
@@ -211,9 +238,13 @@ const foliateHighlight = (block, chunkText, searchFrom = 0) => {
   // Follow the narration. scrollToAnchor snaps to a page boundary and fires
   // relocate, so the progress bar and the saved position keep up; a raw
   // scrollIntoView leaves the paginator's idea of the location behind.
+  // Only turn when the text has actually left the page — this runs for
+  // every word, and re-anchoring each time churns relocate/saveProgress.
   try {
-    if (view.renderer?.scrollToAnchor) view.renderer.scrollToAnchor(range);
-    else block.el.scrollIntoView({ inline: "nearest", block: "nearest" });
+    if (!onPage(range)) {
+      if (view.renderer?.scrollToAnchor) view.renderer.scrollToAnchor(range);
+      else block.el.scrollIntoView({ inline: "nearest", block: "nearest" });
+    }
   } catch { /* ok */ }
   return { start: found?.start ?? searchFrom, end: found?.end ?? searchFrom };
 };

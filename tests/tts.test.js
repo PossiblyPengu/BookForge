@@ -131,3 +131,26 @@ describe("chunk", () => {
     expect(chunk("   \n  ")).toEqual([]);
   });
 });
+
+describe("chunk — sentence boundaries", () => {
+  it("doesn't break after titles and initials", () => {
+    expect(chunk("Mr. Smith met Dr. J. Watson. They talked."))
+      .toEqual(["Mr. Smith met Dr. J. Watson.", "They talked."]);
+  });
+
+  it("breaks after a closing quote", () => {
+    expect(chunk(`"Stop!" she said. "Now."`)).toEqual([`"Stop!"`, "she said.", `"Now."`]);
+  });
+
+  it("keeps semicolons and colons inside a sentence", () => {
+    expect(chunk("One thing; another: a third. Next.")).toEqual(["One thing; another: a third.", "Next."]);
+  });
+
+  it("splits an overlong sentence at a clause boundary when it can", () => {
+    const a = Array.from({ length: 20 }, () => "alpha").join(" ");
+    const b = Array.from({ length: 30 }, () => "beta").join(" ");
+    const out = chunk(`${a}, ${b}; ${b}.`, 240);
+    expect(out[0].endsWith(",") || out[0].endsWith(";")).toBe(true);
+    for (const c of out) expect(c.length).toBeLessThanOrEqual(240);
+  });
+});

@@ -11,26 +11,15 @@
  * renderer.advance() when the current section is exhausted.
  */
 
-import { $, toast, listSheet, fmtBytes } from "./util.js";
+import { $, toast, listSheet, fmtBytes, chunk } from "./util.js";
 import { kvGet, kvSet } from "./db.js";
+
+export { chunk };
 
 const SETTINGS_KEY = "tts-settings";
 const settings = { engine: "web", voiceURI: "", piperVoice: "en_US-lessac-medium", rate: 1 };
 
-export const chunk = (text, max = 240) => {
-  const out = [];
-  for (const piece of text.split(/(?<=[.!?…;:])\s+|(?<=\n)/)) {
-    let p = piece.trim();
-    while (p.length > max) {
-      let cut = p.lastIndexOf(" ", max);
-      if (cut < 40) cut = max;
-      out.push(p.slice(0, cut));
-      p = p.slice(cut);
-    }
-    if (p) out.push(p);
-  }
-  return out;
-};
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
 // --- iOS lock-screen plumbing ------------------------------------------------
 // iOS keeps a page's JS alive while an <audio> element is playing — that's the
@@ -76,7 +65,10 @@ const keepalive = {
 // Web Speech backend
 // ---------------------------------------------------------------------------
 const web = {
+  _token: null, // the utterance whose watchdog is live
   speak(text, onDone, onBoundary) {
+    const token = {};
+    this._token = token;
     const u = new SpeechSynthesisUtterance(text);
     u.rate = settings.rate;
     const v = speechSynthesis.getVoices().find((v) => v.voiceURI === settings.voiceURI);
@@ -112,6 +104,9 @@ const web = {
     let t0 = Date.now();
     let pausedAt = 0;
     const wd = setInterval(() => {
+      // A newer utterance owns the engine now. Its speaking/pending state
+      // isn't ours to judge — acting on it would cancel the new utterance.
+      if (web._token && web._token !== token) { clearInterval(wd); return; }
       if (speechSynthesis.paused) { // legit pause — keep waiting, don't age out
         if (!pausedAt) pausedAt = Date.now();
         return;
@@ -130,8 +125,6 @@ const web = {
   },
   unlock() { try { speechSynthesis.resume(); } catch { /* noop */ } },
   stop() { try { speechSynthesis.cancel(); } catch { /* noop */ } },
-  pause() { try { speechSynthesis.pause(); } catch { /* noop */ } },
-  resume() { try { speechSynthesis.resume(); } catch { /* noop */ } },
 };
 
 // ---------------------------------------------------------------------------
@@ -189,9 +182,32 @@ const piper = {
     try { return await this.loading; } finally { this.loading = null; }
   },
 
+  // Synthesis is serialised (one ORT session can't run two inferences at
+  // once) and memoised, so the next sentence can be generated while this one
+  // plays — otherwise every sentence boundary is a pause the length of an
+  // inference — and a paused sentence restarts without re-synthesising.
+  _queue: Promise.resolve(),
+  _cache: new Map(),
+  _synth(session, text) {
+    const key = settings.piperVoice + "\u0000" + text;
+    let p = this._cache.get(key);
+    if (!p) {
+      p = this._queue = this._queue.catch(() => {}).then(() => session.predict(text));
+      this._cache.set(key, p);
+      p.catch(() => this._cache.delete(key));
+      while (this._cache.size > 6) this._cache.delete(this._cache.keys().next().value);
+    }
+    return p;
+  },
+  /** Warm the cache for upcoming text. Never triggers a model download. */
+  prefetch(text) {
+    if (!text || !this.session || this.voiceId !== settings.piperVoice) return;
+    this._synth(this.session, text).catch(() => {});
+  },
+
   async speak(text, onDone, onProgress, isStale) {
     const session = await this.ensure(onProgress);
-    const blob = await session.predict(text);
+    const blob = await this._synth(session, text);
     // stopped or superseded mid-predict (skip/stop) — don't play stale audio
     if (!this.session || isStale?.()) return; // dropped — don't speak over the new chunk
     const url = URL.createObjectURL(blob);
@@ -205,20 +221,32 @@ const piper = {
   stop() {
     try { this.el?.pause(); } catch { /* noop */ }
   },
-  pause() { this.el?.pause(); },
-  resume() { this.el?.play().catch(() => {}); },
 };
 
 // ---------------------------------------------------------------------------
 // Controller
 // ---------------------------------------------------------------------------
+//
+// One narration chain runs per session: _next pulls a block, _speakChunks
+// speaks its chunks one by one, and each chunk's completion drives the next
+// step. `_session` identifies the live session; every await re-checks it, so
+// a stop/restart mid-await can't leave a second chain running. `_cur` is the
+// chunk in flight — replacing it (skip, pause, stop) makes the old chunk's
+// completion callback stale.
+const asBlock = (v) => (typeof v === "string" ? { text: v } : v);
+
 export const ttsController = {
   playing: false,
   onStateChange: null,
   _getRenderer: null,
   _gen: null,
-  _cancelled: false,
-  _sleepAt: null, // timestamp, "chapter", or null
+  _session: null,   // token of the live session; null when stopped
+  _cur: null,       // chunk in flight: { chunks, i, block, done }
+  _resumeAt: null,  // chunk to pick up from after a pause
+  _pulling: false,  // _next is awaiting the renderer
+  _peek: null,      // look-ahead result of _gen.next(), consumed by _pull
+  _history: [],     // blocks started in the current section, for skip-back
+  _sleepAt: null,   // timestamp, "chapter", or null
 
   async init() {
     Object.assign(settings, await kvGet(SETTINGS_KEY, {}));
@@ -230,23 +258,31 @@ export const ttsController = {
 
   async start(getRenderer, meta) {
     if (this._starting || this.playing) return; // double-tap during init
+    if (this._session) this.stop();
     this._starting = true;
     this._getRenderer = getRenderer;
     this._meta = meta;
-    this._cancelled = false;
     this._fails = 0;
     this._empty = 0;
+    this._spoke = 0;
     try {
       // unlock + start keepalive while still inside the tap's activation window
       this.engine.unlock?.();
       keepalive.start();
       this._media(meta);
       await this.init();
+      const r = this._renderer();
       // let the renderer forget what a previous session already spoke, so
       // re-reading a chapter (or restarting after a jump) works
-      this._renderer()?.beginTts?.();
-      this._gen = this._renderer()?.textBlocks?.();
-      if (!this._gen) { toast("Nothing to read aloud here"); keepalive.stop(); return; }
+      r?.beginTts?.();
+      const gen = r?.textBlocks?.();
+      if (!gen) { toast("Nothing to read aloud here"); this.stop(); return; }
+      this._session = {};
+      this._gen = gen;
+      this._peek = null;
+      this._history = [];
+      this._origin = r.bookmark?.() ?? null;
+      this._mark = null;
       this.playing = true;
       this.onStateChange?.(true);
       this._playbackState("playing");
@@ -264,8 +300,8 @@ export const ttsController = {
         artwork: meta?.cover ? [{ src: meta.cover, sizes: "512x512" }] : [],
       });
       const h = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch { /* noop */ } };
-      h("play", () => this.toggle());
-      h("pause", () => this.toggle());
+      h("play", () => this.resume());
+      h("pause", () => this.pause());
       h("previoustrack", () => this.skip(-1));
       h("nexttrack", () => this.skip(1));
     } catch { /* noop */ }
@@ -276,79 +312,121 @@ export const ttsController = {
 
   _renderer() { return this._getRenderer?.(); },
 
+  // Reader position, comparable across calls — tells a page turn apart.
+  _position() {
+    try { return JSON.stringify(this._renderer()?.bookmark?.() ?? null); } catch { return null; }
+  },
+
   async _next() {
-    if (this._cancelled || !this.playing) return;
+    const session = this._session;
+    if (!session) return;
     const r = this._renderer();
     if (!r) return this.stop();
-    const { value, done } = await this._gen.next().catch(() => ({ done: true }));
-    if (this._cancelled) return;
-    if (done) {
+    this._pulling = true;
+    let block;
+    try { block = await this._pull(r, session); }
+    finally { if (this._session === session) this._pulling = false; }
+    if (!block || this._session !== session) return;
+    this._spoke++;
+    const chunks = chunk(String(block.text));
+    this._history.push({ chunks, block });
+    if (this._history.length > 50) this._history.shift();
+    // a block the page top cut through starts part-way in
+    this._hlFrom = block.hlFrom ?? 0;
+    this._speakChunks(chunks, Math.min(block.startChunk ?? 0, chunks.length), block);
+  },
+
+  // Next speakable block, advancing section by section as each runs dry.
+  // Returns null when the session ended (it has already been stopped).
+  async _pull(r, session) {
+    for (;;) {
+      const res = await (this._peek || this._gen.next()).catch(() => ({ done: true }));
+      this._peek = null;
+      if (this._session !== session) return null;
+      if (!res.done) { this._empty = 0; return asBlock(res.value); }
       r.clearHighlight?.();
       if (this._sleepAt === "chapter") {
         toast("Sleep timer ended");
-        return this.stop();
+        this.stop();
+        return null;
       }
-      // section exhausted — advance to the next section/page if possible
-      if (++this._empty > 40) return this.stop(); // nothing speakable left
+      // Several sections in and not a word spoken: the book has no text
+      // layer (a scan, a comic). Put the reader back where they were rather
+      // than leave them pages away from it.
+      if (!this._spoke && this._empty >= 6) {
+        const origin = this._origin;
+        toast("Nothing to read aloud here");
+        this.stop();
+        if (origin) r.gotoBookmark?.(origin);
+        return null;
+      }
+      if (++this._empty > 40) { this.stop(); return null; } // nothing speakable left
       const more = await r.advance?.();
-      if (more === false) return this.stop();
-      await new Promise((res) => setTimeout(res, 350)); // let renderer settle
+      if (this._session !== session) return null;
+      if (!more) { this.stop(); return null; }
+      await sleep(350); // let the renderer settle
+      if (this._session !== session) return null;
+      this._history = []; // the old section's elements are gone
       this._gen = r.textBlocks?.();
-      if (!this._gen) return this.stop();
-      return this._next();
+      if (!this._gen) { this.stop(); return null; }
     }
-    this._empty = 0;
-    const block = typeof value === "string" ? { text: value } : value;
-    this._hlFrom = 0;
-    const chunks = chunk(String(block.text));
-    this._speakChunks(chunks, 0, block);
+  },
+
+  // Pull the next block early and synthesise its first chunk, so a neural
+  // voice doesn't go quiet at every paragraph break.
+  _lookahead() {
+    if (this._peek || !this._gen) return;
+    const session = this._session;
+    this._peek = this._gen.next().catch(() => ({ done: true }));
+    this._peek.then((res) => {
+      if (this._session !== session || res.done) return;
+      const b = asBlock(res.value);
+      piper.prefetch(chunk(String(b.text))[b.startChunk ?? 0]);
+    });
   },
 
   _speakChunks(chunks, i, block) {
-    if (this._cancelled || !this.playing || i >= chunks.length) {
-      if (!this._cancelled && this.playing) this._next();
-      return;
-    }
-    // timed sleep expires between chunks (and on 'end of chapter' in _next)
+    const session = this._session;
+    if (!session) return;
+    if (i >= chunks.length) return this._next();
+    // paused while this step was pending — park it for resume()
+    if (!this.playing) { this._resumeAt = { chunks, i, block }; return; }
+    // timed sleep expires between chunks (and on 'end of chapter' in _pull)
     if (typeof this._sleepAt === "number" && Date.now() >= this._sleepAt) {
       toast("Sleep timer ended");
       return this.stop();
     }
     const text = chunks[i];
-    const cur = { chunks, i, block };
+    const cur = { chunks, i, block, done: false };
     this._cur = cur;
-    const r = this._renderer();
-    if (r?.highlight) {
-      const res = r.highlight(block, text, this._hlFrom ?? 0);
-      if (res) {
-        this._hlFrom = res.end;
-        this._chunkStart = res.start;
-      }
+    // where each chunk sits in the block, so skip-back and resume re-find it
+    const at = (block._at ||= []);
+    if (at[i] != null) this._hlFrom = at[i];
+    this._chunkStart = null;
+    const res = this._renderer()?.highlight?.(block, text, this._hlFrom ?? 0);
+    if (res) {
+      this._hlFrom = res.end;
+      this._chunkStart = at[i] = res.start;
     }
-    const onDone = (cont) => {
-      // stale callback (e.g. piper predict resolved after a skip) — ignore
-      if (this._cancelled || this._cur !== cur) return;
-      if (this._skipTo != null) { this._doSkip(); return; }
-      if (cont) {
-        this._fails = 0;
-        this._speakChunks(chunks, i + 1, block);
-      } else {
+    const onDone = (ok) => {
+      if (this._cur !== cur) return; // superseded by a skip, pause or stop
+      cur.done = true;
+      if (ok) this._fails = 0;
+      else if (++this._fails >= 3) {
         // engine failed to produce sound — bail after a few silent chunks
         // instead of flipping through the whole book muted
-        if (++this._fails >= 3) {
-          toast("Speech isn't producing audio on this device", { error: true });
-          return this.stop();
-        }
-        // lose the one bad chunk, not the rest of the paragraph
-        this._speakChunks(chunks, i + 1, block);
+        toast("Speech isn't producing audio on this device", { error: true });
+        return this.stop();
       }
+      // on a single failure lose the one bad chunk, not the paragraph
+      this._speakChunks(chunks, i + 1, block);
     };
     // word-level sync: narrow the highlight to the word being spoken.
     // charIndex is relative to this chunk — offset by where the chunk starts
     // in the block's joined text.
     const onBoundary = (ci, cl) => {
       const rr = this._renderer();
-      if (rr?.highlight && this._chunkStart != null)
+      if (this._cur === cur && rr?.highlight && this._chunkStart != null)
         rr.highlight(block, text.slice(ci, ci + cl), this._chunkStart + ci);
     };
     const onProgress = (p) => {
@@ -362,37 +440,55 @@ export const ttsController = {
       else el.textContent = "Downloading voice…";
     };
     if (settings.engine === "piper") {
-      piper.speak(text, onDone, onProgress, () => this._cur !== cur || this._cancelled).catch((err) => {
-        console.warn("piper failed, falling back to device voice", err);
-        toast("Neural voice failed — using device voice", { error: true });
-        settings.engine = "web";
-        this._speakChunks(chunks, i, block);
-      });
+      piper.speak(text, onDone, onProgress, () => this._cur !== cur)
+        .then(() => {
+          // playing now — generate what comes next while it does
+          if (this._cur !== cur) return;
+          if (i + 1 < chunks.length) piper.prefetch(chunks[i + 1]);
+          else this._lookahead();
+        })
+        .catch((err) => {
+          if (this._cur !== cur) return;
+          console.warn("piper failed, falling back to device voice", err);
+          toast("Neural voice failed — using device voice", { error: true });
+          settings.engine = "web";
+          this._speakChunks(chunks, i, block);
+        });
     } else {
       web.speak(text, onDone, onBoundary);
     }
     $("tts-status").textContent = settings.engine === "piper" ? "Neural voice" : "Reading aloud";
   },
 
-  /** Skip to the previous/next chunk within the current block. */
+  /**
+   * Skip to the previous/next sentence. Crosses into the neighbouring
+   * paragraph at either end; back at the very first one it restarts it.
+   */
   skip(dir) {
-    const c = this._cur;
-    if (!c || this._skipTo != null || this._cancelled) return;
-    const ni = Math.max(0, Math.min(c.chunks.length, c.i + dir));
-    if (ni === c.i) return;
-    this._skipTo = ni;
-    this.engine.stop(); // web → fires onerror → onDone; piper → silent, handled below
-    if (settings.engine === "piper") this._doSkip();
-  },
-
-  _doSkip() {
-    const ni = this._skipTo;
-    this._skipTo = null;
-    const c = this._cur;
-    if (!c) return;
+    const session = this._session;
+    const c = this._cur ?? this._resumeAt;
+    if (!session || !c) return;
+    let to = { chunks: c.chunks, i: c.i + dir, block: c.block };
+    if (to.i < 0) {
+      const h = this._history;
+      if (h.length > 1 && h[h.length - 1].block === c.block) {
+        h.pop();
+        const p = h[h.length - 1];
+        to = { chunks: p.chunks, i: p.chunks.length - 1, block: p.block };
+      } else to.i = 0;
+    }
+    if (to.i >= to.chunks.length) to = null; // past the end → next paragraph
+    this._cur = null; // the interrupted chunk's completion is now stale
     this._fails = 0;
-    if (ni >= c.chunks.length) return this._next();
-    this._speakChunks(c.chunks, ni, c.block);
+    web.stop();
+    piper.stop();
+    if (!this.playing) { this._resumeAt = to; return; }
+    // Chrome drops a speak() issued in the same tick as cancel()
+    setTimeout(() => {
+      if (this._session !== session || this._cur) return;
+      if (to) this._speakChunks(to.chunks, to.i, to.block);
+      else this._next();
+    }, settings.engine === "web" ? 60 : 0);
   },
 
   /** minutes → timestamp, "chapter" for end-of-section, null to clear */
@@ -400,31 +496,71 @@ export const ttsController = {
     this._sleepAt = v === "chapter" ? "chapter" : v == null ? null : Date.now() + v * 60000;
   },
 
-  toggle() {
-    if (this.playing) {
-      this.playing = false;
-      this.onStateChange?.(false);
-      this._playbackState("paused");
-      this.engine.pause();
+  // Pausing cancels the utterance and resume() restarts that sentence.
+  // speechSynthesis.pause() is a no-op on Android and unreliable elsewhere,
+  // and a stalled chain couldn't be restarted by resuming the engine.
+  pause() {
+    if (!this.playing) return;
+    this.playing = false;
+    const c = this._cur;
+    if (c && !c.done) this._resumeAt = c;
+    this._cur = null;
+    web.stop();
+    piper.stop();
+    keepalive.stop();
+    this.onStateChange?.(false);
+    this._playbackState("paused");
+    // Note where the reader is once any follow-along page turn has landed.
+    const session = this._session;
+    setTimeout(() => {
+      if (this._session === session && !this.playing) this._mark = this._position();
+    }, 600);
+  },
+
+  resume() {
+    if (this.playing) return;
+    if (!this._session) {
+      if (this._getRenderer) this.start(this._getRenderer, this._meta);
       return;
     }
-    // paused session → resume it; dead session (stopped) → start fresh
-    if (this._gen && !this._cancelled) {
-      this.playing = true;
-      this.onStateChange?.(true);
-      this._playbackState("playing");
-      this.engine.resume();
-    } else if (this._getRenderer) {
+    // Turned the page while paused → read from what's on screen now rather
+    // than dragging the reader back to where narration stopped.
+    if (this._mark != null && this._position() !== this._mark) {
+      this.stop();
       this.start(this._getRenderer, this._meta);
+      return;
+    }
+    this._mark = null;
+    this.playing = true;
+    keepalive.start();
+    this.engine.unlock?.();
+    this.onStateChange?.(true);
+    this._playbackState("playing");
+    const at = this._resumeAt;
+    this._resumeAt = null;
+    if (at) {
+      if (at.block._at?.[at.i] != null) this._hlFrom = at.block._at[at.i];
+      this._speakChunks(at.chunks, at.i, at.block);
+    } else if (!this._pulling && !this._cur) {
+      this._next();
     }
   },
 
+  toggle() {
+    if (this.playing) this.pause();
+    else this.resume();
+  },
+
   stop() {
-    this._cancelled = true;
+    this._session = null;
     this.playing = false;
     this._gen = null;
+    this._peek = null;
     this._cur = null;
-    this._skipTo = null;
+    this._resumeAt = null;
+    this._mark = null;
+    this._pulling = false;
+    this._history = [];
     this._sleepAt = null;
     this._renderer()?.clearHighlight?.();
     web.stop();

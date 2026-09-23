@@ -273,6 +273,23 @@ const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * looking from; returns { range, end } so callers can chain searches.
  * Falls back to null (caller may highlight the whole element).
  */
+/**
+ * Whitespace-tolerant search for `needleText` in `hay`, starting at
+ * `searchFrom` and wrapping to the start if it isn't found after it.
+ * Returns { start, end } offsets into `hay`, or null.
+ */
+export const findText = (hay, needleText, searchFrom = 0) => {
+  if (!hay || !needleText) return null;
+  const needle = needleText.trim().split(/\s+/)
+    .map(reEscape).filter(Boolean).join("\\s+");
+  if (!needle) return null;
+  const re = new RegExp(needle, "g");
+  re.lastIndex = Math.min(searchFrom, hay.length);
+  let m = re.exec(hay);
+  if (!m) { re.lastIndex = 0; m = re.exec(hay); }
+  return m ? { start: m.index, end: m.index + m[0].length } : null;
+};
+
 export const rangeForChunk = (el, chunkText, searchFrom = 0) => {
   const doc = el.ownerDocument;
   const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -282,19 +299,11 @@ export const rangeForChunk = (el, chunkText, searchFrom = 0) => {
     nodes.push({ node: n, start: joined.length });
     joined += n.nodeValue;
   }
-  if (!joined || !chunkText) return null;
+  const hit = findText(joined, chunkText, searchFrom);
+  if (!hit) return null;
 
-  const needle = chunkText.trim().split(/\s+/)
-    .map(reEscape).filter(Boolean).join("\\s+");
-  if (!needle) return null;
-  const re = new RegExp(needle, "g");
-  re.lastIndex = Math.min(searchFrom, joined.length);
-  let m = re.exec(joined);
-  if (!m) { re.lastIndex = 0; m = re.exec(joined); }
-  if (!m) return null;
-
-  const from = m.index;
-  const to = m.index + m[0].length;
+  const from = hit.start;
+  const to = hit.end;
   const range = doc.createRange();
   let started = false;
   for (const { node, start } of nodes) {
@@ -312,6 +321,71 @@ export const rangeForChunk = (el, chunkText, searchFrom = 0) => {
   const last = nodes[nodes.length - 1];
   range.setEnd(last.node, last.node.nodeValue.length);
   return { range, start: from, end: joined.length };
+};
+
+// ---------- TTS sentence chunking ----------
+
+// A sentence ends at . ! ? … — including when a closing quote or bracket
+// follows (`"Stop!" she said` breaks after the quote) — or at a hard line
+// break. ; and : are clause breaks, used only to split an overlong sentence.
+const SENTENCE_BREAK = /(?<=[.!?…]+["'”’)\]]*)\s+|(?<=\n)/;
+
+// Periods that don't end a sentence. Breaking on them makes the voice stop
+// dead mid-name ("Mr." … "Smith").
+const ABBREV = /(?:^|[\s("'“‘])(?:mr|mrs|ms|mx|dr|prof|sr|jr|st|mt|ft|capt|col|gen|lt|sgt|rev|hon|gov|sen|rep|vs|etc|approx|dept|fig|vol|ch|no|pp?|e\.g|i\.e|a\.m|p\.m)\.$/i;
+const INITIAL = /(?:^|\s)[A-Z]\.$/;
+
+const splitLong = (p, max, out) => {
+  while (p.length > max) {
+    const head = p.slice(0, max + 1);
+    // prefer a clause boundary, then a word boundary, then a hard cut
+    const clause = [...head.matchAll(/[;:,—–]\s/g)].pop();
+    let cut;
+    if (clause && clause.index >= max / 3) cut = clause.index + 1;
+    else {
+      const sp = head.lastIndexOf(" ", max);
+      cut = sp >= 40 ? sp : max;
+    }
+    out.push(p.slice(0, cut).trim());
+    p = p.slice(cut).trim();
+  }
+  if (p) out.push(p);
+};
+
+/**
+ * Split text into speakable chunks of at most `max` chars, one sentence
+ * each where possible. Chunks are the unit of highlighting and skipping.
+ */
+export const chunk = (text, max = 240) => {
+  const sentences = [];
+  for (const piece of String(text).split(SENTENCE_BREAK)) {
+    const p = piece.trim();
+    if (!p) continue;
+    const prev = sentences[sentences.length - 1];
+    if (prev && (ABBREV.test(prev) || INITIAL.test(prev)) && prev.length + p.length < max)
+      sentences[sentences.length - 1] = prev + " " + p;
+    else sentences.push(p);
+  }
+  const out = [];
+  for (const s of sentences) splitLong(s, max, out);
+  return out;
+};
+
+/**
+ * Where to start reading a block the page top cuts through: the first
+ * chunk that isn't entirely above the reader. `endsBefore(range)` says
+ * whether a chunk's DOM range finishes before the visible area begins.
+ * Returns { startChunk, hlFrom } or null when the whole block is behind.
+ */
+export const resumePoint = (el, text, endsBefore) => {
+  const chunks = chunk(text);
+  let from = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    const found = rangeForChunk(el, chunks[i], from);
+    if (!found || !endsBefore(found.range)) return { startChunk: i, hlFrom: from };
+    from = found.end;
+  }
+  return null;
 };
 
 // ---------- TTS block extraction ----------
