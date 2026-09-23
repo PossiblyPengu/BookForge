@@ -1,12 +1,58 @@
 {
-  "name": "BookForge",
-  "short_name": "BookForge",
-  "description": "Convert MP3 chapters into M4B audiobooks — entirely in your browser.",
+  "id": "./",
+  "name": "Pageturner",
+  "short_name": "Pageturner",
+  "description": "A private ebook reader and audiobook player — entirely on your device.",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#111110",
   "theme_color": "#f0a040",
+  "categories": ["utilities", "music"],
+  "share_target": {
+    "action": "./",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "files",
+          "accept": ["audio/*", ".epub", ".mobi", ".azw", ".azw3", ".kfx", ".fb2", ".fbz", ".cbz", ".cbr", ".pdf", ".txt", ".md", ".markdown", ".html", ".htm", ".zip", ".mp3", ".m4a", ".m4b", ".aac", ".ogg", ".oga", ".opus", ".flac", ".wav"]
+        }
+      ]
+    }
+  },
+  "shortcuts": [
+    {
+      "name": "Continue Reading",
+      "short_name": "Continue",
+      "url": "./?continue=1",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
   "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
     {
       "src": "icon.svg",
       "sizes": "any",

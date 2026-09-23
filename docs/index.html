@@ -3,494 +3,344 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://esm.sh https://cdnjs.cloudflare.com https://accounts.google.com blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; font-src https://fonts.gstatic.com; img-src 'self' blob: data: https://covers.openlibrary.org https://books.google.com https://www.googleapis.com; connect-src 'self' https://esm.sh https://unpkg.com https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://openlibrary.org https://covers.openlibrary.org https://books.google.com blob:; frame-src https://accounts.google.com; worker-src 'self' https://possiblypengu.github.io blob:;" />
-    <title>BookForge</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https://covers.openlibrary.org https://books.google.com https://*.googleapis.com; font-src 'self'; connect-src 'self' https://www.googleapis.com https://openlibrary.org https://covers.openlibrary.org https://books.google.com https://huggingface.co https://*.hf.co blob: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' blob:;" />
+    <title>Pageturner</title>
     <link rel="stylesheet" href="css/main.css" />
     <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="icons/apple-touch-icon-120.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="icons/apple-touch-icon-152.png" />
+    <link rel="apple-touch-icon" sizes="167x167" href="icons/apple-touch-icon-167.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon-180.png" />
     <meta name="theme-color" content="#f0a040" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Pageturner" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <script>
-      // Cross-origin isolation is now handled by the unified sw.js
-      // COOP/COEP headers are NOT set here, so Google OAuth popups will work.
-      window.coi = { shouldRegister: () => false };
-    </script>
+    <meta name="format-detection" content="telephone=no" />
+    <script src="js/sw-register.js"></script>
   </head>
   <body>
-    <div class="app">
-      <!-- Toolbar -->
-      <nav class="toolbar">
-        <div class="toolbar-brand">
-          <svg class="logo-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M9 18V5l12-2v13"/>
-            <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-          </svg>
-          <span class="logo-text">BookForge</span>
+    <div id="app">
+
+      <!-- ================= LIBRARY ================= -->
+      <section class="view" id="view-library">
+        <header class="nav-bar">
+          <div class="nav-bar-inner">
+            <h1 class="nav-title">Library</h1>
+            <div class="nav-actions">
+              <button type="button" class="nav-btn" id="sort-btn" aria-label="Sort library">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/></svg>
+              </button>
+              <button type="button" class="nav-btn" id="import-btn" aria-label="Import books">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+              </button>
+            </div>
+          </div>
+        </header>
+        <div class="view-body" id="library-body">
+          <div class="library-search">
+            <input type="search" id="library-search" placeholder="Search library" autocomplete="off" />
+          </div>
+          <div class="library-grid" id="library-grid"></div>
+          <div class="empty-state" id="library-empty">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+            <p class="empty-title">Your library is empty</p>
+            <p class="empty-sub">Import EPUB, PDF, MOBI, FB2, CBZ/CBR, TXT, or audiobook files to get started.</p>
+            <button type="button" class="btn btn-primary" id="empty-import-btn">Import Books</button>
+          </div>
         </div>
-        <div class="toolbar-actions">
-          <button type="button" class="btn btn-ghost btn-xs" id="restart-btn" hidden title="Clear everything and start over">Start Over</button>
-          <button type="button" class="theme-toggle" id="theme-toggle" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">
-            <svg id="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-            </svg>
-            <svg id="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
-              <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-            </svg>
+      </section>
+
+      <!-- ================= SETTINGS ================= -->
+      <section class="view" id="view-settings" hidden>
+        <header class="nav-bar">
+          <div class="nav-bar-inner">
+            <h1 class="nav-title">Settings</h1>
+          </div>
+        </header>
+        <div class="view-body">
+          <div class="list-group">
+            <p class="list-group-label">Appearance</p>
+            <div class="list-card">
+              <div class="list-row">
+                <span>Theme</span>
+                <div class="seg" id="set-theme">
+                  <button type="button" data-val="auto">Auto</button>
+                  <button type="button" data-val="light">Light</button>
+                  <button type="button" data-val="dark">Dark</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="list-group">
+            <p class="list-group-label">Text to Speech</p>
+            <div class="list-card">
+              <div class="list-row">
+                <span>Engine</span>
+                <div class="seg" id="set-tts-engine">
+                  <button type="button" data-val="web">Device</button>
+                  <button type="button" data-val="piper">Neural</button>
+                </div>
+              </div>
+              <button type="button" class="list-row list-row-btn" id="set-tts-voice">
+                <span>Voice</span>
+                <span class="list-value" id="set-tts-voice-name">Default</span>
+              </button>
+              <div class="list-row">
+                <span>Speed</span>
+                <span class="list-value" id="set-tts-rate-val">1.0×</span>
+              </div>
+              <div class="list-row list-row-slider">
+                <input type="range" id="set-tts-rate" min="0.5" max="2.5" step="0.25" value="1" />
+              </div>
+            </div>
+            <p class="list-group-note" id="tts-engine-note">Device voices use your system speech. Neural voices download once (~50&nbsp;MB) and run offline on-device.</p>
+          </div>
+          <div class="list-group">
+            <p class="list-group-label">Library Data</p>
+            <div class="list-card">
+              <button type="button" class="list-row list-row-btn" id="backup-export">
+                <span>Export library</span>
+                <span class="list-value">.zip</span>
+              </button>
+              <button type="button" class="list-row list-row-btn" id="backup-import">
+                <span>Restore backup</span>
+                <span class="list-value">Choose…</span>
+              </button>
+            </div>
+            <p class="list-group-note">Export saves every book, file, cover, and reading position into one zip — restorable here or on another device.</p>
+          </div>
+          <div class="list-group">
+            <p class="list-group-label">About</p>
+            <div class="list-card">
+              <div class="list-row"><span>Version</span><span class="list-value" id="set-version">2.0.0</span></div>
+              <div class="list-row"><span>Storage</span><span class="list-value" id="set-storage">—</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= READER ================= -->
+      <section class="view view-overlay" id="view-reader" hidden>
+        <header class="nav-bar reader-bar" id="reader-bar">
+          <div class="nav-bar-inner">
+            <button type="button" class="nav-btn" id="reader-close" aria-label="Back to library">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <h1 class="nav-title nav-title-sm" id="reader-title"></h1>
+            <div class="nav-actions">
+              <button type="button" class="nav-btn" id="reader-bmk-btn" aria-label="Bookmark">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+              </button>
+              <button type="button" class="nav-btn" id="reader-toc-btn" aria-label="Contents">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              </button>
+              <button type="button" class="nav-btn" id="reader-tts-btn" aria-label="Read aloud">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+              </button>
+              <button type="button" class="nav-btn" id="reader-aa-btn" aria-label="Appearance">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 12 5l8 14"/><path d="M7.5 14h9"/></svg>
+              </button>
+            </div>
+          </div>
+        </header>
+        <div class="reader-stage" id="reader-stage"></div>
+        <div class="reader-bottom" id="reader-bottom">
+          <div class="tts-bar" id="tts-bar" hidden>
+            <button type="button" class="nav-btn" id="tts-prev" aria-label="Previous passage">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 20 9 12l10-8v16z"/><rect x="5" y="4" width="2" height="16"/></svg>
+            </button>
+            <button type="button" class="nav-btn" id="tts-play" aria-label="Play">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button type="button" class="nav-btn" id="tts-next" aria-label="Next passage">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="m5 4 10 8-10 8V4z"/><rect x="17" y="4" width="2" height="16"/></svg>
+            </button>
+            <button type="button" class="nav-btn" id="tts-sleep" aria-label="Sleep timer">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/></svg>
+            </button>
+            <button type="button" class="nav-btn" id="tts-stop" aria-label="Stop">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
+            <span class="tts-status" id="tts-status">Read aloud</span>
+          </div>
+          <div class="reader-progress">
+            <span class="reader-progress-label" id="reader-loc-label"></span>
+            <input type="range" class="progress-slider" id="reader-slider" min="0" max="1000" value="0" />
+            <span class="reader-progress-label" id="reader-pct"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= PLAYER ================= -->
+      <section class="view view-overlay" id="view-player" hidden>
+        <header class="nav-bar">
+          <div class="nav-bar-inner">
+            <button type="button" class="nav-btn" id="player-close" aria-label="Back to library">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <h1 class="nav-title nav-title-sm">Now Playing</h1>
+            <div class="nav-actions">
+              <button type="button" class="nav-btn" id="player-sleep" aria-label="Sleep timer">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/><path d="M6.38 18.7 4 21"/><path d="M17.64 18.67 20 21"/></svg>
+              </button>
+            </div>
+          </div>
+        </header>
+        <div class="player-body">
+          <div class="player-cover" id="player-cover">
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          </div>
+          <h2 class="player-title" id="player-title"></h2>
+          <p class="player-author" id="player-author"></p>
+          <button type="button" class="player-chapter" id="player-chapter-btn">
+            <span id="player-chapter-name">Chapter</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
           </button>
+          <div class="player-progress">
+            <input type="range" class="progress-slider" id="player-slider" min="0" max="1000" value="0" />
+            <div class="player-times">
+              <span id="player-elapsed">0:00</span>
+              <span id="player-remaining">-0:00</span>
+            </div>
+          </div>
+          <div class="player-controls">
+            <button type="button" class="nav-btn" id="player-prev-ch" aria-label="Previous chapter">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M19 20 9 12l10-8v16z"/><rect x="5" y="4" width="2" height="16"/></svg>
+            </button>
+            <button type="button" class="nav-btn" id="player-back15" aria-label="Back 15 seconds">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><text x="9.5" y="15.5" font-size="7" fill="currentColor" stroke="none">15</text></svg>
+            </button>
+            <button type="button" class="player-play" id="player-play" aria-label="Play">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button type="button" class="nav-btn" id="player-fwd30" aria-label="Forward 30 seconds">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/><text x="9.5" y="15.5" font-size="7" fill="currentColor" stroke="none">30</text></svg>
+            </button>
+            <button type="button" class="nav-btn" id="player-next-ch" aria-label="Next chapter">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="m5 4 10 8-10 8V4z"/><rect x="17" y="4" width="2" height="16"/></svg>
+            </button>
+          </div>
+          <button type="button" class="player-speed" id="player-speed">1×</button>
         </div>
-        <div class="toolbar-status" id="toolbar-status">
-          <span class="status-dot" id="status-dot"></span>
-          <span class="status-text" id="status-text">Ready</span>
-        </div>
+      </section>
+
+      <!-- ================= TAB BAR ================= -->
+      <nav class="tab-bar" id="tab-bar">
+        <button type="button" class="tab-item active" data-view="library">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+          <span>Library</span>
+        </button>
+        <button type="button" class="tab-item" data-view="settings">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Settings</span>
+        </button>
       </nav>
 
-      <!-- Progress bar -->
-      <div class="progress-track" id="progress-track" hidden>
-        <div class="progress-fill" id="progress-fill"></div>
-      </div>
-
-      <!-- Wizard step indicator (desktop) -->
-      <div class="wizard-nav" id="wizard-nav" aria-label="Steps">
-        <button class="wizard-step active" data-step="1">
-          <span class="wizard-step-num">1</span>
-          <span class="wizard-step-label">Upload</span>
-        </button>
-        <div class="wizard-connector"></div>
-        <button class="wizard-step" data-step="2">
-          <span class="wizard-step-num">2</span>
-          <span class="wizard-step-label">Match</span>
-        </button>
-        <div class="wizard-connector"></div>
-        <button class="wizard-step" data-step="3">
-          <span class="wizard-step-num">3</span>
-          <span class="wizard-step-label">Edit</span>
-        </button>
-        <div class="wizard-connector"></div>
-        <button class="wizard-step" data-step="4">
-          <span class="wizard-step-num">4</span>
-          <span class="wizard-step-label">Forge</span>
-        </button>
-      </div>
-
-      <!-- Progress dialog (floating) -->
-      <div class="progress-dialog" id="progress-dialog" hidden aria-live="polite" aria-atomic="false">
-        <div class="progress-dialog-card" role="status">
-          <div class="progress-dialog-header">
-            <div>
-              <p class="progress-dialog-eyebrow">Activity</p>
-              <h3 id="progress-dialog-title">Working…</h3>
-            </div>
-            <button type="button" class="btn btn-ghost btn-xs" id="progress-dismiss">Hide</button>
-          </div>
-          <div class="progress-dialog-bar" id="progress-dialog-bar" hidden>
-            <div class="progress-dialog-bar-fill" id="progress-dialog-bar-fill"></div>
-          </div>
-          <ul class="progress-list" id="progress-list"></ul>
+      <div class="mini-player" id="mini-player" hidden>
+        <div class="mini-cover" id="mini-cover"></div>
+        <div class="mini-info">
+          <span class="mini-title" id="mini-title"></span>
+          <span class="mini-sub" id="mini-sub"></span>
         </div>
+        <button type="button" class="nav-btn" id="mini-play" aria-label="Play">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </button>
       </div>
-
-      <input id="file-input" type="file" accept="audio/mpeg,audio/mp4,audio/x-m4b,audio/aac,audio/ogg,audio/flac,audio/wav,.mp3,.m4a,.m4b,.aac,.ogg,.oga,.opus,.flac,.wav,application/epub+zip,.epub,application/pdf,.pdf" multiple hidden />
-      <input id="cover-input" type="file" accept="image/jpeg,image/png,image/webp" hidden />
-
-      <form id="compile-form">
-        <!-- ============================================================
-             STEP 1: Upload
-             ============================================================ -->
-        <section class="wizard-panel active" id="panel-upload">
-          <div class="drop-zone" id="drop-zone">
-            <div class="drop-inner">
-              <div class="drop-icon">
-                <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="17 8 12 3 7 8"/>
-                  <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-              </div>
-              <p class="drop-heading">Drop your audio chapters here</p>
-              <p class="drop-sub">MP3, M4A, M4B, AAC, OGG, FLAC, WAV &mdash; or drop an M4B, EPUB, or PDF to auto-fill metadata &amp; cover art</p>
-            </div>
-          </div>
-          <div class="upload-alt-actions">
-            <span class="upload-alt-divider">or</span>
-            <button type="button" id="gdrive-import-btn" class="btn btn-ghost btn-gdrive" title="Import MP3 files from Google Drive" data-uniq="gdrive-import-btn-unique">
-              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4.433 22l-1.6-2.7 6.8-11.8 1.6 2.7z" fill="#0066da"/>
-                <path d="M20.167 22H7.033l1.6-2.7h10.134z" fill="#00ac47"/>
-                <path d="M23.767 15.3L17 3.5h-3.2l6.8 11.8z" fill="#ea4335"/>
-                <path d="M8.633 10.2L5.033 3.5H1.833l3.6 6.2z" fill="#00832d"/>
-                <path d="M17 3.5l3.6 6.2-6.8 11.8-3.6-6.2z" fill="#2684fc"/>
-                <path d="M8.633 10.2l1.6 2.7-1.6 2.8H5.433l-1-1.7z" fill="#ffba00"/>
-              </svg>
-              Import from Google Drive
-            </button>
-          </div>
-          <div class="upload-status" id="upload-status" hidden>
-            <div class="upload-spinner"></div>
-            <p class="upload-status-text" id="upload-status-text">Reading metadata...</p>
-          </div>
-          <div class="upload-file-summary" id="upload-file-summary" hidden>
-            <div class="upload-file-summary-header">
-              <h3 id="upload-file-count"></h3>
-              <div class="upload-file-summary-actions">
-                <button type="button" class="btn btn-ghost btn-sm" id="upload-add-more-btn">Add more</button>
-                <button type="button" class="btn btn-ghost btn-sm btn-danger-text" id="upload-clear-btn">Clear all</button>
-              </div>
-            </div>
-            <ul class="upload-file-list" id="upload-file-list"></ul>
-            <div class="wizard-actions">
-              <div></div>
-              <button type="button" class="btn btn-primary" id="upload-next-btn">
-                Continue
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <!-- ============================================================
-             STEP 2: Match Book
-             ============================================================ -->
-        <section class="wizard-panel" id="panel-match">
-          <div class="match-header">
-            <h2>Find your book</h2>
-            <p>Search by title, author, or ISBN &mdash; then pick metadata and cover art independently.</p>
-          </div>
-          <div class="match-search-bar">
-            <div class="lookup-input-wrap">
-              <svg class="lookup-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              <input type="text" id="lookup-query" placeholder="Search by title, author, or ISBN..." />
-            </div>
-            <button type="button" id="lookup-btn" class="btn btn-accent">Search</button>
-          </div>
-          <div class="match-results" id="match-results">
-            <div class="match-section">
-              <h3 class="match-section-title">Metadata</h3>
-              <p class="match-section-sub">Pick a source for title, author, and description</p>
-              <div class="match-results-grid" id="match-results-grid"></div>
-            </div>
-            <div class="match-section">
-              <h3 class="match-section-title">Cover Art</h3>
-              <p class="match-section-sub">Pick a cover — or skip and upload your own later</p>
-              <div class="cover-results-strip" id="cover-results-strip"></div>
-            </div>
-          </div>
-          <div class="wizard-actions">
-            <button type="button" class="btn btn-ghost" id="match-back-btn">Back</button>
-            <div class="wizard-actions-right">
-              <button type="button" class="btn btn-ghost" id="match-skip-btn">Skip — I'll fill it in myself</button>
-              <button type="button" class="btn btn-primary" id="match-next-btn">
-                Continue to Edit
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <!-- ============================================================
-             STEP 3: Edit Metadata + Chapters
-             ============================================================ -->
-        <section class="wizard-panel" id="panel-edit">
-          <!-- Mobile-only tab switcher -->
-          <div class="edit-tabs" id="edit-tabs" role="tablist" aria-label="Edit views">
-            <button class="edit-tab active" data-tab="chapters" role="tab" aria-selected="true" aria-controls="chapters-pane">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-              Chapters
-            </button>
-            <button class="edit-tab" data-tab="details" role="tab" aria-selected="false" aria-controls="details-pane">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              Details
-            </button>
-          </div>
-          <div class="editor-grid" id="editor-grid">
-            <!-- Left: Chapters -->
-            <div class="card chapters-card" id="chapters-pane" role="tabpanel" aria-labelledby="tab-chapters">
-              <div class="section-header">
-                <div class="section-header-left">
-                  <h2>Chapters</h2>
-                  <span class="section-header-count" id="chapter-count"></span>
-                </div>
-                <div class="section-header-right">
-                  <div class="rename-dropdown" id="rename-dropdown">
-                    <button type="button" class="btn btn-ghost btn-xs" id="rename-btn" title="Batch rename chapters">Rename</button>
-                    <div class="rename-menu" id="rename-menu" hidden>
-                      <button type="button" class="rename-option" data-pattern="chapter-num">Chapter 1, Chapter 2…</button>
-                      <button type="button" class="rename-option" data-pattern="part-num">Part 1, Part 2…</button>
-                      <button type="button" class="rename-option" data-pattern="filename">Use filenames</button>
-                      <button type="button" class="rename-option" data-pattern="custom">Custom prefix…</button>
-                      <button type="button" class="rename-option" data-pattern="paste">Paste list…</button>
-                    </div>
-                  </div>
-                  <button type="button" id="add-more-btn" class="btn btn-ghost btn-xs">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    Add
-                  </button>
-                  <button type="button" id="clear-all" class="btn btn-ghost btn-xs">Clear</button>
-                  <button type="button" id="fetch-chapters-btn" class="btn btn-ghost btn-xs" hidden title="Fetch chapter names from Google Books / Open Library">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    Fetch Chapters
-                  </button>
-                </div>
-              </div>
-              <div class="chapter-search-bar" id="chapter-search-bar" hidden>
-                <div class="chapter-search-wrap">
-                  <svg class="chapter-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                  <input type="text" id="chapter-search" placeholder="Filter chapters..." autocomplete="off" />
-                  <button type="button" class="chapter-search-clear" id="chapter-search-clear" hidden aria-label="Clear search">&times;</button>
-                </div>
-                <span class="chapter-search-count" id="chapter-search-count"></span>
-              </div>
-              <div class="track-list" id="track-list"></div>
-            </div>
-
-            <!-- Right: Cover + Metadata -->
-            <aside class="meta-sidebar" id="details-pane" role="tabpanel" aria-labelledby="tab-details">
-              <!-- Cover Art -->
-              <div class="card cover-card">
-                <div class="cover-well" id="cover-preview" title="Click to upload cover art">
-                  <div class="cover-placeholder" id="cover-placeholder">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".4" aria-hidden="true">
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                      <circle cx="8.5" cy="8.5" r="1.5"/>
-                      <polyline points="21 15 16 10 5 21"/>
-                    </svg>
-                    <span>Click to add cover</span>
-                  </div>
-                </div>
-                <div class="cover-actions">
-                  <button type="button" id="cover-upload-btn" class="btn btn-ghost btn-xs">Upload</button>
-                  <button type="button" id="cover-remove-btn" class="btn btn-ghost btn-xs" hidden>Remove</button>
-                </div>
-              </div>
-
-              <!-- Metadata Fields -->
-              <div class="card meta-card">
-                <div class="meta-card-body">
-                  <div class="field-group">
-                    <label class="field">
-                      <span class="field-label">Title</span>
-                      <input type="text" name="title" value="Untitled Audiobook" />
-                    </label>
-                    <label class="field">
-                      <span class="field-label">Author</span>
-                      <input type="text" name="author" value="Unknown" />
-                    </label>
-                    <div class="field-row compact">
-                      <label class="field">
-                        <span class="field-label">Year</span>
-                        <input type="text" name="year" placeholder="2024" />
-                      </label>
-                      <label class="field">
-                        <span class="field-label">Genre</span>
-                        <input type="text" name="genre" value="Audiobook" />
-                      </label>
-                    </div>
-                    <label class="field">
-                      <span class="field-label">Narrator</span>
-                      <input type="text" name="narrator" placeholder="Narrator name..." />
-                    </label>
-                    <div class="field-row compact">
-                      <label class="field">
-                        <span class="field-label">Series</span>
-                        <input type="text" name="series" placeholder="Series name..." />
-                      </label>
-                      <label class="field">
-                        <span class="field-label">Book #</span>
-                        <input type="text" name="booknum" placeholder="e.g. 1 of 3" />
-                      </label>
-                    </div>
-                    <label class="field textarea-field">
-                      <span class="field-label">Description</span>
-                      <textarea name="description" rows="3" placeholder="Synopsis, narrator notes, edition details..."></textarea>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </aside>
-          </div>
-          <div class="wizard-actions">
-            <button type="button" class="btn btn-ghost" id="edit-back-btn">Back to search</button>
-            <button type="button" class="btn btn-primary" id="edit-next-btn">
-              Review &amp; Forge
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
-          </div>
-        </section>
-
-        <!-- ============================================================
-             STEP 4: Review & Forge
-             ============================================================ -->
-        <section class="wizard-panel" id="panel-forge">
-          <div class="forge-review">
-            <div class="forge-cover" id="forge-cover">
-              <div class="cover-placeholder">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".3" aria-hidden="true">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                  <circle cx="8.5" cy="8.5" r="1.5"/>
-                  <polyline points="21 15 16 10 5 21"/>
-                </svg>
-              </div>
-            </div>
-            <div class="forge-details">
-              <h2 class="forge-title" id="forge-title">Untitled Audiobook</h2>
-              <p class="forge-author" id="forge-author">Unknown</p>
-              <div class="forge-meta-pills" id="forge-meta-pills"></div>
-              <p class="forge-description" id="forge-description"></p>
-              <div class="forge-stats" id="forge-stats"></div>
-            </div>
-          </div>
-          <div class="forge-options">
-            <label class="forge-option">
-              <span class="forge-option-label">Audio Quality</span>
-              <span class="forge-option-hint">Higher bitrate = better quality, larger file</span>
-              <select id="bitrate-select" class="forge-select">
-                <option value="64k">64 kbps — Smallest file</option>
-                <option value="96k" selected>96 kbps — Standard (recommended)</option>
-                <option value="128k">128 kbps — High quality</option>
-                <option value="192k">192 kbps — Best quality</option>
-              </select>
-            </label>
-          </div>
-          <div class="wizard-actions forge-actions">
-            <button type="button" class="btn btn-ghost" id="forge-back-btn">Back to edit</button>
-            <div class="forge-actions-right">
-              <button type="button" class="btn btn-ghost" id="download-again-btn" hidden>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Download Again
-              </button>
-              <button type="button" id="gdrive-export-btn" class="btn btn-ghost btn-gdrive" hidden>
-                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4.433 22l-1.6-2.7 6.8-11.8 1.6 2.7z" fill="#0066da"/>
-                  <path d="M20.167 22H7.033l1.6-2.7h10.134z" fill="#00ac47"/>
-                  <path d="M23.767 15.3L17 3.5h-3.2l6.8 11.8z" fill="#ea4335"/>
-                  <path d="M8.633 10.2L5.033 3.5H1.833l3.6 6.2z" fill="#00832d"/>
-                  <path d="M17 3.5l3.6 6.2-6.8 11.8-3.6-6.2z" fill="#2684fc"/>
-                  <path d="M8.633 10.2l1.6 2.7-1.6 2.8H5.433l-1-1.7z" fill="#ffba00"/>
-                </svg>
-                Save to Google Drive
-              </button>
-              <button type="submit" class="btn btn-primary btn-lg" id="compile-button">
-                <span class="compile-btn-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-                  </svg>
-                </span>
-                <span class="compile-btn-spinner" hidden>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="spin-anim"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                </span>
-                <span class="compile-btn-label">Forge M4B</span>
-              </button>
-            </div>
-          </div>
-          <div class="footer-note">
-            Everything runs locally in your browser. First compile downloads ~31&nbsp;MB of FFmpeg WASM.
-          </div>
-        </section>
-      </form>
     </div>
 
-    <!-- Mobile bottom navigation -->
-    <nav class="bottom-nav" id="bottom-nav" aria-label="Steps">
-      <button class="bottom-nav-item active" data-step="upload" type="button">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        <span>Upload</span>
-      </button>
-      <button class="bottom-nav-item" data-step="match" type="button">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <span>Match</span>
-      </button>
-      <button class="bottom-nav-item" data-step="edit" type="button">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-        <span>Edit</span>
-      </button>
-      <button class="bottom-nav-item" data-step="forge" type="button">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-        <span>Forge</span>
-      </button>
-    </nav>
-  </div><!-- end .app -->
+    <!-- ================= SHEETS ================= -->
+    <div class="sheet-overlay" id="sheet-overlay" hidden></div>
 
-    <!-- Text prompt modal (replaces window.prompt for rename) -->
-    <div class="modal-overlay" id="prompt-modal" hidden role="dialog" aria-modal="true" aria-labelledby="prompt-modal-title">
-      <div class="modal-card prompt-modal-card">
-        <div class="modal-header">
-          <h2 id="prompt-modal-title">Input</h2>
-          <button type="button" class="btn btn-icon" id="prompt-modal-close" aria-label="Close">&times;</button>
+    <div class="sheet" id="sheet-book" hidden role="dialog" aria-modal="true">
+      <div class="sheet-grabber"></div>
+      <div class="sheet-body">
+        <div class="book-detail-head">
+          <div class="book-detail-cover" id="detail-cover"></div>
+          <div class="book-detail-meta">
+            <h2 id="detail-title"></h2>
+            <p id="detail-author"></p>
+            <p class="book-detail-format" id="detail-format"></p>
+          </div>
         </div>
-        <div class="modal-body">
-          <label class="field">
-            <span class="field-label" id="prompt-modal-label">Value</span>
-            <input type="text" id="prompt-modal-input" autocomplete="off" />
-            <textarea id="prompt-modal-textarea" rows="8" hidden placeholder="One chapter name per line…"></textarea>
-          </label>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-ghost" id="prompt-modal-cancel">Cancel</button>
-          <button type="button" class="btn btn-primary" id="prompt-modal-confirm">Apply</button>
+        <div class="sheet-actions">
+          <button type="button" class="btn btn-primary" id="detail-open-btn">Read</button>
+          <button type="button" class="btn btn-ghost" id="detail-meta-btn">Find Metadata</button>
+          <button type="button" class="btn btn-ghost" id="detail-edit-btn">Edit</button>
+          <button type="button" class="btn btn-danger" id="detail-delete-btn">Delete</button>
         </div>
       </div>
     </div>
-    <div class="modal-overlay" id="gdrive-picker-modal" hidden role="dialog" aria-modal="true" aria-labelledby="gdrive-picker-heading">
-      <div class="modal-card gdrive-picker">
-        <div class="modal-header">
-          <h2 id="gdrive-picker-heading">Google Drive</h2>
-          <button type="button" class="btn btn-icon" id="gdrive-picker-close" aria-label="Close">&times;</button>
+
+    <div class="sheet" id="sheet-list" hidden role="dialog" aria-modal="true">
+      <div class="sheet-grabber"></div>
+      <h3 class="sheet-title" id="sheet-list-title"></h3>
+      <div class="sheet-list" id="sheet-list-body"></div>
+    </div>
+
+    <div class="sheet" id="sheet-edit" hidden role="dialog" aria-modal="true">
+      <div class="sheet-grabber"></div>
+      <h3 class="sheet-title">Edit Metadata</h3>
+      <div class="sheet-body">
+        <div class="list-card">
+          <div class="edit-field"><span>Title</span><input type="text" id="edit-title" autocomplete="off" /></div>
+          <div class="edit-field"><span>Author</span><input type="text" id="edit-author" autocomplete="off" /></div>
+          <div class="edit-field"><span>Year</span><input type="text" id="edit-year" inputmode="numeric" autocomplete="off" /></div>
+          <div class="edit-field edit-field-area"><span>Description</span><textarea id="edit-desc" rows="4"></textarea></div>
         </div>
-        <div class="gdrive-picker-breadcrumb" id="gdrive-breadcrumb">
-          <button type="button" class="btn btn-ghost btn-xs gdrive-crumb" data-id="root">My Drive</button>
-        </div>
-        <div class="gdrive-picker-list" id="gdrive-file-list">
-          <div class="gdrive-picker-empty">Loading...</div>
-        </div>
-        <div class="gdrive-download-progress" id="gdrive-download-progress" hidden>
-          <div class="gdrive-download-list" id="gdrive-download-list"></div>
-        </div>
-        <div class="modal-footer" id="gdrive-picker-footer">
-          <label class="gdrive-select-all"><input type="checkbox" id="gdrive-select-all" /> Select all</label>
-          <span class="gdrive-picker-count" id="gdrive-selected-count">0 files selected</span>
-          <button type="button" class="btn btn-ghost" id="gdrive-picker-cancel">Cancel</button>
-          <button type="button" class="btn btn-primary" id="gdrive-picker-select" disabled>Import Selected</button>
+        <div class="sheet-actions">
+          <button type="button" class="btn btn-primary" id="edit-save">Save</button>
+          <button type="button" class="btn btn-ghost" id="edit-cancel">Cancel</button>
         </div>
       </div>
     </div>
+
+    <div class="sheet" id="sheet-appearance" hidden role="dialog" aria-modal="true">
+      <div class="sheet-grabber"></div>
+      <div class="sheet-body">
+        <div class="list-card">
+          <div class="list-row">
+            <span>Theme</span>
+            <div class="seg" id="reader-theme-seg">
+              <button type="button" data-val="light">Light</button>
+              <button type="button" data-val="sepia">Sepia</button>
+              <button type="button" data-val="dark">Dark</button>
+            </div>
+          </div>
+          <div class="list-row">
+            <span>Layout</span>
+            <div class="seg" id="reader-flow-seg">
+              <button type="button" data-val="paginated">Pages</button>
+              <button type="button" data-val="scrolled">Scroll</button>
+            </div>
+          </div>
+          <div class="list-row">
+            <span>Font size</span>
+            <div class="stepper">
+              <button type="button" id="font-minus">−</button>
+              <span id="font-size-val">100%</span>
+              <button type="button" id="font-plus">+</button>
+            </div>
+          </div>
+          <div class="list-row">
+            <span>Font</span>
+            <div class="seg" id="reader-font-seg">
+              <button type="button" data-val="sans">Sans</button>
+              <button type="button" data-val="serif">Serif</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <input id="file-input" type="file" multiple hidden
+      accept=".epub,.mobi,.azw,.azw3,.fb2,.fbz,.cbz,.cbr,.pdf,.txt,.md,.html,.htm,.zip,.m4b,.m4a,.mp3,.aac,.flac,.ogg,.oga,.opus,.wav,audio/*,application/epub+zip,application/pdf,application/zip" />
+    <input id="dir-input" type="file" webkitdirectory hidden />
+    <input id="backup-input" type="file" accept=".zip" hidden />
 
     <script src="js/app.js" type="module"></script>
-    <script>
-      if ("serviceWorker" in navigator) {
-        // Deregister stale coi-serviceworker.js registrations — they inject
-        // Cross-Origin-Opener-Policy: same-origin which breaks Google OAuth popups.
-        // If any stale workers are found, unregister them and reload so the
-        // current page is no longer running under that COOP header.
-        navigator.serviceWorker.getRegistrations().then((regs) => {
-          const isStale = (reg) =>
-            [reg.active, reg.waiting, reg.installing].some(
-              (w) => w && w.scriptURL.includes("coi-serviceworker")
-            );
-          const stale = regs.filter(isStale);
-          if (stale.length > 0) {
-            Promise.all(stale.map((reg) => reg.unregister()))
-              .finally(() => window.location.reload());
-            return;
-          }
-          // Belt-and-suspenders: if the page somehow loaded cross-origin-isolated
-          // (COOP: same-origin is in effect), flush all SWs and reload so the
-          // Google OAuth popup can communicate back to this window.
-          if (window.crossOriginIsolated) {
-            Promise.all(regs.map((reg) => reg.unregister()))
-              .finally(() => window.location.reload());
-            return;
-          }
-          navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => {});
-        }).catch(() => {});
-      }
-    </script>
   </body>
 </html>

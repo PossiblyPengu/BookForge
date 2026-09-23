@@ -1,5 +1,5 @@
 {
-  "name": "bookforge",
+  "name": "pageturner",
   "version": "1.0.0",
   "description": "Convert MP3 chapters into M4B audiobooks",
   "main": "index.js",
@@ -10,7 +10,11 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint docs/js/",
+    "lint": "eslint docs/js/ docs/sw.js tests/",
+    "lint:fix": "eslint docs/js/ docs/sw.js tests/ --fix",
+    "icons": "node scripts/generate-icons.js",
+    "vendor": "node scripts/build-vendor.js",
+    "smoke": "node scripts/smoke.mjs",
     "cap:add:ios": "npx cap add ios",
     "cap:add:android": "npx cap add android",
     "cap:sync": "npx cap sync",
@@ -31,12 +35,21 @@
   "dependencies": {
     "@capacitor/android": "^6.0.0",
     "@capacitor/core": "^6.0.0",
-    "@capacitor/ios": "^6.0.0"
+    "@capacitor/ios": "^6.0.0",
+    "@mintplex-labs/piper-tts-web": "^1.0.5",
+    "foliate-js": "^1.0.1",
+    "music-metadata-browser": "^2.5.11",
+    "node-unrar-js": "^2.0.2",
+    "onnxruntime-web": "^1.18.0",
+    "pdfjs-dist": "^6.3.289"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.0.0",
     "@eslint/js": "^10.0.1",
+    "@resvg/resvg-js": "^2.6.2",
     "eslint": "^10.0.3",
+    "fflate": "^0.8.3",
+    "puppeteer-core": "^25.12.0",
     "vitest": "^4.1.0"
   }
 }

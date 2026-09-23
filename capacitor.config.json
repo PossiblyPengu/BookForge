@@ -1,6 +1,6 @@
 {
-  "appId": "io.github.possiblypengu.bookforge",
-  "appName": "BookForge",
+  "appId": "io.github.possiblypengu.pageturner",
+  "appName": "Pageturner",
   "webDir": "docs",
   "server": {
     "androidScheme": "https",

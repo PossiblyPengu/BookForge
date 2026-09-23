@@ -237,12 +237,8 @@ const cleanChapterName = (raw) => {
  *
  * @param {Array} filenameParsed - from parseFilenames().chapters
  * @param {Array} metadataList  - from extractMetadata() per track
- * @returns {Array<string>} chapter names in order
- */
-/**
- * @param {Array} filenameParsed - from parseFilenames().chapters
- * @param {Array} metadataList  - from extractMetadata() per track
  * @param {Array<string>} filenames - original filenames (for extractSortKey)
+ * @returns {Array<string>} chapter names in order
  */
 export const buildChapterNames = (filenameParsed, metadataList, filenames = []) => {
   return filenameParsed.map((fp, i) => {
@@ -314,11 +310,15 @@ export const inferBook = (files, metadataList) => {
   // Author priority: ID3 artist > filename author
   const author = id3Result.artist || fnResult.author;
 
+  // ISBN: check metadata for ISBN field
+  const isbn = metadataList.map((m) => m?.isbn).find(Boolean) || null;
+
   return {
     title,
     author,
     chapters,
     description: id3Result.description,
+    isbn,
   };
 };
 
