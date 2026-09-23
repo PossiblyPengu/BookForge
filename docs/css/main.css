@@ -542,8 +542,19 @@ input, textarea { font: inherit; color: inherit; }
   position: absolute;
   inset: 0;
   background: var(--bg);
+  --reader-top-h: 52px;    /* .nav-bar-inner */
+  --reader-bottom-h: 52px; /* one row: progress, or the read-aloud bar */
 }
-.reader-stage foliate-view { display: block; width: 100%; height: 100%; }
+/* The page sits between the bars, never under them (nor under the notch or
+   home indicator). The space stays reserved while the chrome is hidden, so
+   hiding it doesn't reflow the book and move every page break. */
+.reader-stage foliate-view {
+  display: block;
+  position: absolute;
+  left: 0; right: 0;
+  top: calc(var(--safe-top) + var(--reader-top-h));
+  bottom: calc(var(--safe-bottom) + var(--reader-bottom-h));
+}
 #view-reader .reader-bar {
   position: absolute;
   top: 0; left: 0; right: 0;
@@ -661,9 +672,16 @@ input, textarea { font: inherit; color: inherit; }
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
-  border-bottom: 0.5px solid var(--separator);
+  padding: 0 14px;
 }
+/* display:flex above beats the hidden attribute — without this the bar
+   showed before read-aloud started, and its play button did nothing */
+.tts-bar[hidden] { display: none; }
+/* Read-aloud controls take the progress row's place rather than stacking on
+   it, so starting read-aloud doesn't resize the page and reflow the book
+   out from under the position it's about to read from. */
+.tts-bar, .reader-progress { height: 52px; box-sizing: border-box; }
+#reader-bottom:has(.tts-bar:not([hidden])) .reader-progress { display: none; }
 .tts-status { font-size: 13px; color: var(--text-2); }
 
 /* ---------- Player ---------- */

@@ -84,9 +84,11 @@ const updateProgressUI = (fraction, label) => {
 const openFoliate = async (book, file) => {
   await import("../vendor/foliate/view.js");
   view = document.createElement("foliate-view");
-  view.style.cssText = "display:block;width:100%;height:100%";
   $("reader-stage").appendChild(view);
   await view.open(file);
+  // the chrome is kept clear by the view's own inset (main.css), so the
+  // paginator only needs a little breathing room above and below the text
+  view.renderer?.setAttribute("margin", "16px");
   await view.init({ lastLocation: book.progress?.cfi || null });
   // Comics are all images — nothing for read-aloud to find, and trying
   // would just page through the book in silence.
@@ -390,21 +392,20 @@ export const initReader = async () => {
     if (e.target === $("reader-stage")) toggleChrome();
   });
   // TTS
-  $("reader-tts-btn").addEventListener("click", () => {
-    const bar = $("tts-bar");
-    if (bar.hidden) {
-      bar.hidden = false;
-      ttsController.start(() => activeRenderer, {
-        title: activeBook?.title,
-        author: activeBook?.author,
-        cover: coverUrl(activeBook),
-      });
-    } else {
-      ttsController.toggle();
-    }
-  });
+  // Speaker and play share one path: no session yet → start one, else
+  // play/pause. (Play used to only toggle, so with no session it did nothing.)
+  const playTts = () => {
+    $("tts-bar").hidden = false;
+    if (ttsController._session || ttsController.playing) ttsController.toggle();
+    else ttsController.start(() => activeRenderer, {
+      title: activeBook?.title,
+      author: activeBook?.author,
+      cover: coverUrl(activeBook),
+    });
+  };
+  $("reader-tts-btn").addEventListener("click", playTts);
   $("reader-bmk-btn").addEventListener("click", toggleBookmark);
-  $("tts-play").addEventListener("click", () => ttsController.toggle());
+  $("tts-play").addEventListener("click", playTts);
   $("tts-prev").addEventListener("click", () => ttsController.skip(-1));
   $("tts-next").addEventListener("click", () => ttsController.skip(1));
   $("tts-sleep").addEventListener("click", pickTtsSleep);
