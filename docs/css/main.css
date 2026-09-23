@@ -538,56 +538,182 @@ input, textarea { font: inherit; color: inherit; }
 }
 
 /* ---------- Reader ---------- */
+
+/* Reader themes. While a book is open <html data-reader-theme> is set, and
+   the reader's chrome and sheets take the page's colours rather than the
+   app's — no white sheet flashing up over a dark page. */
+:root[data-reader-theme="light"] :is(#view-reader, .sheet, .sel-chip) {
+  --bg: #fbf8f2; --text: #1d1a14;
+  --bg-sheet: #fffdf9; --bg-card: #f2eee5; --bg-raised: #ffffff;
+  --fill: rgba(29, 26, 20, 0.07); --fill-strong: rgba(29, 26, 20, 0.14);
+  --text-2: rgba(29, 26, 20, 0.6); --text-3: rgba(29, 26, 20, 0.4);
+  --separator: rgba(29, 26, 20, 0.12); --bar-bg: rgba(251, 248, 242, 0.9);
+}
+:root[data-reader-theme="sepia"] :is(#view-reader, .sheet, .sel-chip) {
+  --bg: #f4ecd9; --text: #3a2f1d;
+  --bg-sheet: #f9f2e3; --bg-card: #ece2ca; --bg-raised: #fffaf0;
+  --fill: rgba(58, 47, 29, 0.08); --fill-strong: rgba(58, 47, 29, 0.15);
+  --text-2: rgba(58, 47, 29, 0.62); --text-3: rgba(58, 47, 29, 0.42);
+  --separator: rgba(58, 47, 29, 0.14); --bar-bg: rgba(244, 236, 217, 0.9);
+}
+:root[data-reader-theme="gray"] :is(#view-reader, .sheet, .sel-chip) {
+  --bg: #4b4b4e; --text: #ecebe7;
+  --bg-sheet: #555558; --bg-card: #616164; --bg-raised: #737377;
+  --fill: rgba(236, 235, 231, 0.1); --fill-strong: rgba(236, 235, 231, 0.2);
+  --text-2: rgba(236, 235, 231, 0.65); --text-3: rgba(236, 235, 231, 0.45);
+  --separator: rgba(236, 235, 231, 0.14); --bar-bg: rgba(75, 75, 78, 0.9);
+}
+:root[data-reader-theme="dark"] :is(#view-reader, .sheet, .sel-chip) {
+  --bg: #131311; --text: #e8e4da;
+  --bg-sheet: #1f1f1d; --bg-card: #2a2a27; --bg-raised: #3b3b37;
+  --fill: rgba(232, 228, 218, 0.09); --fill-strong: rgba(232, 228, 218, 0.17);
+  --text-2: rgba(232, 228, 218, 0.6); --text-3: rgba(232, 228, 218, 0.4);
+  --separator: rgba(232, 228, 218, 0.11); --bar-bg: rgba(19, 19, 17, 0.9);
+}
+:root[data-reader-theme="black"] :is(#view-reader, .sheet, .sel-chip) {
+  --bg: #000000; --text: #cfcbc2;
+  --bg-sheet: #121212; --bg-card: #1c1c1c; --bg-raised: #2e2e2e;
+  --fill: rgba(207, 203, 194, 0.09); --fill-strong: rgba(207, 203, 194, 0.17);
+  --text-2: rgba(207, 203, 194, 0.6); --text-3: rgba(207, 203, 194, 0.4);
+  --separator: rgba(207, 203, 194, 0.1); --bar-bg: rgba(0, 0, 0, 0.9);
+}
+#view-reader { background: var(--bg); color: var(--text); }
+/* the sheets sit outside #view-reader, so they inherit the app's text colour
+   and its light-mode segmented style unless told otherwise */
+:root[data-reader-theme] :is(.sheet, .sel-chip) { color: var(--text); }
+:root[data-reader-theme] :is(#view-reader, .sheet) .seg button.active {
+  background: var(--bg-raised);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
 .reader-stage {
   position: absolute;
   inset: 0;
   background: var(--bg);
-  --reader-top-h: 52px;    /* .nav-bar-inner */
+  --reader-top-h: 52px;    /* the top bar */
   --reader-bottom-h: 52px; /* one row: progress, or the read-aloud bar */
 }
 /* The page sits between the bars, never under them (nor under the notch or
    home indicator). The space stays reserved while the chrome is hidden, so
-   hiding it doesn't reflow the book and move every page break. */
-.reader-stage foliate-view {
+   hiding it doesn't reflow the book and move every page break — and the
+   quiet page info lives in those bands. */
+.reader-stage foliate-view,
+.reader-stage .text-reader,
+.reader-stage .pdf-reader {
   display: block;
   position: absolute;
   left: 0; right: 0;
   top: calc(var(--safe-top) + var(--reader-top-h));
   bottom: calc(var(--safe-bottom) + var(--reader-bottom-h));
 }
-#view-reader .reader-bar {
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  transition: transform 0.25s, opacity 0.25s;
-}
+.reader-stage .pdf-reader { display: flex; }
+
+#view-reader .reader-bar,
 #view-reader .reader-bottom {
   position: absolute;
-  left: 0; right: 0; bottom: 0;
-  padding-bottom: var(--safe-bottom);
+  left: 0; right: 0;
+  z-index: 10;
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
   background: var(--bar-bg);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
   backdrop-filter: blur(20px) saturate(1.4);
-  border-top: 0.5px solid var(--separator);
-  transition: transform 0.25s, opacity 0.25s;
+  transition: transform 0.25s ease, opacity 0.25s ease;
 }
-#view-reader.chrome-hidden .reader-bar { transform: translateY(-110%); opacity: 0; }
-#view-reader.chrome-hidden .reader-bottom { transform: translateY(110%); opacity: 0; }
+#view-reader .reader-bar {
+  top: 0;
+  padding-top: var(--safe-top);
+  border-bottom: 0.5px solid var(--separator);
+}
+#view-reader .reader-bottom {
+  bottom: 0;
+  padding-bottom: var(--safe-bottom);
+  border-top: 0.5px solid var(--separator);
+}
+#view-reader.chrome-hidden .reader-bar { transform: translateY(-110%); opacity: 0; pointer-events: none; }
+#view-reader.chrome-hidden .reader-bottom { transform: translateY(110%); opacity: 0; pointer-events: none; }
+/* read-aloud keeps its controls on screen while the rest of the chrome hides */
+#view-reader.chrome-hidden .reader-bottom:has(.tts-bar:not([hidden])) { transform: none; opacity: 1; pointer-events: auto; }
 
-.reader-progress {
+.reader-bar-inner {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 4px;
+  height: 52px;
+  padding: 0 6px;
 }
-.reader-progress-label {
+.reader-bar-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+.reader-bar-book, .reader-bar-chapter {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-bar-book { font-size: 15px; font-weight: 600; }
+.reader-bar-chapter { font-size: 11.5px; color: var(--text-2); }
+.reader-bar-chapter:empty { display: none; }
+#reader-bmk-btn.on svg { fill: currentColor; }
+
+/* quiet page info, in the bands the page leaves free */
+.reader-status {
+  position: absolute;
+  left: 0; right: 0;
+  z-index: 5;
+  height: var(--reader-top-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 calc(24px + var(--safe-right)) 0 calc(24px + var(--safe-left));
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-status-top { top: var(--safe-top); }
+.reader-status-bottom {
+  bottom: var(--safe-bottom);
+  height: var(--reader-bottom-h);
+  justify-content: space-between;
+}
+#view-reader.chrome-hidden .reader-status { opacity: 1; }
+
+/* progress row: scrubber above, where-you-are below */
+.reader-progress {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2px 18px 4px;
+}
+.reader-progress .progress-slider { flex: none; width: 100%; height: 24px; }
+.reader-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 11px;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
-  min-width: 42px;
 }
-.reader-progress-label:last-child { text-align: right; }
+.reader-progress-meta span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader-progress-meta span:last-child { flex-shrink: 0; }
+#view-reader .progress-slider::-webkit-slider-thumb {
+  width: 16px; height: 16px; margin-top: -6px;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+#view-reader .progress-slider::-moz-range-thumb { width: 16px; height: 16px; background: var(--accent); }
 
 .progress-slider {
   flex: 1;
@@ -625,7 +751,7 @@ input, textarea { font: inherit; color: inherit; }
   -webkit-overflow-scrolling: touch;
   -webkit-user-select: text;
   user-select: text;
-  padding: calc(var(--safe-top) + 60px) 22px calc(var(--safe-bottom) + 90px);
+  padding: 20px calc(22px + var(--safe-right)) 32px calc(22px + var(--safe-left));
   font-size: var(--reader-font-size, 18px);
   line-height: 1.6;
 }
@@ -645,7 +771,7 @@ input, textarea { font: inherit; color: inherit; }
   scroll-snap-align: start;
   display: grid;
   place-items: center;
-  padding: calc(var(--safe-top) + 52px) 8px calc(var(--safe-bottom) + 80px);
+  padding: 8px;
 }
 .pdf-page { position: relative; }
 .pdf-page canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
@@ -662,17 +788,12 @@ input, textarea { font: inherit; color: inherit; }
 }
 @media print { .tts-hl { display: none; } }
 
-/* reader themes applied to stage */
-.reader-theme-light { background: #fbf8f2; color: #222; }
-.reader-theme-sepia { background: #f4ecd9; color: #3a2f1d; }
-.reader-theme-dark { background: #131311; color: #e8e4da; }
-
-/* ---------- TTS bar ---------- */
+/* ---------- Read-aloud mini player ---------- */
 .tts-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 14px;
+  gap: 2px;
+  padding: 0 10px;
 }
 /* display:flex above beats the hidden attribute — without this the bar
    showed before read-aloud started, and its play button did nothing */
@@ -682,7 +803,182 @@ input, textarea { font: inherit; color: inherit; }
    out from under the position it's about to read from. */
 .tts-bar, .reader-progress { height: 52px; box-sizing: border-box; }
 #reader-bottom:has(.tts-bar:not([hidden])) .reader-progress { display: none; }
-.tts-status { font-size: 13px; color: var(--text-2); }
+.tts-play {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px; height: 40px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #1d1406;
+}
+.tts-play:active { background: var(--accent-press); }
+.tts-status {
+  flex: 1;
+  min-width: 0;
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tts-chip {
+  flex-shrink: 0;
+  min-width: 44px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tts-chip:active { background: var(--fill-strong); }
+
+/* ---------- Appearance sheet ---------- */
+.ap-size {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  margin: 4px 0 16px;
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+.ap-size-btn {
+  flex: 1;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  font-family: Georgia, "Times New Roman", serif;
+}
+.ap-size-btn:active { background: var(--fill); border-radius: 12px; }
+.ap-a-small { font-size: 14px; }
+.ap-a-large { font-size: 24px; }
+.ap-size-val {
+  min-width: 64px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  border-left: 0.5px solid var(--separator);
+  border-right: 0.5px solid var(--separator);
+}
+
+.ap-themes, .ap-fonts {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.ap-themes button, .ap-fonts button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.ap-themes button.active, .ap-fonts button.active { color: var(--text); font-weight: 600; }
+.ap-swatch {
+  display: grid;
+  place-items: center;
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 17px;
+  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.35);
+}
+.ap-themes button.active .ap-swatch { box-shadow: 0 0 0 2px var(--bg-sheet), 0 0 0 4px var(--accent); }
+.ap-themes [data-val="light"] .ap-swatch { background: #fbf8f2; color: #1d1a14; }
+.ap-themes [data-val="sepia"] .ap-swatch { background: #f4ecd9; color: #3a2f1d; }
+.ap-themes [data-val="gray"] .ap-swatch { background: #4b4b4e; color: #ecebe7; }
+.ap-themes [data-val="dark"] .ap-swatch { background: #131311; color: #e8e4da; }
+.ap-themes [data-val="black"] .ap-swatch { background: #000000; color: #cfcbc2; }
+
+.ap-font-sample {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 48px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 21px;
+}
+.ap-fonts button.active .ap-font-sample { box-shadow: inset 0 0 0 2px var(--accent); }
+.ap-fonts [data-val="serif"] .ap-font-sample { font-family: "Iowan Old Style", "New York", Georgia, serif; }
+.ap-fonts [data-val="sans"] .ap-font-sample { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.ap-fonts [data-val="charter"] .ap-font-sample { font-family: Charter, "Bitstream Charter", Georgia, serif; }
+.ap-fonts [data-val="palatino"] .ap-font-sample { font-family: Palatino, "Palatino Linotype", "Book Antiqua", serif; }
+.ap-fonts [data-val="original"] .ap-font-sample { font-style: italic; }
+
+.ap-options .list-row { min-height: 48px; }
+.ap-options .seg button { padding: 5px 10px; }
+
+/* ---------- Contents sheet ---------- */
+.contents-head { padding: 4px 16px 10px; }
+.contents-tabs { display: flex; width: 100%; }
+.contents-tabs button { flex: 1; padding: 7px 4px; }
+.contents-list { max-height: 64dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.contents-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 0.5px solid var(--separator);
+}
+.contents-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  text-align: left;
+}
+.contents-item:active { background: var(--fill); }
+.contents-item .ci-text { flex: 1; min-width: 0; }
+.contents-item .ci-title { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contents-item .ci-quote {
+  font-size: 14.5px;
+  font-family: Georgia, "Times New Roman", serif;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.contents-item .ci-sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.contents-item.current .ci-title { color: var(--accent); font-weight: 600; }
+.contents-item.current::after {
+  content: "";
+  flex-shrink: 0;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.contents-mark {
+  flex-shrink: 0;
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  background: #e8c46a;
+}
+.contents-del {
+  flex-shrink: 0;
+  width: 48px;
+  align-self: stretch;
+  color: var(--text-3);
+  font-size: 20px;
+}
+.contents-del:active { color: var(--danger); }
+.contents-empty {
+  padding: 48px 32px 56px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-3);
+}
 
 /* ---------- Player ---------- */
 .player-body {

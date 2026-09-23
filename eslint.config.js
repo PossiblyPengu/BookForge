@@ -26,6 +26,7 @@ export default [
         DOMParser: "readonly",
         fetch: "readonly",
         Response: "readonly",
+        Request: "readonly",
         setTimeout: "readonly",
         clearTimeout: "readonly",
         setInterval: "readonly",

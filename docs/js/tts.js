@@ -463,6 +463,13 @@ export const ttsController = {
     }, this.eng.kind === "speech" ? 60 : 0);
   },
 
+  /** Change speed. Audio clips speed up mid-sentence; Web Speech from the next one. */
+  setRate(rate) {
+    settings.rate = rate;
+    saveSettings();
+    if (player.el) player.el.playbackRate = rate;
+  },
+
   /** minutes → timestamp, "chapter" for end-of-section, null to clear */
   setSleep(v) {
     this._sleepAt = v === "chapter" ? "chapter" : v == null ? null : Date.now() + v * 60000;

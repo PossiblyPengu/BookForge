@@ -131,52 +131,64 @@
 
       <!-- ================= READER ================= -->
       <section class="view view-overlay" id="view-reader" hidden>
-        <header class="nav-bar reader-bar" id="reader-bar">
-          <div class="nav-bar-inner">
+        <header class="reader-bar" id="reader-bar">
+          <div class="reader-bar-inner">
             <button type="button" class="nav-btn" id="reader-close" aria-label="Back to library">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
             </button>
-            <h1 class="nav-title nav-title-sm" id="reader-title"></h1>
+            <div class="reader-bar-title">
+              <span class="reader-bar-book" id="reader-title"></span>
+              <span class="reader-bar-chapter" id="reader-chapter"></span>
+            </div>
             <div class="nav-actions">
-              <button type="button" class="nav-btn" id="reader-bmk-btn" aria-label="Bookmark">
+              <button type="button" class="nav-btn" id="reader-bmk-btn" aria-label="Bookmark this page">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
               </button>
-              <button type="button" class="nav-btn" id="reader-toc-btn" aria-label="Contents">
+              <button type="button" class="nav-btn" id="reader-toc-btn" aria-label="Contents, bookmarks and highlights">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
               </button>
               <button type="button" class="nav-btn" id="reader-tts-btn" aria-label="Read aloud">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
               </button>
               <button type="button" class="nav-btn" id="reader-aa-btn" aria-label="Appearance">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 12 5l8 14"/><path d="M7.5 14h9"/></svg>
+                <svg width="22" height="20" viewBox="0 0 26 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 19 8 5l6 14"/><path d="M4.5 14h7"/><path d="M15 19l4-9 4 9"/><path d="M16.5 16h5"/></svg>
               </button>
             </div>
           </div>
         </header>
         <div class="reader-stage" id="reader-stage"></div>
+        <!-- quiet page info in the reserved bands, shown while the controls are hidden -->
+        <div class="reader-status reader-status-top" id="reader-status-top" aria-hidden="true"></div>
+        <div class="reader-status reader-status-bottom" aria-hidden="true">
+          <span id="reader-status-page"></span>
+          <span id="reader-status-left"></span>
+        </div>
         <div class="reader-bottom" id="reader-bottom">
           <div class="tts-bar" id="tts-bar" hidden>
-            <button type="button" class="nav-btn" id="tts-prev" aria-label="Previous passage">
+            <button type="button" class="nav-btn" id="tts-prev" aria-label="Previous sentence">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 20 9 12l10-8v16z"/><rect x="5" y="4" width="2" height="16"/></svg>
             </button>
-            <button type="button" class="nav-btn" id="tts-play" aria-label="Play">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <button type="button" class="tts-play" id="tts-play" aria-label="Play">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             </button>
-            <button type="button" class="nav-btn" id="tts-next" aria-label="Next passage">
+            <button type="button" class="nav-btn" id="tts-next" aria-label="Next sentence">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="m5 4 10 8-10 8V4z"/><rect x="17" y="4" width="2" height="16"/></svg>
             </button>
-            <button type="button" class="nav-btn" id="tts-sleep" aria-label="Sleep timer">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/></svg>
-            </button>
-            <button type="button" class="nav-btn" id="tts-stop" aria-label="Stop">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-            </button>
             <span class="tts-status" id="tts-status">Read aloud</span>
+            <button type="button" class="tts-chip" id="tts-rate" aria-label="Reading speed">1×</button>
+            <button type="button" class="nav-btn" id="tts-sleep" aria-label="Sleep timer">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+            </button>
+            <button type="button" class="nav-btn" id="tts-stop" aria-label="Stop reading aloud">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
           </div>
           <div class="reader-progress">
-            <span class="reader-progress-label" id="reader-loc-label"></span>
-            <input type="range" class="progress-slider" id="reader-slider" min="0" max="1000" value="0" />
-            <span class="reader-progress-label" id="reader-pct"></span>
+            <input type="range" class="progress-slider" id="reader-slider" min="0" max="1000" value="0" aria-label="Position in book" />
+            <div class="reader-progress-meta">
+              <span id="reader-loc-label"></span>
+              <span id="reader-pct"></span>
+            </div>
           </div>
         </div>
       </section>
@@ -304,16 +316,51 @@
       </div>
     </div>
 
-    <div class="sheet" id="sheet-appearance" hidden role="dialog" aria-modal="true">
+    <div class="sheet reader-sheet" id="sheet-appearance" hidden role="dialog" aria-modal="true" aria-label="Appearance">
       <div class="sheet-grabber"></div>
       <div class="sheet-body">
-        <div class="list-card">
+        <div class="ap-size">
+          <button type="button" class="ap-size-btn" id="font-minus" aria-label="Smaller text"><span class="ap-a-small">A</span></button>
+          <span class="ap-size-val" id="font-size-val">100%</span>
+          <button type="button" class="ap-size-btn" id="font-plus" aria-label="Larger text"><span class="ap-a-large">A</span></button>
+        </div>
+        <div class="ap-themes" id="reader-theme-seg" role="group" aria-label="Theme">
+          <button type="button" data-val="light"><span class="ap-swatch">Aa</span>Paper</button>
+          <button type="button" data-val="sepia"><span class="ap-swatch">Aa</span>Sepia</button>
+          <button type="button" data-val="gray"><span class="ap-swatch">Aa</span>Gray</button>
+          <button type="button" data-val="dark"><span class="ap-swatch">Aa</span>Night</button>
+          <button type="button" data-val="black"><span class="ap-swatch">Aa</span>Black</button>
+        </div>
+        <div class="ap-fonts" id="reader-font-seg" role="group" aria-label="Font">
+          <button type="button" data-val="original"><span class="ap-font-sample">Aa</span>Book</button>
+          <button type="button" data-val="serif"><span class="ap-font-sample">Aa</span>Serif</button>
+          <button type="button" data-val="sans"><span class="ap-font-sample">Aa</span>Sans</button>
+          <button type="button" data-val="charter"><span class="ap-font-sample">Aa</span>Charter</button>
+          <button type="button" data-val="palatino"><span class="ap-font-sample">Aa</span>Palatino</button>
+        </div>
+        <div class="list-card ap-options">
           <div class="list-row">
-            <span>Theme</span>
-            <div class="seg" id="reader-theme-seg">
-              <button type="button" data-val="light">Light</button>
-              <button type="button" data-val="sepia">Sepia</button>
-              <button type="button" data-val="dark">Dark</button>
+            <span>Line spacing</span>
+            <div class="seg" id="reader-spacing-seg">
+              <button type="button" data-val="tight">Tight</button>
+              <button type="button" data-val="normal">Normal</button>
+              <button type="button" data-val="loose">Loose</button>
+            </div>
+          </div>
+          <div class="list-row">
+            <span>Margins</span>
+            <div class="seg" id="reader-margin-seg">
+              <button type="button" data-val="narrow">Narrow</button>
+              <button type="button" data-val="normal">Normal</button>
+              <button type="button" data-val="wide">Wide</button>
+            </div>
+          </div>
+          <div class="list-row">
+            <span>Alignment</span>
+            <div class="seg" id="reader-align-seg">
+              <button type="button" data-val="original">Book</button>
+              <button type="button" data-val="left">Left</button>
+              <button type="button" data-val="justify">Justify</button>
             </div>
           </div>
           <div class="list-row">
@@ -323,23 +370,20 @@
               <button type="button" data-val="scrolled">Scroll</button>
             </div>
           </div>
-          <div class="list-row">
-            <span>Font size</span>
-            <div class="stepper">
-              <button type="button" id="font-minus">−</button>
-              <span id="font-size-val">100%</span>
-              <button type="button" id="font-plus">+</button>
-            </div>
-          </div>
-          <div class="list-row">
-            <span>Font</span>
-            <div class="seg" id="reader-font-seg">
-              <button type="button" data-val="sans">Sans</button>
-              <button type="button" data-val="serif">Serif</button>
-            </div>
-          </div>
         </div>
       </div>
+    </div>
+
+    <div class="sheet reader-sheet" id="sheet-contents" hidden role="dialog" aria-modal="true" aria-label="Contents">
+      <div class="sheet-grabber"></div>
+      <div class="contents-head">
+        <div class="seg contents-tabs" id="contents-tabs" role="tablist">
+          <button type="button" data-val="toc" role="tab">Contents</button>
+          <button type="button" data-val="bookmarks" role="tab">Bookmarks</button>
+          <button type="button" data-val="highlights" role="tab">Highlights</button>
+        </div>
+      </div>
+      <div class="contents-list" id="contents-list" role="tabpanel"></div>
     </div>
 
     <input id="file-input" type="file" multiple hidden

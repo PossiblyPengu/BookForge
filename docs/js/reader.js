@@ -10,7 +10,7 @@
  * TOC sheet, TTS bar) and persists reading position.
  */
 
-import { $, debounce, listSheet, openSheet, toast, coverUrl } from "./util.js";
+import { $, debounce, openSheet, closeSheet, toast, coverUrl } from "./util.js";
 import { getFile, putBook, kvGet, kvSet } from "./db.js";
 import { openTextReader } from "./reader-text.js";
 import { openPdfReader } from "./reader-pdf.js";
@@ -28,7 +28,10 @@ let onClose = () => {};
 const FOLIATE_KIND = "ebook";
 
 // ---------- appearance ----------
-const readerSettings = { theme: "dark", flow: "paginated", fontSize: 100, font: "sans" };
+const readerSettings = {
+  theme: "dark", flow: "paginated", fontSize: 100,
+  font: "original", spacing: "normal", margin: "normal", align: "justify",
+};
 const readerSettingsKey = "reader-settings";
 let settingsLoaded = false;
 
@@ -39,29 +42,89 @@ const loadReaderSettings = async () => {
 };
 const saveReaderSettings = () => kvSet(readerSettingsKey, { ...readerSettings });
 
+// page colours; the chrome takes the same palette (main.css, data-reader-theme)
 const THEMES = {
-  light: "html{background:#fbf8f2;color:#1d1a14}",
-  sepia: "html{background:#f4ecd9;color:#3a2f1d}",
-  dark: "html{background:#131311;color:#e8e4da}",
+  light: { bg: "#fbf8f2", fg: "#1d1a14", link: "#9a5b12" },
+  sepia: { bg: "#f4ecd9", fg: "#3a2f1d", link: "#8a4f10" },
+  gray: { bg: "#4b4b4e", fg: "#ecebe7", link: "#f3b766" },
+  dark: { bg: "#131311", fg: "#e8e4da", link: "#f0a040" },
+  black: { bg: "#000000", fg: "#cfcbc2", link: "#e0973a" },
 };
+// null → the book's own typeface
 const FONTS = {
+  original: null,
+  serif: `"Iowan Old Style","New York",Georgia,serif`,
   sans: `-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif`,
-  serif: `Georgia,"Times New Roman",serif`,
+  charter: `Charter,"Bitstream Charter",Georgia,serif`,
+  palatino: `Palatino,"Palatino Linotype","Book Antiqua",serif`,
+};
+const LINE_HEIGHT = { tight: 1.3, normal: 1.5, loose: 1.8 };
+const PAGE_GAP = { narrow: "4%", normal: "7%", wide: "11%" }; // paginator side margins
+const TEXT_PAD = { narrow: 14, normal: 22, wide: 36 };        // text reader side padding
+
+// Paragraphs the reader's alignment may override. Marked per section as it
+// loads (book CSS has applied by then) — only those the book sets justified
+// or left-aligned, so centred scene breaks, epigraphs and headings-as-<p>
+// keep their own alignment.
+const FLOW_CLASS = "pt-flow";
+const markFlowText = (doc) => {
+  for (const el of doc.querySelectorAll("p, li, blockquote, div")) {
+    const a = doc.defaultView?.getComputedStyle(el).textAlign;
+    if (a === "justify" || a === "left" || a === "start") el.classList.add(FLOW_CLASS);
+  }
 };
 
+const bookCss = () => {
+  const s = readerSettings;
+  const t = THEMES[s.theme] || THEMES.dark;
+  const css = [
+    // --theme-bg-color is what the paginator paints around the columns;
+    // without it the frame kept the colour the section loaded with
+    `html{--theme-bg-color:${t.bg};background:${t.bg} !important;color:${t.fg}}`,
+    `a:link,a:visited{color:${t.link}}`,
+    `html{font-size:${s.fontSize}%}`,
+  ];
+  const font = FONTS[s.font];
+  if (font) css.push(`body,p,div,span,li,td,blockquote,h1,h2,h3,h4,h5,h6{font-family:${font} !important}`);
+  const lh = LINE_HEIGHT[s.spacing];
+  if (lh) css.push(`p,li,blockquote,dd,div{line-height:${lh} !important}`);
+  if (s.align === "justify")
+    css.push(`.${FLOW_CLASS}{text-align:justify !important;-webkit-hyphens:auto;hyphens:auto}`);
+  else if (s.align === "left")
+    css.push(`.${FLOW_CLASS}{text-align:start !important;-webkit-hyphens:manual;hyphens:manual}`);
+  return css.join("\n");
+};
+
+const themeMeta = () => document.querySelector('meta[name="theme-color"]');
+let appThemeColor = null; // restored when the reader closes
+
 const applyStyles = () => {
-  const stage = $("reader-stage");
-  stage.className = "reader-stage reader-theme-" + readerSettings.theme;
-  const themeCss = THEMES[readerSettings.theme];
-  const css = `${themeCss} body,p,div,span,li,td,blockquote{font-family:${FONTS[readerSettings.font]} !important} html{font-size:${readerSettings.fontSize}%}`;
-  if (view?.renderer?.setStyles) view.renderer.setStyles(css);
-  if (view?.renderer && activeRenderer?.setFlow)
-    view.renderer.setAttribute("flow", readerSettings.flow);
-  const textEl = stage.querySelector(".text-reader");
-  if (textEl) {
-    textEl.style.setProperty("--reader-font-size", `${18 * readerSettings.fontSize / 100}px`);
-    textEl.style.fontFamily = FONTS[readerSettings.font];
+  const s = readerSettings;
+  const t = THEMES[s.theme] || THEMES.dark;
+  document.documentElement.dataset.readerTheme = s.theme in THEMES ? s.theme : "dark";
+  appThemeColor ??= themeMeta()?.getAttribute("content");
+  themeMeta()?.setAttribute("content", t.bg); // iOS status bar matches the page
+  $("font-size-val").textContent = s.fontSize + "%";
+  if (view?.renderer) {
+    view.renderer.setStyles?.(bookCss());
+    view.renderer.setAttribute("flow", s.flow);
+    view.renderer.setAttribute("gap", PAGE_GAP[s.margin] || PAGE_GAP.normal);
   }
+  const textEl = $("reader-stage").querySelector(".text-reader");
+  if (textEl) {
+    textEl.style.setProperty("--reader-font-size", `${18 * s.fontSize / 100}px`);
+    textEl.style.fontFamily = FONTS[s.font] || "";
+    textEl.style.lineHeight = LINE_HEIGHT[s.spacing] || "";
+    textEl.style.textAlign = s.align === "justify" ? "justify" : s.align === "left" ? "start" : "";
+    textEl.style.hyphens = textEl.style.webkitHyphens = s.align === "justify" ? "auto" : "";
+    textEl.style.paddingLeft = textEl.style.paddingRight = `${TEXT_PAD[s.margin] || TEXT_PAD.normal}px`;
+  }
+};
+
+const clearReaderTheme = () => {
+  delete document.documentElement.dataset.readerTheme;
+  if (appThemeColor != null) themeMeta()?.setAttribute("content", appThemeColor);
+  appThemeColor = null;
 };
 
 // ---------- progress persistence ----------
@@ -74,10 +137,46 @@ const saveProgress = debounce(async () => {
   await putBook(activeBook);
 }, 1200);
 
-const updateProgressUI = (fraction, label) => {
+let lastStatus = { chapter: "", page: "", left: "" };
+
+/**
+ * Where the reader is, for the bars and the quiet status line.
+ * `label` is the chapter (ebooks) or "Page x of y" (PDF). `status` can give
+ * the finer page / pages-left detail when the renderer knows it.
+ */
+const updateProgressUI = (fraction, label, status = null) => {
+  const pct = `${Math.round((fraction || 0) * 100)}%`;
   $("reader-slider").value = Math.round((fraction || 0) * 1000);
-  $("reader-pct").textContent = `${Math.round((fraction || 0) * 100)}%`;
+  $("reader-pct").textContent = status?.page ? `${status.page} · ${pct}` : pct;
   $("reader-loc-label").textContent = label || "";
+  lastStatus = status || { chapter: "", page: label || "", left: pct };
+  $("reader-chapter").textContent = lastStatus.chapter || "";
+  $("reader-status-top").textContent = lastStatus.chapter || activeBook?.title || "";
+  $("reader-status-page").textContent = lastStatus.page || "";
+  $("reader-status-left").textContent = lastStatus.left || "";
+};
+
+// Page-in-chapter detail from the paginator (paginated) or reading time
+// left (scrolled).
+const foliateStatus = (detail) => {
+  const chapter = detail.tocItem?.label?.trim() || "";
+  const r = view?.renderer;
+  const textPages = r && !r.scrolled ? r.pages - 2 : 0; // paginator pads a page each end
+  if (textPages > 0) {
+    const page = Math.min(Math.max(r.page, 1), textPages);
+    const left = textPages - page;
+    return {
+      chapter,
+      page: `Page ${page} of ${textPages}`,
+      left: left ? `${left} page${left === 1 ? "" : "s"} left in chapter` : "Last page in chapter",
+    };
+  }
+  const mins = Math.ceil(detail.time?.section ?? 0);
+  return {
+    chapter,
+    page: `${Math.round((detail.fraction || 0) * 100)}%`,
+    left: mins > 0 ? `${mins} min left in chapter` : "",
+  };
 };
 
 // ---------- foliate renderer ----------
@@ -110,7 +209,7 @@ const openFoliate = async (book, file) => {
 
   view.addEventListener("relocate", (e) => {
     const { fraction, tocItem } = e.detail;
-    updateProgressUI(fraction, tocItem?.label || "");
+    updateProgressUI(fraction, tocItem?.label?.trim() || "", foliateStatus(e.detail));
     saveProgress();
     syncBookmarkBtn();
   });
@@ -137,6 +236,7 @@ const openFoliate = async (book, file) => {
   view.addEventListener("load", (e) => {
     const { doc, index } = e.detail;
     if (!doc) return;
+    markFlowText(doc);
     doc.addEventListener("click", (ev) => zoneTap(ev, doc));
     wireSelection(doc, index);
     // re-apply saved highlights whenever a section (re)loads
@@ -233,6 +333,7 @@ export const openReader = async (book, hooks = {}) => {
   await putBook(book);
 
   $("reader-title").textContent = book.title;
+  applyStyles(); // theme the chrome before the book appears
   $("view-reader").hidden = false;
   $("view-reader").classList.remove("chrome-hidden");
   updateProgressUI(book.progress?.fraction || 0, "");
@@ -256,7 +357,6 @@ export const openReader = async (book, hooks = {}) => {
       activeRenderer = await openTextReader(stage, book, file, { updateProgressUI, saveProgress, userMoved });
     }
     stage.style.opacity = "";
-    $("reader-toc-btn").style.visibility = "visible"; // now lists bookmarks/highlights too
     applyStyles();
     syncBookmarkBtn();
   } catch (err) {
@@ -277,6 +377,7 @@ export const closeReader = async () => {
   view = null;
   $("reader-stage").textContent = "";
   $("view-reader").hidden = true;
+  clearReaderTheme();
   const cb = onClose;
   onClose = () => {};
   cb();
@@ -313,9 +414,15 @@ const toggleBookmark = async () => {
     list.splice(i, 1);
     toast("Bookmark removed");
   } else {
-    const label = $("reader-loc-label").textContent
-      || `Page ${Math.round((activeRenderer.getProgress?.().fraction || 0) * 100)}%`;
-    list.push({ target: cur, label, at: Date.now() });
+    const fraction = activeRenderer.getProgress?.().fraction || 0;
+    list.push({
+      target: cur,
+      label: lastStatus.chapter || activeBook.title,
+      sub: [lastStatus.chapter ? lastStatus.page : "", `${Math.round(fraction * 100)}%`].filter(Boolean).join(" · "),
+      fraction,
+      at: Date.now(),
+    });
+    list.sort((a, b) => (a.fraction ?? 0) - (b.fraction ?? 0));
     toast("Bookmarked");
   }
   activeBook.bookmarks = list;
@@ -323,37 +430,137 @@ const toggleBookmark = async () => {
   syncBookmarkBtn();
 };
 
-const openToc = () => {
-  const items = [];
-  for (const [i, b] of (activeBook?.bookmarks || []).entries())
-    items.push({ title: `★ ${b.label || "Bookmark"}`, sub: "Bookmark", value: { bm: i } });
-  for (const [i, h] of (activeBook?.highlights || []).entries())
-    items.push({ title: `✎ ${h.text || "Highlight"}`, sub: "Highlight", value: { hl: i } });
-  if (view?.book?.toc) {
-    const flat = [];
-    const walk = (arr, depth) => {
-      for (const it of arr || []) {
-        flat.push({ label: it.label || it.href, href: it.href, depth });
-        walk(it.subitems, depth + 1);
-      }
-    };
-    walk(view.book.toc, 0);
-    for (const it of flat)
-      items.push({ title: "  ".repeat(it.depth) + (it.label || "—"), value: { href: it.href } });
-  }
-  if (!items.length) { toast("No contents for this book"); return; }
-  listSheet("Contents", items, async (v) => {
-    userMoved();
-    if (v.bm != null) {
-      const b = activeBook.bookmarks[v.bm];
-      if (b) activeRenderer?.gotoBookmark?.(b.target);
-    } else if (v.hl != null) {
-      const h = activeBook.highlights[v.hl];
-      if (h && view) await view.showAnnotation(h);
-    } else if (v.href) {
-      view?.goTo(v.href);
+// ---------- contents sheet: Contents | Bookmarks | Highlights ----------
+let contentsTab = "toc";
+
+const fmtDate = (t) => {
+  try { return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); }
+  catch { return ""; }
+};
+
+const tocEntries = () => {
+  const flat = [];
+  const walk = (arr, depth) => {
+    for (const it of arr || []) {
+      flat.push({ label: (it.label || it.href || "—").trim(), href: it.href, depth });
+      walk(it.subitems, depth + 1);
     }
-  }, { search: true });
+  };
+  walk(view?.book?.toc, 0);
+  return flat;
+};
+
+const contentsRow = ({ title, sub, quote, current, depth = 0, onPick, onDelete, mark }) => {
+  const row = document.createElement("div");
+  row.className = "contents-row";
+  if (mark) {
+    const m = document.createElement("span");
+    m.className = "contents-mark";
+    row.appendChild(m);
+  }
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "contents-item" + (current ? " current" : "");
+  if (depth) btn.style.paddingLeft = `${16 + depth * 16}px`;
+  const text = document.createElement("span");
+  text.className = "ci-text";
+  const t = document.createElement("div");
+  t.className = quote ? "ci-quote" : "ci-title";
+  t.textContent = quote || title;
+  text.appendChild(t);
+  if (sub) {
+    const s = document.createElement("div");
+    s.className = "ci-sub";
+    s.textContent = sub;
+    text.appendChild(s);
+  }
+  btn.appendChild(text);
+  btn.addEventListener("click", () => { closeSheet(); userMoved(); onPick(); });
+  row.appendChild(btn);
+  if (onDelete) {
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "contents-del";
+    del.setAttribute("aria-label", "Delete");
+    del.textContent = "×";
+    del.addEventListener("click", onDelete);
+    row.appendChild(del);
+  }
+  return row;
+};
+
+const renderContents = () => {
+  const list = $("contents-list");
+  list.textContent = "";
+  for (const b of $("contents-tabs").querySelectorAll("button"))
+    b.classList.toggle("active", b.dataset.val === contentsTab);
+  const empty = (msg) => {
+    const p = document.createElement("p");
+    p.className = "contents-empty";
+    p.textContent = msg;
+    list.appendChild(p);
+  };
+
+  if (contentsTab === "toc") {
+    const entries = tocEntries();
+    if (!entries.length) return empty("This book has no table of contents.");
+    const here = view?.lastLocation?.tocItem?.href;
+    let currentRow = null;
+    for (const e of entries) {
+      const row = contentsRow({
+        title: e.label, depth: e.depth, current: e.href === here,
+        onPick: () => view?.goTo(e.href),
+      });
+      if (e.href === here) currentRow = row;
+      list.appendChild(row);
+    }
+    // open where the reader is, not at the top of a long list
+    requestAnimationFrame(() => currentRow?.scrollIntoView({ block: "center" }));
+    return;
+  }
+
+  if (contentsTab === "bookmarks") {
+    const bms = activeBook?.bookmarks || [];
+    if (!bms.length) return empty("No bookmarks yet. Tap the bookmark button at the top to mark a page.");
+    for (const b of bms) {
+      list.appendChild(contentsRow({
+        title: b.label || "Bookmark",
+        sub: [b.sub, fmtDate(b.at)].filter(Boolean).join(" · "),
+        onPick: () => activeRenderer?.gotoBookmark?.(b.target),
+        onDelete: async () => {
+          activeBook.bookmarks = (activeBook.bookmarks || []).filter((x) => x !== b);
+          await putBook(activeBook);
+          syncBookmarkBtn();
+          renderContents();
+        },
+      }));
+    }
+    return;
+  }
+
+  const hls = activeBook?.highlights || [];
+  if (!hls.length) return empty("No highlights yet. Select text in the book and tap Highlight.");
+  for (const h of hls) {
+    list.appendChild(contentsRow({
+      quote: h.text || "Highlight",
+      sub: fmtDate(h.at),
+      mark: true,
+      onPick: () => view?.showAnnotation(h),
+      onDelete: async () => {
+        await view?.deleteAnnotation({ value: h.value }).catch(() => {});
+        activeBook.highlights = (activeBook.highlights || []).filter((x) => x !== h);
+        await putBook(activeBook);
+        renderContents();
+      },
+    }));
+  }
+};
+
+const openContents = () => {
+  // books without a table of contents open on bookmarks
+  if (contentsTab === "toc" && !tocEntries().length) contentsTab = "bookmarks";
+  renderContents();
+  openSheet("sheet-contents");
 };
 
 const initAppearance = () => {
@@ -369,18 +576,31 @@ const initAppearance = () => {
     setActive();
   };
   seg("reader-theme-seg", "theme");
-  seg("reader-flow-seg", "flow");
   seg("reader-font-seg", "font");
-  $("font-minus").addEventListener("click", () => {
-    readerSettings.fontSize = Math.max(60, readerSettings.fontSize - 10);
-    $("font-size-val").textContent = readerSettings.fontSize + "%";
+  seg("reader-spacing-seg", "spacing");
+  seg("reader-margin-seg", "margin");
+  seg("reader-align-seg", "align");
+  seg("reader-flow-seg", "flow");
+  const size = (d) => {
+    readerSettings.fontSize = Math.min(250, Math.max(60, readerSettings.fontSize + d));
     applyStyles(); saveReaderSettings();
-  });
-  $("font-plus").addEventListener("click", () => {
-    readerSettings.fontSize = Math.min(250, readerSettings.fontSize + 10);
-    $("font-size-val").textContent = readerSettings.fontSize + "%";
-    applyStyles(); saveReaderSettings();
-  });
+  };
+  $("font-minus").addEventListener("click", () => size(-10));
+  $("font-plus").addEventListener("click", () => size(10));
+  for (const b of $("contents-tabs").querySelectorAll("button"))
+    b.addEventListener("click", () => { contentsTab = b.dataset.val; renderContents(); });
+};
+
+// read-aloud speed, cycled from the mini player
+const RATES = [0.75, 1, 1.25, 1.5, 1.75, 2];
+const syncRateChip = () => {
+  $("tts-rate").textContent = `${+ttsController.settings.rate.toFixed(2)}×`;
+};
+const cycleRate = () => {
+  const r = ttsController.settings.rate;
+  const next = RATES.find((x) => x > r + 0.01) ?? RATES[0];
+  ttsController.setRate(next);
+  syncRateChip();
 };
 
 // ---------------------------------------------------------------------------
@@ -389,10 +609,9 @@ const initAppearance = () => {
 
 export const initReader = async () => {
   await loadReaderSettings();
-  $("font-size-val").textContent = readerSettings.fontSize + "%";
   initAppearance();
   $("reader-close").addEventListener("click", closeReader);
-  $("reader-toc-btn").addEventListener("click", openToc);
+  $("reader-toc-btn").addEventListener("click", openContents);
   $("reader-aa-btn").addEventListener("click", () => openSheet("sheet-appearance"));
   $("reader-slider").addEventListener("input", (e) => {
     const frac = e.target.value / 1000;
@@ -409,6 +628,7 @@ export const initReader = async () => {
   // play/pause. (Play used to only toggle, so with no session it did nothing.)
   const playTts = () => {
     $("tts-bar").hidden = false;
+    syncRateChip();
     if (ttsController._session || ttsController.playing) ttsController.toggle();
     else ttsController.start(() => activeRenderer, {
       title: activeBook?.title,
@@ -422,13 +642,15 @@ export const initReader = async () => {
   $("tts-prev").addEventListener("click", () => ttsController.skip(-1));
   $("tts-next").addEventListener("click", () => ttsController.skip(1));
   $("tts-sleep").addEventListener("click", pickTtsSleep);
+  $("tts-rate").addEventListener("click", cycleRate);
   $("tts-stop").addEventListener("click", () => {
     ttsController.stop();
     $("tts-bar").hidden = true;
   });
   ttsController.onStateChange = (playing) => {
     $("tts-play").innerHTML = playing
-      ? '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>'
-      : '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+      ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>'
+      : '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+    $("tts-play").setAttribute("aria-label", playing ? "Pause" : "Play");
   };
 };
