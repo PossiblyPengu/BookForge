@@ -335,8 +335,13 @@ const BLOCK_TAGS = new Set([
   "TFOOT", "TH", "THEAD", "TR", "UL",
 ]);
 
+// EPUB content documents are XHTML, where tagName keeps the source case
+// ("p", not "P"). Normalise, or every tag test silently misses and a whole
+// chapter collapses into one body-sized block.
+const tagOf = (el) => (el.localName || el.tagName || "").toUpperCase();
+
 const ttsSkipped = (el) =>
-  SKIP_TAGS.has(el.tagName) ||
+  SKIP_TAGS.has(tagOf(el)) ||
   el.hidden === true ||
   el.getAttribute?.("aria-hidden") === "true" ||
   el.classList?.contains?.("tts-hl-layer");
@@ -376,7 +381,7 @@ export const extractBlocks = function* (root) {
     for (const node of el.childNodes || []) {
       if (node.nodeType === 3) out += node.nodeValue;
       else if (node.nodeType === 1 && !ttsSkipped(node))
-        out += node.tagName === "BR" ? "\n" : serialize(node);
+        out += tagOf(node) === "BR" ? "\n" : serialize(node);
     }
     return out;
   };
@@ -386,7 +391,7 @@ export const extractBlocks = function* (root) {
     if (ttsSkipped(el) || invisible(el)) return;
     let hasBlockChild = false;
     for (const c of el.children || [])
-      if (BLOCK_TAGS.has(c.tagName) && !ttsSkipped(c)) { hasBlockChild = true; break; }
+      if (BLOCK_TAGS.has(tagOf(c)) && !ttsSkipped(c)) { hasBlockChild = true; break; }
 
     if (!hasBlockChild) {
       const t = textOf(el);
@@ -398,13 +403,13 @@ export const extractBlocks = function* (root) {
     for (const node of el.childNodes || []) {
       if (node.nodeType === 3) { run += node.nodeValue; continue; }
       if (node.nodeType !== 1) continue;
-      if (BLOCK_TAGS.has(node.tagName) && !ttsSkipped(node)) {
+      if (BLOCK_TAGS.has(tagOf(node)) && !ttsSkipped(node)) {
         const t = cleanBlockText(run);
         run = "";
         if (t.length > 1) yield { doc, el, text: t };
         yield* walk(node);
       } else if (!ttsSkipped(node)) {
-        run += node.tagName === "BR" ? "\n" : serialize(node);
+        run += tagOf(node) === "BR" ? "\n" : serialize(node);
       }
     }
     const t = cleanBlockText(run);

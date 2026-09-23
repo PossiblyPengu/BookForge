@@ -63,9 +63,14 @@ const testFn = async (withPiper) => {
           <manifest><item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/></manifest>
           <spine><itemref idref="ch1"/></spine>
         </package>`),
+      // long enough to paginate into several pages, so read-aloud's
+      // "start at the top of the page I'm on" behaviour is testable
       "OEBPS/ch1.xhtml": S(`<?xml version="1.0"?>
         <html xmlns="http://www.w3.org/1999/xhtml"><head><title>C1</title></head>
-        <body><h1>Chapter One</h1><p>Hello world. This is a test paragraph.</p></body></html>`),
+        <body><h1>Chapter One</h1><p>Hello world. This is a test paragraph.</p>${
+          Array.from({ length: 60 }, (_, i) =>
+            `<p>Para${String(i + 1).padStart(2, "0")}. ${"Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod. ".repeat(2)}</p>`).join("")
+        }</body></html>`),
     });
     const file = new File([epub], "smoke.epub", { type: "application/epub+zip" });
 
@@ -137,6 +142,23 @@ const testFn = async (withPiper) => {
       ov.remove("tts");
     }
     log(hlRects > 0, `tts highlight → ${hlRects} rects drawn`);
+
+    // 7. pressing play must start at the top of the page on screen, not skip
+    //    ahead. Drives the real renderer, so it covers beginTts/textBlocks.
+    const { currentRenderer } = await import("./js/reader.js");
+    for (let i = 0; i < 3; i++) { await fv.next(); await new Promise((r) => setTimeout(r, 450)); }
+    const vis = fv.lastLocation?.range;
+    const rend = currentRenderer();
+    rend.beginTts();
+    const firstBlock = (await rend.textBlocks().next()).value;
+    // ground truth: the block containing where the visible range begins
+    const BLOCKISH = /^(P|H[1-6]|LI|BLOCKQUOTE|PRE|DIV|TD)$/;
+    let topEl = vis?.startContainer;
+    while (topEl && (topEl.nodeType !== 1 ||
+           !BLOCKISH.test((topEl.localName || topEl.tagName || "").toUpperCase())))
+      topEl = topEl.parentNode;
+    log(!!firstBlock && !!topEl && firstBlock.el === topEl,
+      `tts starts at top of page → spoke "${firstBlock?.text.slice(0, 10)}", page top "${(topEl?.textContent || "").trim().slice(0, 10)}"`);
 
     await closeReader();
     log(document.getElementById("view-reader").hidden, "reader closes");

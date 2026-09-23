@@ -94,13 +94,21 @@ const openFoliate = async (book, file) => {
   let spokenDocs = new WeakSet();
   let ttsFromLoc = true; // first pass starts at the visible position
 
-  // block ends entirely before the location range → it's above the current page
+  // Block ends entirely before the visible range begins → it sits above the
+  // current page, so read-aloud should skip past it and start at the top of
+  // what the reader can actually see.
+  //
+  // START_TO_END compares THIS range's end against the SOURCE range's start
+  // (DOM spec §compareBoundaryPoints). END_TO_START is the mirror image — it
+  // asks whether the block starts before the page ends, which is true of
+  // nearly every block on the page, so it skipped the whole visible page and
+  // started one page ahead.
   const endsBeforeLoc = (el, doc) => {
     const loc = view.lastLocation?.range;
     if (!loc || loc.startContainer?.ownerDocument !== doc) return false;
     const er = doc.createRange();
     er.selectNodeContents(el);
-    return er.compareBoundaryPoints(Range.END_TO_START, loc) < 0;
+    return er.compareBoundaryPoints(Range.START_TO_END, loc) < 0;
   };
 
   const renderer = {
@@ -333,6 +341,9 @@ export const closeReader = async () => {
 // ---------------------------------------------------------------------------
 // Sheets: TOC + bookmarks + appearance
 // ---------------------------------------------------------------------------
+
+/** The live renderer for the open book — used by the smoke test. */
+export const currentRenderer = () => activeRenderer;
 
 const bookmarkTarget = () => activeRenderer?.bookmark?.();
 const bookmarkEquals = (a, b) => {

@@ -8,14 +8,20 @@ import { chunk } from "../docs/js/tts.js";
 // enough — and keeps the expectations readable.
 // ---------------------------------------------------------------------------
 const t = (s) => ({ nodeType: 3, nodeValue: s, textContent: s });
-const e = (tag, ...kids) => ({
+const mk = (tag, kids, xhtml) => ({
   nodeType: 1,
-  tagName: tag.toUpperCase(),
+  // HTML documents uppercase tagName; XHTML (every EPUB content document)
+  // keeps the source case, which is what `x` below models.
+  tagName: xhtml ? tag : tag.toUpperCase(),
+  ...(xhtml ? { localName: tag } : {}),
   childNodes: kids,
   children: kids.filter((k) => k.nodeType === 1),
   get textContent() { return kids.map((k) => k.textContent).join(""); },
 });
+const e = (tag, ...kids) => mk(tag, kids, false);
+const x = (tag, ...kids) => mk(tag, kids, true);
 const docOf = (...kids) => ({ body: e("body", ...kids), defaultView: null });
+const xdocOf = (...kids) => ({ body: x("body", ...kids), defaultView: null });
 
 const spoken = (root) => [...extractBlocks(root)].map((b) => b.text);
 
@@ -34,6 +40,18 @@ describe("extractBlocks", () => {
       "It was a bright cold day in April.",
       "The clocks were striking thirteen.",
     ]);
+  });
+
+  it("matches XHTML's lowercase tag names", () => {
+    // EPUB content documents are XHTML, so tagName is "p", not "P". Matching
+    // case-sensitively made every tag test miss, which collapsed a whole
+    // chapter into one body-sized block with no paragraph structure.
+    const doc = xdocOf(
+      x("h1", t("Chapter Nine")),
+      x("p", t("First paragraph.")),
+      x("p", t("Second paragraph.")),
+    );
+    expect(spoken(doc)).toEqual(["Chapter Nine", "First paragraph.", "Second paragraph."]);
   });
 
   it("reads ordinary <p> chapters unchanged", () => {
