@@ -187,6 +187,13 @@ const openFoliate = async (book, file) => {
     saveProgress();
     syncBookmarkBtn();
   });
+  // Swipe / page turn / manual scroll, as opposed to read-aloud's own
+  // follow-along (reason "navigation"). The view's relocate event drops the
+  // reason, so listen on the paginator itself.
+  view.renderer?.addEventListener("relocate", (e) => {
+    const { reason } = e.detail || {};
+    if (reason === "snap" || reason === "page" || reason === "scroll") userMoved();
+  });
   // draw user annotations as soft highlights
   view.addEventListener("draw-annotation", (e) =>
     e.detail.draw(Overlayer.highlight, { color: "#e8c46a", padding: 1 }));
@@ -302,7 +309,12 @@ const zoneTap = (ev, doc) => {
   else toggleChrome();
 };
 
+// Tell read-aloud the reader navigated by hand, so a paused session picks
+// up from the new page instead of dragging them back.
+const userMoved = () => ttsController.noteUserMove();
+
 const turn = (dir) => {
+  userMoved();
   if (view) (dir === "next" ? view.next() : view.prev());
   else if (activeRenderer?.turn) activeRenderer.turn(dir);
 };
@@ -338,9 +350,9 @@ export const openReader = async (book, hooks = {}) => {
       if (book.format === "CBR") openFile = await cbrToCbz(openFile);
       activeRenderer = await openFoliate(book, openFile);
     } else if (book.kind === "pdf") {
-      activeRenderer = await openPdfReader(stage, book, { updateProgressUI, saveProgress });
+      activeRenderer = await openPdfReader(stage, book, { updateProgressUI, saveProgress, userMoved });
     } else {
-      activeRenderer = await openTextReader(stage, book, file, { updateProgressUI, saveProgress });
+      activeRenderer = await openTextReader(stage, book, file, { updateProgressUI, saveProgress, userMoved });
     }
     stage.style.opacity = "";
     $("reader-toc-btn").style.visibility = "visible"; // now lists bookmarks/highlights too
@@ -430,6 +442,7 @@ const openToc = () => {
   }
   if (!items.length) { toast("No contents for this book"); return; }
   listSheet("Contents", items, async (v) => {
+    userMoved();
     if (v.bm != null) {
       const b = activeBook.bookmarks[v.bm];
       if (b) activeRenderer?.gotoBookmark?.(b.target);
@@ -482,6 +495,7 @@ export const initReader = async () => {
   $("reader-aa-btn").addEventListener("click", () => openSheet("sheet-appearance"));
   $("reader-slider").addEventListener("input", (e) => {
     const frac = e.target.value / 1000;
+    userMoved();
     if (view) view.goToFraction(frac);
     else activeRenderer?.seekFraction?.(frac);
   });

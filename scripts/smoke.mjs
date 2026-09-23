@@ -169,6 +169,7 @@ const testFn = async (withPiper) => {
     const { chunk } = await import("./js/util.js");
     const { ttsController } = await import("./js/tts.js");
     const said = [];
+    const refused = [];
     const stub = {
       speaking: false, pending: false, paused: false, _u: null, _t: 0,
       getVoices: () => [], resume() {}, pause() {}, addEventListener() {},
@@ -177,7 +178,15 @@ const testFn = async (withPiper) => {
         this._u = null; this.speaking = false; clearTimeout(this._t);
         u?.onerror?.({ error: "interrupted" });
       },
+      refuse: 0, // >0: refuse that many utterances the way iOS does (not-allowed)
       speak(u) {
+        // the silent gesture-unlock utterance: ends at once, never started
+        if (!u.text.trim()) { setTimeout(() => u.onend?.(), 0); return; }
+        if (this.refuse > 0) {
+          this.refuse--; refused.push(u.text);
+          setTimeout(() => u.onerror?.({ error: "not-allowed" }), 0);
+          return;
+        }
         this._u = u; this.speaking = true; said.push(u.text); u.onstart?.();
         this._t = setTimeout(() => {
           if (this._u !== u) return;
@@ -243,6 +252,27 @@ const testFn = async (withPiper) => {
     const k2 = said.length;
     await wait(150);
     log(said.length === k2 && !ttsController.playing, "stop silences the controller");
+
+    // 8b. iOS refusing an utterance (not-allowed / audio-busy) used to count
+    //     as "spoken", so a refusing engine raced silently through the book.
+    //     A refused sentence must be retried, not skipped.
+    const want3 = expectedStart();
+    said.length = 0; refused.length = 0; stub.refuse = 2;
+    await ttsController.start(getR, {});
+    await wait(1400);
+    log(refused.length === 2 && refused.every((t) => t === want3) && said[0] === want3,
+      `refused speech is retried, not skipped → refused ${refused.length}× "${refused[0]?.slice(0, 12)}", then spoke "${said[0]?.slice(0, 12)}"`);
+    ttsController.stop();
+
+    // 8c. an engine that never plays pauses in place instead of racing ahead
+    said.length = 0; refused.length = 0; stub.refuse = 99;
+    await ttsController.start(getR, {});
+    await wait(1600);
+    log(!ttsController.playing && !!ttsController._session && said.length === 0 &&
+        refused.length === 3 && refused.every((t) => t === want3),
+      `mute engine pauses on the same sentence → ${refused.length} attempts, playing=${ttsController.playing}`);
+    ttsController.stop();
+    stub.refuse = 0;
 
     await closeReader();
     log(document.getElementById("view-reader").hidden, "reader closes");

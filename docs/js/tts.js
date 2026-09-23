@@ -90,8 +90,15 @@ const web = {
       started = true;
       if (e.charIndex != null) onBoundary(e.charIndex, e.charLength || 0);
     };
-    u.onend = () => finish(true);
-    u.onerror = (e) => finish(e.error !== "interrupted" && e.error !== "canceled");
+    const queuedAt = Date.now();
+    // iOS drops an utterance it won't play (no user activation, audio
+    // session busy) by ending it at once without ever starting it. That is
+    // not speech — counting it as spoken is how whole pages went by silently.
+    u.onend = () => finish(started || Date.now() - queuedAt > 250);
+    // Every error means the words weren't heard. (This used to report
+    // not-allowed / audio-busy / synthesis-failed as success, so a refused
+    // utterance advanced the book instead of being retried.)
+    u.onerror = () => finish(false);
     speechSynthesis.resume(); // iOS can sit stuck in 'paused'
     speechSynthesis.speak(u);
     // Watchdog — in some environments (iOS standalone PWA) speak() silently
@@ -123,7 +130,17 @@ const web = {
       finish(forced);
     }, 250);
   },
-  unlock() { try { speechSynthesis.resume(); } catch { /* noop */ } },
+  // iOS only lets a page speak once speak() has been called inside a user
+  // gesture. The real first sentence comes after async work (settings,
+  // renderer), outside the tap — so speak a silent one now, synchronously.
+  unlock() {
+    try {
+      speechSynthesis.resume();
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0;
+      speechSynthesis.speak(u);
+    } catch { /* noop */ }
+  },
   stop() { try { speechSynthesis.cancel(); } catch { /* noop */ } },
 };
 
@@ -282,7 +299,7 @@ export const ttsController = {
       this._peek = null;
       this._history = [];
       this._origin = r.bookmark?.() ?? null;
-      this._mark = null;
+      this._moved = false;
       this.playing = true;
       this.onStateChange?.(true);
       this._playbackState("playing");
@@ -311,11 +328,6 @@ export const ttsController = {
   },
 
   _renderer() { return this._getRenderer?.(); },
-
-  // Reader position, comparable across calls — tells a page turn apart.
-  _position() {
-    try { return JSON.stringify(this._renderer()?.bookmark?.() ?? null); } catch { return null; }
-  },
 
   async _next() {
     const session = this._session;
@@ -410,16 +422,25 @@ export const ttsController = {
     }
     const onDone = (ok) => {
       if (this._cur !== cur) return; // superseded by a skip, pause or stop
-      cur.done = true;
-      if (ok) this._fails = 0;
-      else if (++this._fails >= 3) {
-        // engine failed to produce sound — bail after a few silent chunks
-        // instead of flipping through the whole book muted
-        toast("Speech isn't producing audio on this device", { error: true });
-        return this.stop();
+      if (ok) {
+        cur.done = true;
+        this._fails = 0;
+        return this._speakChunks(chunks, i + 1, block);
       }
-      // on a single failure lose the one bad chunk, not the paragraph
-      this._speakChunks(chunks, i + 1, block);
+      // Not heard. Never move past words that weren't spoken: retry this
+      // sentence, and if the engine keeps refusing, pause right here so the
+      // next tap on play (a user gesture iOS will honour) picks it up.
+      if (++this._fails >= 3) {
+        this._fails = 0;
+        this.pause();
+        toast("Read-aloud couldn't play — tap play to try again", { error: true });
+        return;
+      }
+      setTimeout(() => {
+        if (this._cur !== cur || !this.playing) return;
+        this._cur = null;
+        this._speakChunks(chunks, i, block);
+      }, 400);
     };
     // word-level sync: narrow the highlight to the word being spoken.
     // charIndex is relative to this chunk — offset by where the chunk starts
@@ -510,11 +531,16 @@ export const ttsController = {
     keepalive.stop();
     this.onStateChange?.(false);
     this._playbackState("paused");
-    // Note where the reader is once any follow-along page turn has landed.
-    const session = this._session;
-    setTimeout(() => {
-      if (this._session === session && !this.playing) this._mark = this._position();
-    }, 600);
+  },
+
+  /**
+   * The reader navigated by hand (page turn, swipe, slider, contents).
+   * While paused, that means "read from here" on the next play. Only
+   * explicit navigation counts — comparing positions misfired whenever iOS
+   * resized the viewport and the paginator re-laid out the page.
+   */
+  noteUserMove() {
+    if (this._session && !this.playing) this._moved = true;
   },
 
   resume() {
@@ -525,12 +551,11 @@ export const ttsController = {
     }
     // Turned the page while paused → read from what's on screen now rather
     // than dragging the reader back to where narration stopped.
-    if (this._mark != null && this._position() !== this._mark) {
+    if (this._moved) {
       this.stop();
       this.start(this._getRenderer, this._meta);
       return;
     }
-    this._mark = null;
     this.playing = true;
     keepalive.start();
     this.engine.unlock?.();
@@ -558,7 +583,7 @@ export const ttsController = {
     this._peek = null;
     this._cur = null;
     this._resumeAt = null;
-    this._mark = null;
+    this._moved = false;
     this._pulling = false;
     this._history = [];
     this._sleepAt = null;

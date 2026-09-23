@@ -48,7 +48,7 @@ const txtToHtml = (src) =>
     return t ? `<p>${t.replace(/\r?\n/g, " ")}</p>` : "";
   }).join("\n");
 
-export const openTextReader = async (stage, book, fileBlob, { updateProgressUI, saveProgress }) => {
+export const openTextReader = async (stage, book, fileBlob, { updateProgressUI, saveProgress, userMoved = () => {} }) => {
   const text = await fileBlob.text();
   const isHtml = /\.(html?|htm)$/i.test(book.fileName || "");
   const isMd = /\.(md|markdown)$/i.test(book.fileName || "");
@@ -110,6 +110,8 @@ export const openTextReader = async (stage, book, fileBlob, { updateProgressUI, 
     saveProgress();
   }, 250);
   scroller?.addEventListener("scroll", onScroll, { passive: true });
+  // read-aloud scrolls this too, so only finger/wheel scrolling is the reader's
+  for (const ev of ["touchmove", "wheel"]) scroller?.addEventListener(ev, userMoved, { passive: true });
 
   // restore position after layout settles
   requestAnimationFrame(() => {

@@ -116,7 +116,7 @@ export const pdfBlocks = (items, { top = Infinity, bottom = -Infinity } = {}) =>
   }).filter((b) => b.text.trim().length > 1);
 };
 
-export const openPdfReader = async (stage, book, { updateProgressUI, saveProgress }) => {
+export const openPdfReader = async (stage, book, { updateProgressUI, saveProgress, userMoved = () => {} }) => {
   const pdfjs = await loadPdfjs();
   const fileBlob = await (await import("./db.js")).getFile(book.fileKey);
   const task = pdfjs.getDocument({
@@ -252,6 +252,7 @@ export const openPdfReader = async (stage, book, { updateProgressUI, saveProgres
     if (!w) return;
     const idx = Math.round(strip.scrollLeft / w);
     if (idx !== current) {
+      userMoved(); // setCurrent() updates current first, so this was a swipe
       current = Math.min(Math.max(idx, 0), total - 1);
       renderAround(current);
       updateProgressUI((current + 1) / total, `Page ${current + 1} of ${total}`);
