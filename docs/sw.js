@@ -1,6 +1,6 @@
 
-const CACHE_NAME = 'pageturner-cache-v31';
-const RUNTIME_CACHE = 'pageturner-runtime-v31';
+const CACHE_NAME = 'pageturner-cache-v32';
+const RUNTIME_CACHE = 'pageturner-runtime-v32';
 const APP_SHELL = [
   './',
   './index.html',

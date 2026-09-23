@@ -184,17 +184,30 @@ const wireSelection = (doc, index) => {
   doc.addEventListener("touchend", () => setTimeout(check, 300));
 };
 
-// tap zones inside rendered book docs: left prev / center chrome / right next
+// Touch screens turn pages by swiping (the paginator's own drag-and-snap);
+// a tap only shows or hides the controls. A mouse has no swipe, so there
+// the outer quarters of the page still turn it.
+const touchScreen = () => globalThis.matchMedia?.("(pointer: coarse)").matches ?? false;
+
 const zoneTap = (ev, doc) => {
-  if (ev.target.closest("a")) return;
+  if (ev.target.closest?.("a")) return;
   const sel = doc.getSelection?.();
   if (sel && !sel.isCollapsed && sel.toString().trim()) return; // text selection in progress
   killChip();
-  const w = doc.defaultView?.innerWidth || doc.documentElement.clientWidth;
-  const x = ev.clientX;
-  if (x < w * 0.25) turn("prev");
-  else if (x > w * 0.75) turn("next");
-  else toggleChrome();
+  if (!touchScreen() && view) {
+    // clientX is relative to the section's iframe, which lays every page of
+    // the chapter side by side (thousands of px wide). Measuring against its
+    // innerWidth put nearly every tap in the wrong zone — a tap meant to
+    // show the controls turned the page instead. Measure against the view.
+    const fr = doc.defaultView?.frameElement?.getBoundingClientRect();
+    const vr = view.getBoundingClientRect();
+    if (fr && vr.width) {
+      const f = (fr.left + ev.clientX - vr.left) / vr.width;
+      if (f < 0.25) return turn("prev");
+      if (f > 0.75) return turn("next");
+    }
+  }
+  toggleChrome();
 };
 
 // Tell read-aloud the reader navigated by hand, so a paused session picks
