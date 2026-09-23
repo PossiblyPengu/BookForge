@@ -43,6 +43,7 @@ export default [
         requestAnimationFrame: "readonly",
         crypto: "readonly",
         caches: "readonly",
+        Intl: "readonly",
         location: "readonly",
         history: "readonly",
         MediaMetadata: "readonly",

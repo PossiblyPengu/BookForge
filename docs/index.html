@@ -96,8 +96,12 @@
               <div class="list-row list-row-slider">
                 <input type="range" id="set-tts-rate" min="0.5" max="2.5" step="0.25" value="1" />
               </div>
+              <button type="button" class="list-row list-row-btn" id="set-tts-preview">
+                <span>Hear this voice</span>
+                <span class="list-value" id="set-tts-preview-state">&#9654;</span>
+              </button>
             </div>
-            <p class="list-group-note" id="tts-engine-note">Device voices use your system speech. Neural voices download once (~50&nbsp;MB) and run offline on-device.</p>
+            <p class="list-group-note" id="tts-engine-note">Device voices use your system speech. Neural voices download once (~50&nbsp;MB) and run offline on-device. Tap a voice’s ▶ in the picker to hear it first.</p>
           </div>
           <div class="list-group">
             <p class="list-group-label">Library Data</p>

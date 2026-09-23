@@ -114,15 +114,23 @@ export const initSheets = () => {
 
 /**
  * Fill the generic list sheet with items and open it.
- * items: [{ title, sub?, thumb? (url), checked?, value }]
- * returns via onPick(value)
+ * items: [{ title, sub?, thumb? (url), badge?, checked?, value,
+ *           action?: { label, title, onAction(item, btn) } }]
+ * returns via onPick(value). An item's action button fires in place and
+ * leaves the sheet open — the row itself is what picks and closes.
  */
-export const listSheet = (title, items, onPick, { search = false } = {}) => {
+export const listSheet = (title, items, onPick, { search = false, note = "", onClose = null } = {}) => {
   $("sheet-list-title").textContent = title;
   const body = $("sheet-list-body");
   body.textContent = "";
+  if (note) {
+    const n = document.createElement("p");
+    n.className = "sheet-note";
+    n.textContent = note;
+    body.appendChild(n);
+  }
   const rows = document.createElement("div");
-  if (search && items.length > 12) {
+  if (search && items.length > 8) {
     const inp = document.createElement("input");
     inp.className = "sheet-search";
     inp.type = "search";
@@ -136,9 +144,7 @@ export const listSheet = (title, items, onPick, { search = false } = {}) => {
     renderItems(needle ? items.filter((i) =>
       `${i.title} ${i.sub || ""}`.toLowerCase().includes(needle)) : items);
   };
-  const renderItems = (list) => {
-    rows.textContent = "";
-    for (const item of list) {
+  const buildRow = (item) => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "sheet-list-item";
@@ -168,6 +174,12 @@ export const listSheet = (title, items, onPick, { search = false } = {}) => {
       text.appendChild(s);
     }
     btn.appendChild(text);
+    if (item.badge) {
+      const b = document.createElement("span");
+      b.className = "item-badge";
+      b.textContent = item.badge;
+      btn.appendChild(b);
+    }
     if (item.checked) {
       const c = document.createElement("span");
       c.className = "item-check";
@@ -175,8 +187,27 @@ export const listSheet = (title, items, onPick, { search = false } = {}) => {
       btn.appendChild(c);
     }
     btn.addEventListener("click", () => { closeSheet(); onPick(item.value); });
-    rows.appendChild(btn);
-    }
+    if (!item.action) return btn;
+
+    const row = document.createElement("div");
+    row.className = "sheet-list-row";
+    row.appendChild(btn);
+    const act = document.createElement("button");
+    act.type = "button";
+    act.className = "sheet-list-action";
+    act.textContent = item.action.label;
+    act.title = item.action.title || item.action.label;
+    act.setAttribute("aria-label", act.title);
+    act.addEventListener("click", (e) => {
+      e.stopPropagation();
+      item.action.onAction(item, act);
+    });
+    row.appendChild(act);
+    return row;
+  };
+  const renderItems = (list) => {
+    rows.textContent = "";
+    for (const item of list) rows.appendChild(buildRow(item));
     if (!list.length) {
       const p = document.createElement("p");
       p.style.cssText = "padding:24px;text-align:center;color:var(--text-2)";
@@ -185,7 +216,7 @@ export const listSheet = (title, items, onPick, { search = false } = {}) => {
     }
   };
   renderRows("");
-  openSheet("sheet-list");
+  openSheet("sheet-list", onClose);
 };
 
 /** Wire a segmented control; returns current value. */
@@ -281,4 +312,103 @@ export const rangeForChunk = (el, chunkText, searchFrom = 0) => {
   const last = nodes[nodes.length - 1];
   range.setEnd(last.node, last.node.nodeValue.length);
   return { range, start: from, end: joined.length };
+};
+
+// ---------- TTS block extraction ----------
+
+const SKIP_TAGS = new Set([
+  "SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "HEAD", "SVG", "CANVAS", "IMG",
+  "AUDIO", "VIDEO", "IFRAME", "OBJECT", "SELECT", "TEXTAREA", "RT", "RP",
+]);
+
+/**
+ * Tags that start a new speech block. This deliberately includes the generic
+ * containers (div/section/…): a great many EPUBs — anything converted by
+ * Calibre or unpacked from AZW3/MOBI — use <div> for every paragraph, so a
+ * "p,h1..h6,li" selector finds only the chapter heading and skips the body.
+ */
+const BLOCK_TAGS = new Set([
+  "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BODY", "CENTER", "DD",
+  "DETAILS", "DIV", "DL", "DT", "FIELDSET", "FIGCAPTION", "FIGURE", "FOOTER",
+  "FORM", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HGROUP", "LI", "MAIN",
+  "NAV", "OL", "P", "PRE", "SECTION", "SUMMARY", "TABLE", "TBODY", "TD",
+  "TFOOT", "TH", "THEAD", "TR", "UL",
+]);
+
+const ttsSkipped = (el) =>
+  SKIP_TAGS.has(el.tagName) ||
+  el.hidden === true ||
+  el.getAttribute?.("aria-hidden") === "true" ||
+  el.classList?.contains?.("tts-hl-layer");
+
+const cleanBlockText = (s) =>
+  (s || "").replace(/[^\S\n]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{2,}/g, "\n").trim();
+
+/**
+ * Yield { doc, el, text } for every leaf block of `root` (a Document or an
+ * Element), in reading order.
+ *
+ * A block is an element carrying text with no block-level element inside it,
+ * so nesting (<li><p>…), <blockquote><p>…) never speaks the same words twice,
+ * and text loose between child blocks still gets spoken.
+ */
+export const extractBlocks = function* (root) {
+  const doc = root.ownerDocument || root;
+  const start = root.body || root;
+  if (!start?.tagName && !start?.childNodes) return;
+  // innerText needs layout (it folds <br> into newlines and drops hidden
+  // text). A DOMParser document has none, so serialise by hand there —
+  // textContent alone would weld "one<br>two" into a single nonsense word.
+  const rendered = !!doc.defaultView;
+  // innerText only hides *descendants* that aren't rendered; an element that
+  // is itself display:none falls back to its textContent. Books hide page
+  // numbers, pagebreak markers and nav furniture that way, so check the
+  // element itself before descending into it.
+  const invisible = (el) => {
+    if (!rendered) return false;
+    try {
+      const cs = doc.defaultView.getComputedStyle(el);
+      return cs.display === "none" || cs.visibility === "hidden";
+    } catch { return false; }
+  };
+  const serialize = (el) => {
+    let out = "";
+    for (const node of el.childNodes || []) {
+      if (node.nodeType === 3) out += node.nodeValue;
+      else if (node.nodeType === 1 && !ttsSkipped(node))
+        out += node.tagName === "BR" ? "\n" : serialize(node);
+    }
+    return out;
+  };
+  const textOf = (el) => cleanBlockText(rendered ? (el.innerText ?? serialize(el)) : serialize(el));
+
+  const walk = function* (el) {
+    if (ttsSkipped(el) || invisible(el)) return;
+    let hasBlockChild = false;
+    for (const c of el.children || [])
+      if (BLOCK_TAGS.has(c.tagName) && !ttsSkipped(c)) { hasBlockChild = true; break; }
+
+    if (!hasBlockChild) {
+      const t = textOf(el);
+      if (t.length > 1) yield { doc, el, text: t };
+      return;
+    }
+    // Mixed content: speak inline runs sitting between the child blocks.
+    let run = "";
+    for (const node of el.childNodes || []) {
+      if (node.nodeType === 3) { run += node.nodeValue; continue; }
+      if (node.nodeType !== 1) continue;
+      if (BLOCK_TAGS.has(node.tagName) && !ttsSkipped(node)) {
+        const t = cleanBlockText(run);
+        run = "";
+        if (t.length > 1) yield { doc, el, text: t };
+        yield* walk(node);
+      } else if (!ttsSkipped(node)) {
+        run += node.tagName === "BR" ? "\n" : serialize(node);
+      }
+    }
+    const t = cleanBlockText(run);
+    if (t.length > 1) yield { doc, el, text: t };
+  };
+  yield* walk(start);
 };

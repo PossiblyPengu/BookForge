@@ -3,7 +3,7 @@
  * Scroll-based; progress persisted as scroll fraction.
  */
 
-import { debounce, rangeForChunk } from "./util.js";
+import { debounce, rangeForChunk, extractBlocks } from "./util.js";
 
 const mdToHtml = (src) => {
   const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -114,6 +114,7 @@ export const openTextReader = async (stage, book, fileBlob, { updateProgressUI, 
   let ttsStarted = false; // skip blocks scrolled above the viewport on first pass
 
   return {
+    beginTts() { ttsStarted = false; },
     getProgress: () => ({ fraction: frac() }),
     seekFraction: (f) => {
       if (!scroller) return;
@@ -134,26 +135,17 @@ export const openTextReader = async (stage, book, fileBlob, { updateProgressUI, 
       if (isHtml) {
         // sandboxed iframe content is unreachable — parse text for speech only (no highlight)
         const hdoc = new DOMParser().parseFromString(text, "text/html");
-        for (const el of hdoc.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote,pre")) {
-          const t = el.textContent?.replace(/\s+/g, " ").trim();
-          if (t && t.length > 1) yield { el: null, text: t };
-        }
+        for (const b of extractBlocks(hdoc)) yield { el: null, text: b.text };
         return;
       }
-      const els = wrap.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote,pre");
-      if (els.length) {
-        const wr = wrap.getBoundingClientRect();
-        for (const el of els) {
-          // start read-aloud at the visible position, not the document top
-          if (!ttsStarted && el.isConnected &&
-              el.getBoundingClientRect().bottom < wr.top) continue;
-          const t = el.innerText?.trim();
-          if (t && t.length > 1) { ttsStarted = true; yield { el, text: t }; }
-        }
-        return;
+      const wr = wrap.getBoundingClientRect();
+      for (const b of extractBlocks(wrap)) {
+        // start read-aloud at the visible position, not the document top
+        if (!ttsStarted && b.el?.isConnected &&
+            b.el.getBoundingClientRect().bottom < wr.top) continue;
+        ttsStarted = true;
+        yield b;
       }
-      const paras = wrap.innerText.split(/\n{2,}|\n/).map((s) => s.trim()).filter((s) => s.length > 1);
-      for (const p of paras) yield { el: null, text: p };
     },
     advance: () => false, // single-page text — no next section
     highlight,

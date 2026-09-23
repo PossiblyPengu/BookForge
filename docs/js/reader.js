@@ -16,7 +16,7 @@ import { openTextReader } from "./reader-text.js";
 import { openPdfReader } from "./reader-pdf.js";
 import { cbrToCbz } from "./cbr.js";
 import { Overlayer } from "../vendor/foliate/overlayer.js";
-import { rangeForChunk } from "./util.js";
+import { rangeForChunk, extractBlocks } from "./util.js";
 import { ttsController, pickTtsSleep } from "./tts.js";
 
 let view = null;          // <foliate-view> instance (ebook kind)
@@ -87,8 +87,12 @@ const openFoliate = async (book, file) => {
   $("reader-stage").appendChild(view);
   await view.open(file);
   await view.init({ lastLocation: book.progress?.cfi || null });
-  const readSections = new Set(); // foliate section indexes already spoken
-  let ttsStarted = false; // skip blocks above the current page on first gen
+  // Read-aloud state, reset by beginTts() at the start of every session.
+  // Keyed on the section document rather than its index: fixed-layout books
+  // report no index, and re-navigating to a section yields a fresh document,
+  // which is exactly when it should become speakable again.
+  let spokenDocs = new WeakSet();
+  let ttsFromLoc = true; // first pass starts at the visible position
 
   // block ends entirely before the location range → it's above the current page
   const endsBeforeLoc = (el, doc) => {
@@ -105,24 +109,42 @@ const openFoliate = async (book, file) => {
       fraction: view.lastLocation?.fraction ?? 0,
       cfi: view.lastLocation?.cfi,
     }),
+    beginTts() { spokenDocs = new WeakSet(); ttsFromLoc = true; },
     async *textBlocks() {
-      // yield {doc, el, text} per block in currently loaded section docs.
-      // Contents already read stay skipped — the controller recreates this
-      // generator after every advance(), so dedupe by section index or the
-      // same section would be spoken on repeat forever.
-      for (const { index, doc } of view.renderer.getContents?.() ?? []) {
-        if (!doc || readSections.has(index)) continue;
-        readSections.add(index);
+      // yield {doc, el, text} per block in the currently loaded section docs.
+      // The controller recreates this generator after every advance(), so
+      // documents already spoken this session are skipped — otherwise the
+      // same section would be read on repeat forever.
+      for (const { doc } of view.renderer?.getContents?.() ?? []) {
+        if (!doc || spokenDocs.has(doc)) continue;
+        spokenDocs.add(doc);
+        const fromLoc = ttsFromLoc;
+        ttsFromLoc = false;
         for (const b of extractBlocks(doc)) {
-          if (!ttsStarted && endsBeforeLoc(b.el, doc)) continue;
-          ttsStarted = true;
+          if (fromLoc && endsBeforeLoc(b.el, doc)) continue;
           yield b;
         }
       }
     },
+    // textBlocks() speaks a whole section at a time, so advancing has to step
+    // by section too — view.next() turns a single page, which left the reader
+    // silently flipping through the rest of the chapter it had just read.
     advance: async () => {
-      await view.next();
-      return !view.renderer.atEnd;
+      const r = view?.renderer;
+      if (!r) return false;
+      const docs = () => (r.getContents?.() ?? []).map((c) => c.doc);
+      const before = docs();
+      const moved = () => {
+        const now = docs();
+        return now.length !== before.length || now.some((d, i) => d !== before[i]);
+      };
+      for (let tries = 0; tries < 3; tries++) {
+        if (tries) await new Promise((res) => setTimeout(res, 200));
+        if (r.nextSection) await r.nextSection();
+        else await view.next();
+        if (moved()) return true;
+      }
+      return false; // last section — end of book
     },
     highlight: (block, chunkText, searchFrom) => foliateHighlight(block, chunkText, searchFrom),
     clearHighlight: () => foliateClear(),
@@ -163,21 +185,6 @@ const openFoliate = async (book, file) => {
   return renderer;
 };
 
-// block-level text extraction for TTS — yields {doc, el, text}
-export const extractBlocks = function* (doc) {
-  const sel = "p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,td";
-  const els = doc.querySelectorAll(sel);
-  if (!els.length) {
-    const t = doc.body?.innerText?.trim();
-    if (t) yield { doc, el: doc.body, text: t };
-    return;
-  }
-  for (const el of els) {
-    const t = el.innerText?.trim();
-    if (t && t.length > 1) yield { doc, el, text: t };
-  }
-};
-
 // ---------- TTS read-aloud highlight (foliate) ----------
 let hlOverlayer = null;
 const HL_OPTS = { color: "#f0a040", padding: 1 };
@@ -193,7 +200,13 @@ const foliateHighlight = (block, chunkText, searchFrom = 0) => {
   const range = found?.range ?? block.doc.createRange();
   if (!found) range.selectNodeContents(block.el);
   overlayer.add("tts", range, Overlayer.highlight, HL_OPTS);
-  try { block.el.scrollIntoView({ inline: "nearest", block: "nearest" }); } catch { /* ok */ }
+  // Follow the narration. scrollToAnchor snaps to a page boundary and fires
+  // relocate, so the progress bar and the saved position keep up; a raw
+  // scrollIntoView leaves the paginator's idea of the location behind.
+  try {
+    if (view.renderer?.scrollToAnchor) view.renderer.scrollToAnchor(range);
+    else block.el.scrollIntoView({ inline: "nearest", block: "nearest" });
+  } catch { /* ok */ }
   return { start: found?.start ?? searchFrom, end: found?.end ?? searchFrom };
 };
 

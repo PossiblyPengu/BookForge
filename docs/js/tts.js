@@ -11,13 +11,13 @@
  * renderer.advance() when the current section is exhausted.
  */
 
-import { $, toast, listSheet } from "./util.js";
+import { $, toast, listSheet, fmtBytes } from "./util.js";
 import { kvGet, kvSet } from "./db.js";
 
 const SETTINGS_KEY = "tts-settings";
 const settings = { engine: "web", voiceURI: "", piperVoice: "en_US-lessac-medium", rate: 1 };
 
-const chunk = (text, max = 240) => {
+export const chunk = (text, max = 240) => {
   const out = [];
   for (const piece of text.split(/(?<=[.!?…;:])\s+|(?<=\n)/)) {
     let p = piece.trim();
@@ -82,14 +82,20 @@ const web = {
     const v = speechSynthesis.getVoices().find((v) => v.voiceURI === settings.voiceURI);
     if (v) u.voice = v;
     let done = false;
+    let started = false; // did this utterance ever actually produce speech?
+    // The watchdog's cancel() re-enters via onerror in some engines; `forced`
+    // makes sure the verdict it already reached is the one that is reported.
+    let forced = null;
     const finish = (cont) => {
       if (done) return;
       done = true;
       clearInterval(wd);
-      onDone(cont);
+      onDone(forced ?? cont);
     };
+    u.onstart = () => { started = true; };
     // word-level sync where supported (Chrome; iOS Safari may never fire it)
     if (onBoundary) u.onboundary = (e) => {
+      started = true;
       if (e.charIndex != null) onBoundary(e.charIndex, e.charLength || 0);
     };
     u.onend = () => finish(true);
@@ -98,15 +104,29 @@ const web = {
     speechSynthesis.speak(u);
     // Watchdog — in some environments (iOS standalone PWA) speak() silently
     // never starts. Don't hang: bail so the controller can surface it.
-    const t0 = Date.now();
+    //
+    // The ceiling has to scale with the text and the rate. A flat 45s cut off
+    // long chunks at slow rates mid-sentence and the controller counted that
+    // as a failure, which is how whole passages went missing.
+    const budget = 15000 + (text.length / Math.max(settings.rate, 0.1)) * 250;
+    let t0 = Date.now();
+    let pausedAt = 0;
     const wd = setInterval(() => {
-      if (speechSynthesis.paused) return; // legit pause — keep waiting
-      const idle = !speechSynthesis.speaking && !speechSynthesis.pending;
-      if ((idle && Date.now() - t0 > 3000) || Date.now() - t0 > 45000) {
-        try { speechSynthesis.cancel(); } catch { /* noop */ }
-        finish(false);
+      if (speechSynthesis.paused) { // legit pause — keep waiting, don't age out
+        if (!pausedAt) pausedAt = Date.now();
+        return;
       }
-    }, 500);
+      if (pausedAt) { t0 += Date.now() - pausedAt; pausedAt = 0; }
+      if (speechSynthesis.speaking) started = true;
+      const idle = !speechSynthesis.speaking && !speechSynthesis.pending;
+      // Went quiet after speaking: a dropped 'end' event, not a mute engine.
+      if (idle && Date.now() - t0 > 3000) forced = started;
+      // Overran its budget: move on rather than re-reading or stalling.
+      else if (Date.now() - t0 > budget) forced = true;
+      else return;
+      try { speechSynthesis.cancel(); } catch { /* noop */ }
+      finish(forced);
+    }, 250);
   },
   unlock() { try { speechSynthesis.resume(); } catch { /* noop */ } },
   stop() { try { speechSynthesis.cancel(); } catch { /* noop */ } },
@@ -144,9 +164,11 @@ const piper = {
     if (this.loading) return this.loading;
     this.loading = (async () => {
       const mod = await import("../vendor/piper/piper-tts-web.js");
-      // TtsSession is a singleton — reset it when the voice changed so init()
+      // TtsSession is a singleton — reset it when the voice changed so create()
       // actually loads the new model + config instead of reusing the old one.
-      if (this.session && this.voiceId !== settings.piperVoice) {
+      // Keyed off voiceId, not this.session: picking a voice nulls the session
+      // but the singleton survives, so gating on it kept the old voice.
+      if (this.voiceId !== settings.piperVoice) {
         mod.TtsSession._instance = null;
         this.session = null;
       }
@@ -213,12 +235,16 @@ export const ttsController = {
     this._meta = meta;
     this._cancelled = false;
     this._fails = 0;
+    this._empty = 0;
     try {
       // unlock + start keepalive while still inside the tap's activation window
       this.engine.unlock?.();
       keepalive.start();
       this._media(meta);
       await this.init();
+      // let the renderer forget what a previous session already spoke, so
+      // re-reading a chapter (or restarting after a jump) works
+      this._renderer()?.beginTts?.();
       this._gen = this._renderer()?.textBlocks?.();
       if (!this._gen) { toast("Nothing to read aloud here"); keepalive.stop(); return; }
       this.playing = true;
@@ -262,7 +288,8 @@ export const ttsController = {
         toast("Sleep timer ended");
         return this.stop();
       }
-      // section exhausted — advance to next page/section if possible
+      // section exhausted — advance to the next section/page if possible
+      if (++this._empty > 40) return this.stop(); // nothing speakable left
       const more = await r.advance?.();
       if (more === false) return this.stop();
       await new Promise((res) => setTimeout(res, 350)); // let renderer settle
@@ -270,6 +297,7 @@ export const ttsController = {
       if (!this._gen) return this.stop();
       return this._next();
     }
+    this._empty = 0;
     const block = typeof value === "string" ? { text: value } : value;
     this._hlFrom = 0;
     const chunks = chunk(String(block.text));
@@ -311,7 +339,8 @@ export const ttsController = {
           toast("Speech isn't producing audio on this device", { error: true });
           return this.stop();
         }
-        this._next();
+        // lose the one bad chunk, not the rest of the paragraph
+        this._speakChunks(chunks, i + 1, block);
       }
     };
     // word-level sync: narrow the highlight to the word being spoken.
@@ -414,41 +443,181 @@ export const ttsController = {
 };
 
 // ---------------------------------------------------------------------------
-// Voice picker (settings + TTS bar)
+// Voice picker
 // ---------------------------------------------------------------------------
+
+const SAMPLE_TEXT =
+  "Chapter one. The lamplight fell across the open page, and the story began.";
+
+const uiLang = () => navigator.language || "en-US";
+const normLang = (l) => String(l || "").replace(/_/g, "-").toLowerCase();
+const baseLang = (l) => normLang(l).split("-")[0];
+
+let displayNames;
+const langLabel = (code) => {
+  const c = normLang(code);
+  if (!c) return "";
+  try {
+    displayNames ||= new Intl.DisplayNames([uiLang()], { type: "language" });
+    return displayNames.of(c) || c;
+  } catch { return c; }
+};
+
+// Voices the reader is most likely to want first: exact locale, then same
+// language, then everything else alphabetically.
+const byRelevance = (a, b) =>
+  a.rank - b.rank || a.title.localeCompare(b.title);
+const rankLang = (lang) =>
+  normLang(lang) === normLang(uiLang()) ? 0 : baseLang(lang) === baseLang(uiLang()) ? 1 : 2;
+
+// getVoices() is empty until the engine has enumerated them, which on iOS
+// happens after first paint — wait briefly rather than showing "no voices".
+const webVoices = () => new Promise((resolve) => {
+  const have = speechSynthesis.getVoices();
+  if (have.length) return resolve(have);
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    resolve(speechSynthesis.getVoices());
+  };
+  speechSynthesis.addEventListener?.("voiceschanged", finish, { once: true });
+  setTimeout(finish, 1500);
+});
+
+const piperCatalog = async () => {
+  const mod = await import("../vendor/piper/voices_static-D_OtJDHM.js");
+  return Object.values(mod.default);
+};
+
+const piperStored = async () => {
+  try {
+    const mod = await import("../vendor/piper/piper-tts-web.js");
+    return new Set(await mod.stored());
+  } catch { return new Set(); }
+};
+
+const piperSize = (v) =>
+  Object.values(v.files || {}).reduce((n, f) => n + (f.size_bytes || 0), 0);
 
 export const listVoices = async () => {
   if (settings.engine === "piper") {
     try {
-      const mod = await import("../vendor/piper/voices_static-D_OtJDHM.js");
-      return Object.values(mod.default).map((v) => ({
-        title: `${v.language?.name_english || ""} — ${v.name} (${v.quality})`.trim(),
-        sub: v.key,
+      const [list, stored] = await Promise.all([piperCatalog(), piperStored()]);
+      return list.map((v) => ({
+        title: `${v.name} · ${v.quality}`,
+        sub: [langLabel(v.language?.code), v.language?.country_english, fmtBytes(piperSize(v))]
+          .filter(Boolean).join(" · "),
+        badge: stored.has(v.key) ? "On device" : "",
         checked: v.key === settings.piperVoice,
         value: v.key,
-      }));
+        rank: rankLang(v.language?.code),
+      })).sort(byRelevance);
     } catch {
       return [];
     }
   }
-  const voices = speechSynthesis.getVoices();
+  const voices = await webVoices();
   return voices.map((v) => ({
-    title: `${v.name} — ${v.lang}`,
+    title: v.name,
+    sub: [langLabel(v.lang), v.localService ? "On device" : "Online"]
+      .filter(Boolean).join(" · "),
+    badge: v.default ? "System" : "",
     checked: v.voiceURI === settings.voiceURI,
     value: v.voiceURI,
-  }));
+    rank: rankLang(v.lang),
+  })).sort(byRelevance);
+};
+
+// --- preview ----------------------------------------------------------------
+// Speaks a sample in a voice without committing to it. Settings are staged and
+// rolled back, so backing out of the sheet leaves the saved voice untouched.
+
+let previewing = null; // { setLabel } while a preview is running
+
+export const stopPreview = () => {
+  const p = previewing;
+  previewing = null;
+  web.stop();
+  piper.stop();
+  p?.setLabel("▶");
+};
+
+export const previewVoice = async (value, setLabel = () => {}) => {
+  if (ttsController.playing) {
+    toast("Pause read-aloud to preview a voice");
+    return;
+  }
+  if (previewing) { // second tap on the playing row (or a switch) stops it
+    const same = previewing.setLabel === setLabel;
+    stopPreview();
+    if (same) return;
+  }
+  const token = { setLabel };
+  previewing = token;
+  const saved = { voiceURI: settings.voiceURI, piperVoice: settings.piperVoice };
+  const live = () => previewing === token;
+  setLabel("■");
+  try {
+    if (settings.engine === "piper") {
+      settings.piperVoice = value;
+      await piper.ensure((p) => {
+        if (live() && p?.total && !p.url?.startsWith("tts://"))
+          setLabel(`${Math.round((p.loaded / p.total) * 100)}%`);
+      });
+      if (!live()) return;
+      setLabel("…"); // synthesising
+      await new Promise((res) => {
+        piper.speak(SAMPLE_TEXT, res, null, () => !live()).catch(res);
+      });
+    } else {
+      settings.voiceURI = value;
+      web.unlock();
+      await new Promise((res) => web.speak(SAMPLE_TEXT, res));
+    }
+  } catch (err) {
+    console.warn("voice preview failed", err);
+    if (live()) toast("Couldn't preview that voice", { error: true });
+  } finally {
+    Object.assign(settings, saved); // staged only — the pick is what commits
+    if (live()) previewing = null;
+    setLabel("▶");
+  }
+};
+
+/** Friendly name of the voice currently in use, for the settings row. */
+export const voiceLabel = async () => {
+  if (settings.engine === "piper") {
+    try {
+      const v = (await piperCatalog()).find((x) => x.key === settings.piperVoice);
+      return v ? `${v.name} · ${v.quality}` : settings.piperVoice;
+    } catch { return settings.piperVoice; }
+  }
+  const v = speechSynthesis.getVoices().find((x) => x.voiceURI === settings.voiceURI);
+  return v ? v.name : "Default";
 };
 
 export const pickVoice = async () => {
   const items = await listVoices();
   if (!items.length) { toast("No voices available"); return; }
-  listSheet("Voice", items, async (val) => {
+  const note = settings.engine === "piper"
+    ? "Tap ▶ to hear a voice. Each neural voice downloads once, then runs offline."
+    : "Tap ▶ to hear a voice.";
+  listSheet("Voice", items.map((item) => ({
+    ...item,
+    action: {
+      label: "▶",
+      title: `Preview ${item.title}`,
+      onAction: (it, btn) => previewVoice(it.value, (t) => { btn.textContent = t; }),
+    },
+  })), async (val) => {
+    stopPreview();
     if (settings.engine === "piper") settings.piperVoice = val;
     else settings.voiceURI = val;
-    piper.session = null; // force re-init with new voice
+    piper.session = null; // force re-init with the new voice
     await ttsController.saveSettings();
     toast("Voice updated");
-  }, { search: true });
+  }, { search: true, note, onClose: stopPreview });
 };
 
 export const pickTtsSleep = () => {

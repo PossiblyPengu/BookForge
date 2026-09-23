@@ -114,13 +114,19 @@ const testFn = async (withPiper) => {
     log(rendered, "reader opens foliate-view");
 
     // 6. TTS highlight machinery on the live foliate doc
-    const { extractBlocks } = await import("./js/reader.js");
-    const { rangeForChunk } = await import("./js/util.js");
+    const { extractBlocks, rangeForChunk } = await import("./js/util.js");
     const { Overlayer } = await import("./vendor/foliate/overlayer.js");
     const fv = document.querySelector("foliate-view");
     const contents = fv.renderer.getContents?.() ?? [];
     const firstDoc = contents.find((c) => c.doc)?.doc;
-    const block = firstDoc ? [...extractBlocks(firstDoc)][0] : null;
+    const blocks = firstDoc ? [...extractBlocks(firstDoc)] : [];
+    const block = blocks[0] ?? null;
+    // the section's prose must all come through, not just its heading
+    const dense = (s) => (s || "").replace(/\s+/g, "").length;
+    const spokenChars = blocks.reduce((n, b) => n + dense(b.text), 0);
+    const docChars = dense(firstDoc?.body?.textContent);
+    log(docChars > 0 && spokenChars >= docChars,
+      `tts blocks → ${blocks.length} blocks, ${spokenChars}/${docChars} chars`);
     const ov = contents.find((c) => c.doc === firstDoc)?.overlayer;
     let hlRects = 0;
     if (block && ov) {

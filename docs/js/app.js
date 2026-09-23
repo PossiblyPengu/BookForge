@@ -10,7 +10,7 @@ import {
 } from "./library.js";
 import { initReader, openReader } from "./reader.js";
 import { initPlayer, openPlayer, playerState, reopenPlayer } from "./player.js";
-import { ttsController, pickVoice } from "./tts.js";
+import { ttsController, pickVoice, voiceLabel, previewVoice, stopPreview } from "./tts.js";
 import { deliverBackup, restoreBackup } from "./backup.js";
 
 // ---------------------------------------------------------------------------
@@ -56,6 +56,7 @@ const initSettings = async () => {
     b.addEventListener("click", async () => {
       eng.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
       b.classList.add("active");
+      stopPreview(); // the other engine's voices are a different set
       s.engine = b.dataset.val;
       await ttsController.saveSettings();
       updateVoiceLabel();
@@ -72,14 +73,19 @@ const initSettings = async () => {
   });
 
   $("set-tts-voice").addEventListener("click", async () => {
+    stopPreview();
     await pickVoice();
     updateVoiceLabel();
   });
 
+  // hear the current voice at the current speed without opening the picker
+  const previewState = $("set-tts-preview-state");
+  $("set-tts-preview").addEventListener("click", () =>
+    previewVoice(s.engine === "piper" ? s.piperVoice : s.voiceURI,
+      (t) => { previewState.textContent = t; }));
+
   const updateVoiceLabel = async () => {
-    $("set-tts-voice-name").textContent =
-      s.engine === "piper" ? s.piperVoice
-        : (speechSynthesis.getVoices().find((v) => v.voiceURI === s.voiceURI)?.name || "Default");
+    $("set-tts-voice-name").textContent = await voiceLabel();
   };
   speechSynthesis.onvoiceschanged = updateVoiceLabel;
   updateVoiceLabel();
@@ -119,6 +125,7 @@ const initSettings = async () => {
 
 const VIEWS = { library: "view-library", settings: "view-settings" };
 const showView = (name) => {
+  if (name !== "settings") stopPreview();
   document.querySelectorAll(".tab-item").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === name));
   for (const [k, id] of Object.entries(VIEWS)) $(id).hidden = k !== name;

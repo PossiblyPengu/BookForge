@@ -171,15 +171,19 @@ export const openPdfReader = async (stage, book, { updateProgressUI, saveProgres
     gotoBookmark: (t) => setCurrent((t.page || 1) - 1, { smooth: true }),
     turn: (dir) => setCurrent(current + (dir === "next" ? 1 : -1), { smooth: true }),
     async *textBlocks() {
-      const page = await doc.getPage(current + 1);
+      const pageIndex = current; // pin the page: scrolling must not retarget mid-read
+      const page = await doc.getPage(pageIndex + 1);
       const tc = await page.getTextContent();
       let items = [];
       let text = "";
+      // NB: the buffers have to be cleared on *every* flush, not only the
+      // empty ones — leaving them meant each block repeated the whole page
+      // read so far, and the 240-char cap then fired on every item.
       const flush = () => {
         const t = text.trim();
-        if (t && items.length) return { items, text: t, pageIndex: current };
+        const block = t && items.length ? { items, text: t, pageIndex } : null;
         items = []; text = "";
-        return null;
+        return block;
       };
       for (const item of tc.items) {
         if (!item.str.trim()) { if (item.hasEOL) { const b = flush(); if (b) yield b; } continue; }
