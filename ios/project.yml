@@ -1,0 +1,75 @@
+# XcodeGen spec — the Xcode project is generated from this, not committed.
+#   brew install xcodegen && xcodegen generate
+# CI (.github/workflows/ios.yml) does the same and builds an unsigned IPA.
+name: Pageturner
+options:
+  bundleIdPrefix: io.github.possiblypengu
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+packages:
+  Readium:
+    url: https://github.com/readium/swift-toolkit.git
+    exactVersion: 3.11.0
+targets:
+  Pageturner:
+    type: application
+    platform: iOS
+    sources:
+      - path: Pageturner
+        excludes:
+          - Info.plist
+    dependencies:
+      - package: Readium
+        product: ReadiumShared
+      - package: Readium
+        product: ReadiumStreamer
+      - package: Readium
+        product: ReadiumNavigator
+    info:
+      path: Pageturner/Info.plist
+      properties:
+        CFBundleDisplayName: Pageturner
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # read-aloud keeps playing with the screen locked
+        UIBackgroundModes:
+          - audio
+        # the Books folder is visible in the Files app
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: EPUB
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - org.idpf.epub-container
+          - CFBundleTypeName: PDF
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.adobe.pdf
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.possiblypengu.pageturner
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_PREVIEWS: NO
+schemes:
+  Pageturner:
+    build:
+      targets:
+        Pageturner: all
