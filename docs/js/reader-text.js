@@ -3,7 +3,9 @@
  * Scroll-based; progress persisted as scroll fraction.
  */
 
-import { debounce, rangeForChunk, extractBlocks, resumePoint } from "./util.js";
+import {
+  debounce, rangeForChunk, extractBlocks, resumePoint, findAllText, excerptAround,
+} from "./util.js";
 
 // The top bar and the read-aloud bar overlay the scroller; text under them
 // isn't really on screen.
@@ -105,8 +107,11 @@ export const openTextReader = async (stage, book, fileBlob, { updateProgressUI, 
     const max = scroller.scrollHeight - scroller.clientHeight;
     return max > 0 ? scroller.scrollTop / max : 0;
   };
+  // kept so a reflow (rotation, text-size change) can restore the position
+  let lastFrac = book.progress?.fraction || 0;
   const onScroll = debounce(() => {
-    updateProgressUI(frac(), "");
+    lastFrac = frac();
+    updateProgressUI(lastFrac, "");
     saveProgress();
   }, 250);
   scroller?.addEventListener("scroll", onScroll, { passive: true });
@@ -122,10 +127,30 @@ export const openTextReader = async (stage, book, fileBlob, { updateProgressUI, 
     updateProgressUI(frac(), "");
   });
 
+  // Rotating reflows the text and scrollTop is absolute, so restore the
+  // fraction we were last at rather than the pixel offset. The fraction has
+  // to come from before the reflow — resize fires after it — so it's tracked
+  // as we scroll.
+  const onResize = debounce(() => {
+    if (!scroller?.isConnected) return;
+    const max = scroller.scrollHeight - scroller.clientHeight;
+    if (max > 0) scroller.scrollTop = lastFrac * max;
+    updateProgressUI(frac(), "");
+  }, 200);
+  window.addEventListener("resize", onResize);
+
   let ttsStarted = false; // skip blocks scrolled above the viewport on first pass
 
   return {
     beginTts() { ttsStarted = false; },
+    // Changing the text size or margins reflows the document and moves the
+    // pixel offset, so put the reader back at the fraction it was on.
+    reflow() {
+      if (!scroller?.isConnected) return;
+      const max = scroller.scrollHeight - scroller.clientHeight;
+      if (max > 0) scroller.scrollTop = lastFrac * max;
+      updateProgressUI(frac(), "");
+    },
     getProgress: () => ({ fraction: frac() }),
     seekFraction: (f) => {
       if (!scroller) return;
@@ -142,6 +167,33 @@ export const openTextReader = async (stage, book, fileBlob, { updateProgressUI, 
       if (!scroller) return;
       scroller.scrollBy({ top: (dir === "next" ? 1 : -1) * scroller.clientHeight * 0.92, behavior: "smooth" });
     },
+    // Search walks the rendered blocks, so a hit can scroll straight to the
+    // element it was found in. Sandboxed HTML has no reachable DOM, hence the
+    // `scroller` guard — `search` is simply absent there and the UI adapts.
+    ...(scroller ? {
+      async *search(query) {
+        const blocks = [...extractBlocks(wrap)];
+        let found = 0;
+        for (let i = 0; i < blocks.length; i++) {
+          const b = blocks[i];
+          const hits = findAllText(b.text, query, 8);
+          if (hits.length && b.el) {
+            found += hits.length;
+            yield {
+              label: `${Math.round((b.el.offsetTop / Math.max(scroller.scrollHeight, 1)) * 100)}%`,
+              items: hits.map((h) => ({
+                excerpt: excerptAround(b.text, h.start, h.end),
+                target: { top: b.el.offsetTop },
+              })),
+            };
+          }
+          // yield progress in coarse steps — a per-block yield would spend
+          // more time re-rendering the results list than searching
+          if (i % 25 === 0) yield { progress: (i + 1) / blocks.length, found };
+        }
+      },
+      goToSearch: (t) => scroller.scrollTo({ top: Math.max(0, (t.top || 0) - 24), behavior: "smooth" }),
+    } : {}),
     async *textBlocks() {
       if (isHtml) {
         // sandboxed iframe content is unreachable — parse text for speech only (no highlight)
@@ -173,6 +225,9 @@ export const openTextReader = async (stage, book, fileBlob, { updateProgressUI, 
     advance: () => false, // single-page text — no next section
     highlight,
     clearHighlight: clearHl,
-    destroy: () => wrap.remove(),
+    destroy: () => {
+      window.removeEventListener("resize", onResize);
+      wrap.remove();
+    },
   };
 };

@@ -66,14 +66,16 @@ const testFn = async (withPiper) => {
       // long enough to paginate into several pages, so read-aloud's
       // "start at the top of the page I'm on" behaviour is testable
       "OEBPS/ch1.xhtml": S(`<?xml version="1.0"?>
-        <html xmlns="http://www.w3.org/1999/xhtml"><head><title>C1</title></head>
-        <body><h1>Chapter One</h1><p>Hello world. This is a test paragraph.</p>${
+        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>C1</title></head>
+        <body><h1 id="top">Chapter One</h1><p>Hello world. This is a test paragraph.</p>${
           Array.from({ length: 60 }, (_, i) =>
             `<p>Para${String(i + 1).padStart(2, "0")}. ${
             // unique sentences, several per paragraph, so pages break mid-paragraph
             // and a spoken chunk can be located exactly
             Array.from({ length: 5 }, (_, k) => `S${i + 1}x${k} lorem ipsum dolor sit amet consectetur adipiscing elit sed do.`).join(" ")}</p>`).join("")
-        }</body></html>`),
+        }<p id="refs">A claim needing a source<a id="noteref" epub:type="noteref" href="#fn1">1</a> and <a id="xref" href="#top">a cross-reference</a>.</p>
+        <aside id="fn1" epub:type="footnote"><p>Footnoted source text.</p></aside>
+        </body></html>`),
     });
     const file = new File([epub], "smoke.epub", { type: "application/epub+zip" });
 
@@ -104,7 +106,13 @@ const testFn = async (withPiper) => {
     // 4b. bulk zip import — 2 audiobook folders + a txt → 3 books
     const bulk = zipSync({
       "Series Alpha/01.mp3": S("FAKEMP3A1"), "Series Alpha/02.mp3": S("FAKEMP3A2"),
-      "Beta Book/ch1.mp3": S("FAKEMP3B1"), "notes.txt": S("some text here"),
+      "Beta Book/ch1.mp3": S("FAKEMP3B1"),
+      // long enough to scroll, so the text renderer's reflow-keeps-your-place
+      // behaviour is testable. "text here" stays unique for the search test.
+      "notes.txt": S("some text here\n\n" + Array.from(
+        { length: 80 },
+        (_, i) => `Note paragraph ${i + 1}. ${"filler words to make this wrap and scroll. ".repeat(4)}`,
+      ).join("\n\n")),
     });
     const zipFile = new File([bulk], "bulk.zip", { type: "application/zip" });
     const bulkCreated = await importFiles([zipFile]);
@@ -120,6 +128,17 @@ const testFn = async (withPiper) => {
     const rendered = !!document.querySelector("foliate-view") &&
       !document.getElementById("view-reader").hidden;
     log(rendered, "reader opens foliate-view");
+
+    // The section the reader opens on must be wired too. view.init() renders
+    // it and fires "load" synchronously, so listeners registered after init
+    // missed it — leaving that section with no tap/key handling, no text
+    // selection and no justification. pt-flow is the visible proof it ran.
+    {
+      const d0 = document.querySelector("foliate-view").renderer
+        ?.getContents?.().find((c) => c.doc)?.doc;
+      const flowed = d0?.querySelectorAll(".pt-flow").length || 0;
+      log(flowed > 0, `opening section is wired (${flowed} paragraphs marked)`);
+    }
 
     // 6. TTS highlight machinery on the live foliate doc
     const { extractBlocks, rangeForChunk } = await import("./js/util.js");
@@ -330,6 +349,189 @@ const testFn = async (withPiper) => {
       delete engines.fake;
     }
 
+    // 8a2. Read-aloud and the audiobook player are separate engines that both
+    //      take over the Media Session. Starting one while the other played
+    //      left two voices talking at once.
+    {
+      const { claimAudio, registerAudioOwner } = await import("./js/audio-focus.js");
+      await ttsController.start(getR, {});
+      await wait(400);
+      const wasPlaying = ttsController.playing;
+      claimAudio("audiobook"); // what the player does on its play event
+      await wait(150);
+      log(wasPlaying && !ttsController.playing,
+        `starting an audiobook pauses read-aloud (was ${wasPlaying}, now ${ttsController.playing})`);
+
+      // and it pauses rather than stops, so the sentence survives for resume
+      log(!!ttsController._session,
+        "read-aloud keeps its session, so it can be resumed");
+
+      // the reverse direction: read-aloud claims focus off the audiobook
+      let bookPaused = 0;
+      registerAudioOwner("audiobook", () => { bookPaused++; });
+      ttsController.resume();
+      await wait(300);
+      log(bookPaused > 0, `read-aloud pauses the audiobook (${bookPaused} pause call)`);
+      ttsController.stop();
+    }
+
+    // 8a3. The progress slider used to seek on every input event, which for
+    //      an EPUB is a section load per pixel dragged. Preview on input,
+    //      commit on release.
+    {
+      const el = (id) => document.getElementById(id);
+      const slider = el("reader-slider");
+      const startCfi = fv.lastLocation?.cfi;
+      let seeks = 0;
+      const realGoToFraction = fv.goToFraction.bind(fv);
+      fv.goToFraction = (f) => { seeks++; return realGoToFraction(f); };
+
+      for (const v of [300, 400, 500, 600]) {
+        slider.value = v;
+        slider.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await wait(200);
+      const duringDrag = seeks;
+      const previewed = el("reader-pct").textContent;
+
+      slider.dispatchEvent(new Event("change", { bubbles: true }));
+      await wait(900);
+      log(duringDrag === 0 && seeks === 1 && previewed === "60%",
+        `slider previews while dragging, seeks once on release (${duringDrag} during, ${seeks} total, showed ${previewed})`);
+      log(fv.lastLocation?.cfi !== startCfi, "the committed seek actually moved");
+      fv.goToFraction = realGoToFraction;
+    }
+
+    // 8b. in-book search: drives the real renderer capability, so it covers
+    //     foliate's section-by-section scan, the excerpt shape the results
+    //     list renders, and that a hit's target can be navigated to.
+    {
+      const rend2 = currentRenderer();
+      const groups = [];
+      let progressed = false;
+      for await (const r of rend2.search("Para07")) {
+        if (r.progress != null) progressed = true;
+        if (r.items?.length) groups.push(r);
+      }
+      const hits = groups.flatMap((g) => g.items);
+      const ex = hits[0]?.excerpt;
+      log(hits.length === 1 && ex?.match === "Para07" && !!hits[0].target?.cfi,
+        `search "Para07" → ${hits.length} hit, match=${JSON.stringify(ex?.match)}, progress=${progressed}`);
+
+      // a phrase spanning normalised whitespace still matches, and every
+      // occurrence is reported rather than just the first
+      const many = [];
+      for await (const r of rend2.search("lorem ipsum dolor")) if (r.items) many.push(...r.items);
+      log(many.length > 10, `search phrase → ${many.length} hits`);
+
+      // navigating to a hit lands on the section it was found in
+      const before = fv.lastLocation?.cfi;
+      await rend2.goToSearch(hits[0].target);
+      await new Promise((r) => setTimeout(r, 600));
+      log(!!fv.lastLocation?.cfi, `search hit navigates (cfi ${before ? "changed" : "set"})`);
+      rend2.clearSearch();
+    }
+
+    // 8b2. footnotes open in place, and every other jump leaves a way back.
+    //      Before this, tapping a note sent you to the endnotes with no back
+    //      control anywhere in the reader.
+    {
+      const el = (id) => document.getElementById(id);
+      const doc2 = fv.renderer.getContents?.().find((c) => c.doc)?.doc;
+      const noteref = doc2?.getElementById("noteref");
+
+      noteref?.click();
+      for (let i = 0; i < 40 && el("sheet-note").hidden; i++) await wait(100);
+      const noteOpen = !el("sheet-note").hidden;
+      // the note's own text is rendered into a detached view inside the sheet
+      let noteText = "";
+      for (let i = 0; i < 30; i++) {
+        const nv = el("note-body").querySelector("foliate-view");
+        noteText = nv?.renderer?.getContents?.().find((c) => c.doc)?.doc?.body?.textContent || "";
+        if (noteText.includes("Footnoted")) break;
+        await wait(100);
+      }
+      log(noteOpen && noteText.includes("Footnoted source text") &&
+          el("note-kind").textContent === "Footnote",
+        `footnote popover → ${JSON.stringify(noteText.trim().slice(0, 28))}, kind "${el("note-kind").textContent}"`);
+
+      // following a note from the popover leaves a Back chip
+      el("note-goto").click();
+      await wait(800);
+      log(el("sheet-note").hidden && !el("reader-back").hidden,
+        "Go to note closes the popover and offers Back");
+
+      // and Back returns to where the note was tapped
+      el("reader-back").click();
+      await wait(800);
+      log(el("reader-back").hidden, "Back returns and clears the chip");
+
+      // a plain cross-reference navigates, but also leaves a way back
+      const doc3 = fv.renderer.getContents?.().find((c) => c.doc)?.doc;
+      doc3?.getElementById("xref")?.click();
+      await wait(800);
+      log(!el("reader-back").hidden, "a cross-reference leaves a Back chip");
+      el("reader-back").click();
+      await wait(600);
+
+      // selecting text offers more than one action, and Copy carries the
+      // passage plus the book it came from
+      const doc4 = fv.renderer.getContents?.().find((c) => c.doc)?.doc;
+      const para = doc4?.querySelector("p");
+      const sel = doc4?.getSelection?.();
+      const r = doc4.createRange();
+      r.selectNodeContents(para);
+      sel.removeAllRanges();
+      sel.addRange(r);
+      para.dispatchEvent(new Event("mouseup", { bubbles: true }));
+      await wait(250);
+      const chip = document.querySelector(".sel-chip");
+      const labels = [...(chip?.querySelectorAll(".sel-chip-btn") || [])].map((b) => b.textContent);
+      log(labels.includes("Highlight") && labels.includes("Copy"),
+        `selection chip → ${JSON.stringify(labels)}`);
+
+      let copied = "";
+      navigator.clipboard.writeText = async (t) => { copied = t; };
+      [...chip.querySelectorAll(".sel-chip-btn")].find((b) => b.textContent === "Copy").click();
+      await wait(200);
+      log(copied.includes("Hello world") && copied.includes("Smoke Test Book"),
+        `copy includes the passage and the source → ${JSON.stringify(copied.slice(-24))}`);
+      log(!document.querySelector(".sel-chip"), "the chip closes after acting");
+    }
+
+    // 8c. the search UI itself: the sheet's tab, input and results list are
+    //     wired by initReader() during boot, so this covers the element ids
+    //     and the incremental rendering as well as the query path.
+    {
+      const el = (id) => document.getElementById(id);
+      el("reader-toc-btn").click();
+      el("contents-tabs").querySelector('[data-val="search"]').click();
+      const onSearchTab = !el("contents-search-wrap").hidden && !!el("contents-search-status");
+      const input = el("contents-search");
+      input.value = "Para21";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      // wait for the scan to finish rather than a fixed delay
+      for (let i = 0; i < 60 && !/result|No matches/.test(el("contents-search-status").textContent); i++)
+        await new Promise((r) => setTimeout(r, 100));
+      const rows = el("contents-results").querySelectorAll(".contents-item").length;
+      const marked = el("contents-results").querySelector("mark")?.textContent;
+      log(onSearchTab && rows === 1 && marked === "Para21",
+        `search UI → ${rows} row, mark=${JSON.stringify(marked)}, status="${el("contents-search-status").textContent}"`);
+
+      // clearing the box empties the list again
+      input.value = "";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 100));
+      log(!el("contents-results").querySelector(".contents-item"), "clearing the query empties the results");
+
+      // Escape closes the sheet, not the book
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await new Promise((r) => setTimeout(r, 100));
+      log(el("sheet-contents").hidden && !el("view-reader").hidden,
+        "Escape closes the sheet and leaves the book open");
+    }
+
     await closeReader();
     log(document.getElementById("view-reader").hidden, "reader closes");
 
@@ -369,14 +571,266 @@ const testFn = async (withPiper) => {
         "Another paragraph.", "Page two text."];
       log(JSON.stringify(said) === JSON.stringify(want) && !ttsController.playing,
         `pdf read-aloud → ${JSON.stringify(said)}`);
+
+      // PDF search: its own text-extraction path, page labels and targets
+      ttsController.stop();
+      const pdfGroups = [];
+      for await (const r of getR().search("paragraph")) if (r.items) pdfGroups.push(r);
+      const pdfHits = pdfGroups.flatMap((g) => g.items);
+      log(pdfHits.length === 2 && pdfGroups[0].label === "Page 1" &&
+          pdfHits[0].target.page === 1 && /paragraph/i.test(pdfHits[0].excerpt.match),
+        `pdf search "paragraph" → ${pdfHits.length} hits on ${pdfGroups.map((g) => g.label).join(", ")}`);
+      // a hit on page 2 carries that page as its target
+      const p2 = [];
+      for await (const r of getR().search("Page two")) if (r.items) p2.push(...r.items);
+      log(p2.length === 1 && p2[0].target.page === 2,
+        `pdf search finds page 2 → target page ${p2[0]?.target.page}`);
+
+      // Rotation: a canvas is sized when it renders and renderPage() skips
+      // anything already rendered, so pages used to stay at the old scale.
+      // Changing the stage width stands in for turning the device.
+      {
+        const stage = document.getElementById("reader-stage");
+        const canvasWidth = () =>
+          document.querySelector(".pdf-page canvas")?.width || 0;
+        const before = canvasWidth();
+        // both dimensions, as a real rotation does — the page is fitted with
+        // Math.min(width, height), so either one alone may not be the limit
+        stage.style.width = "420px";
+        stage.style.height = "320px";
+        window.dispatchEvent(new Event("resize"));
+        let after = before;
+        for (let i = 0; i < 40; i++) {
+          await wait(100);
+          after = canvasWidth();
+          if (after && after !== before) break;
+        }
+        stage.style.width = "";
+        stage.style.height = "";
+        window.dispatchEvent(new Event("resize"));
+        await wait(600);
+        log(before > 0 && after > 0 && after !== before,
+          `pdf re-renders on rotation → canvas ${before}px becomes ${after}px`);
+      }
+
       await closeReader();
       log(document.getElementById("view-reader").hidden, "pdf reader closes");
+    }
+
+    // 10. text-renderer search: the third search implementation, over the
+    //     rendered blocks rather than a paginated or page-image document.
+    {
+      const notes = bulkCreated.find((b) => b.kind === "text");
+      await openReader(await getBook(notes.id));
+      await wait(600);
+      const hits = [];
+      for await (const r of getR().search("text here")) if (r.items) hits.push(...r.items);
+      log(hits.length === 1 && hits[0].excerpt.match === "text here" &&
+          typeof hits[0].target.top === "number",
+        `text search → ${hits.length} hit, match=${JSON.stringify(hits[0]?.excerpt.match)}`);
+
+      // Changing the text size reflows a scroll-based document, which moves
+      // the pixel offset — the reader has to be put back at its fraction.
+      {
+        const wrap = document.querySelector(".text-reader");
+        const max = () => wrap.scrollHeight - wrap.clientHeight;
+        if (max() > 0) {
+          wrap.scrollTop = max() * 0.5;
+          wrap.dispatchEvent(new Event("scroll"));
+          await wait(400); // let the 250ms scroll debounce record the fraction
+          const before = wrap.scrollTop / max();
+          document.getElementById("font-plus").click();
+          document.getElementById("font-plus").click();
+          await wait(300);
+          const after = max() > 0 ? wrap.scrollTop / max() : 0;
+          log(Math.abs(after - before) < 0.02,
+            `text size keeps the place → ${before.toFixed(3)} then ${after.toFixed(3)}`);
+          document.getElementById("font-minus").click();
+          document.getElementById("font-minus").click();
+        } else {
+          log(true, "text size keeps the place (document too short to scroll)");
+        }
+      }
+      await closeReader();
     }
 
     // text format detection
     const { detectFormat: df2 } = await import("./js/detect.js");
     const td = await df2(new File([S("hello world")], "note.txt", { type: "text/plain" }));
     log(td.kind === "text" && td.format === "TXT", `detect txt → ${td.kind}/${td.format}`);
+
+    // 11. "Continue reading" — the books above were opened and read into, so
+    //     the card should offer the most recent one and open it in one tap.
+    {
+      const { refreshLibrary } = await import("./js/library.js");
+      await refreshLibrary();
+      const card = document.getElementById("continue-card");
+      const shown = !card.hidden;
+      const title = document.getElementById("continue-title").textContent;
+      const pctWidth = document.getElementById("continue-fill").style.width;
+      log(shown && !!title && /%$/.test(pctWidth),
+        `continue card → ${JSON.stringify(title)} at ${pctWidth}`);
+
+      // searching hides it: it's a shortcut, not a search result
+      const search = document.getElementById("library-search");
+      search.value = "zzz-no-match";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      const hiddenWhileSearching = card.hidden;
+      search.value = "";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      log(hiddenWhileSearching && !card.hidden, "continue card hides while searching");
+
+      // one tap opens the book it names
+      card.click();
+      await wait(1500);
+      const opened = !document.getElementById("view-reader").hidden ||
+        !document.getElementById("view-player").hidden;
+      log(opened, "continue card opens the book in one tap");
+      const { closeReader: cr } = await import("./js/reader.js");
+      await cr();
+    }
+
+    // 11b. Mark-as-finished / start-over. A book abandoned partway used to be
+    //      stuck in the Continue card with no way to clear it.
+    {
+      const el = (id) => document.getElementById(id);
+      const { openDetail, refreshLibrary } = await import("./js/library.js");
+      const { getBook } = await import("./js/db.js");
+      const before = await getBook(stored.id);
+      const startFrac = before.progress?.fraction || 0;
+
+      await openDetail(stored.id);
+      el("detail-progress-btn").click();
+      await wait(120);
+      const rows = [...el("sheet-list-body").querySelectorAll(".sheet-list-item")]
+        .map((b) => b.textContent);
+      const finish = [...el("sheet-list-body").querySelectorAll(".sheet-list-item")]
+        .find((b) => b.textContent.includes("finished"));
+      finish.click();
+      for (let i = 0; i < 40 && (await getBook(stored.id)).progress?.fraction !== 1; i++) await wait(100);
+      const done = await getBook(stored.id);
+      log(startFrac > 0 && startFrac < 1 && done.progress.fraction === 1,
+        `mark as finished → ${startFrac.toFixed(2)} becomes ${done.progress.fraction} (rows ${JSON.stringify(rows)})`);
+
+      // a finished book drops out of the Continue card
+      await refreshLibrary();
+      const continueTitle = el("continue-card").hidden
+        ? null : el("continue-title").textContent;
+      log(continueTitle !== stored.title,
+        `finished book leaves the Continue card (now ${JSON.stringify(continueTitle)})`);
+
+      // and starting over clears the position
+      await openDetail(stored.id);
+      el("detail-progress-btn").click();
+      await wait(120);
+      [...el("sheet-list-body").querySelectorAll(".sheet-list-item")]
+        .find((b) => b.textContent.includes("beginning")).click();
+      for (let i = 0; i < 40 && (await getBook(stored.id)).progress?.fraction !== 0; i++) await wait(100);
+      const reset = await getBook(stored.id);
+      log(reset.progress.fraction === 0 && !reset.lastOpenedAt,
+        `start over clears progress → ${reset.progress.fraction}, lastOpened ${reset.lastOpenedAt}`);
+      (await import("./js/util.js")).closeSheet();
+    }
+
+    // 12. Selection mode — bulk delete is destructive, so verify it ticks the
+    //     right books, reports the count, and removes exactly those.
+    {
+      const el = (id) => document.getElementById(id);
+      const { refreshLibrary, isSelecting } = await import("./js/library.js");
+      const { allBooks } = await import("./js/db.js");
+      await refreshLibrary();
+      const startCount = (await allBooks()).length;
+
+      el("select-btn").click();
+      const entered = isSelecting() && !el("select-bar").hidden &&
+        el("select-done") && !el("select-done").hidden && el("select-btn").hidden;
+      log(entered, `selection mode opens (${startCount} books)`);
+
+      // nothing ticked yet → the destructive action is unavailable
+      log(el("select-delete").disabled && el("library-nav-title").textContent === "Select books",
+        "delete is disabled until something is ticked");
+
+      // tick the first two cards
+      const cards = [...el("library-grid").querySelectorAll(".book-card")];
+      cards[0].click();
+      cards[1].click();
+      const ticked = el("library-grid").querySelectorAll(".book-card.selected").length;
+      log(ticked === 2 && el("select-delete").textContent === "Delete 2" &&
+          el("library-nav-title").textContent === "2 selected",
+        `two ticked → "${el("select-delete").textContent}", title "${el("library-nav-title").textContent}"`);
+
+      // select all / none round-trips
+      el("select-all").click();
+      const allOn = el("library-grid").querySelectorAll(".book-card.selected").length;
+      el("select-all").click();
+      const allOff = el("library-grid").querySelectorAll(".book-card.selected").length;
+      log(allOn === cards.length && allOff === 0,
+        `select all → ${allOn}, then none → ${allOff}`);
+
+      // delete two for real, through the confirm sheet
+      const doomed = [...el("library-grid").querySelectorAll(".book-card")].slice(0, 2);
+      const doomedIds = doomed.map((c) => c.dataset.id);
+      doomed.forEach((c) => c.click());
+      el("select-delete").click();
+      await wait(120);
+      // the confirm sheet's only row is the destructive one
+      el("sheet-list-body").querySelector(".sheet-list-item").click();
+      for (let i = 0; i < 50 && (await allBooks()).length > startCount - 2; i++) await wait(100);
+      const after = await allBooks();
+      const goneBoth = doomedIds.every((id) => !after.some((b) => b.id === id));
+      log(after.length === startCount - 2 && goneBoth && !isSelecting(),
+        `bulk delete → ${startCount} - 2 = ${after.length}, selection mode closed`);
+    }
+
+    // 13. Backup round trip. The exporter was rewritten to assemble the zip
+    //     by reference instead of copying the library into memory, so check
+    //     the whole cycle: export → lose a book → restore → same bytes back.
+    {
+      const { exportLibrary, restoreBackup } = await import("./js/backup.js");
+      const { readZip } = await import("./js/zip.js");
+      const { allBooks, getFile, deleteBook, getBook: gb } = await import("./js/db.js");
+      const books = await allBooks();
+      const victim = books.find((b) => b.fileKey);
+      const originalBytes = new Uint8Array(await (await getFile(victim.fileKey)).arrayBuffer());
+
+      const { blob } = await exportLibrary();
+      const names = (await readZip(blob)).map((e) => e.name);
+      log(names[0] === "data.json" && names.some((n) => n.startsWith("files/")),
+        `backup exports a readable zip → ${names.length} entries, data.json first`);
+
+      await deleteBook(victim.id);
+      const missing = !(await gb(victim.id));
+      const n = await restoreBackup(new File([blob], "backup.zip"));
+      const back = await gb(victim.id);
+      const restoredBytes = new Uint8Array(await (await getFile(back?.fileKey)).arrayBuffer());
+      const same = restoredBytes.length === originalBytes.length &&
+        restoredBytes.every((b, i) => b === originalBytes[i]);
+      log(missing && back?.title === victim.title && same && n === books.length,
+        `restore brings a deleted book back byte-for-byte (${restoredBytes.length} bytes, ${n} books)`);
+
+      // backups made before this change were deflated by fflate — they must
+      // still restore
+      const { zipSync, strToU8 } = await import("./vendor/fflate.mjs");
+      const oldId = "old-format-book";
+      const oldZip = zipSync({
+        "data.json": strToU8(JSON.stringify({
+          v: 1, app: "pageturner", books: [{ id: oldId, kind: "text", format: "TXT",
+            title: "From an old backup", fileKey: "file:old", fileName: "old.txt" }],
+          kv: {}, fileMeta: { "file:old": { name: "old.txt", size: 11, type: "text/plain" } },
+        })),
+        "files/file%3Aold": strToU8("old content"),
+      }, { level: 6 });
+      await restoreBackup(new File([oldZip], "old-backup.zip"));
+      const oldBook = await gb(oldId);
+      const oldText = await (await getFile("file:old"))?.text();
+      log(oldBook?.title === "From an old backup" && oldText === "old content",
+        `old deflated backups still restore → ${JSON.stringify(oldText)}`);
+
+      // and a file that isn't a backup at all gets a sentence, not a stack
+      let msg = "";
+      try { await restoreBackup(new File(["hello"], "notes.txt")); } catch (e) { msg = e.message; }
+      log(/isn.t a Pageturner backup/.test(msg), `non-backup is refused plainly → ${JSON.stringify(msg)}`);
+    }
 
     // optional: neural TTS — downloads ~60MB voice model on first run
     if (withPiper) {

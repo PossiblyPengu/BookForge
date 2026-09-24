@@ -29,6 +29,7 @@ jobs:
 
       - name: Build unsigned app
         run: |
+          set -o pipefail
           cd ios
           xcodebuild \
             -project Pageturner.xcodeproj \
@@ -39,7 +40,35 @@ jobs:
             -skipPackagePluginValidation \
             -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build 2>&1 | tee xcodebuild.log
+
+      # xcodebuild's output is not turned into annotations, so a failed build
+      # otherwise shows up as a bare "exit code 65". Put the diagnostics where
+      # they can be read without downloading anything.
+      - name: Report compiler diagnostics
+        if: always()
+        run: |
+          cd ios
+          {
+            echo "### Swift diagnostics"
+            echo
+            if grep -qE "(error|warning): " xcodebuild.log; then
+              echo '```'
+              grep -E "(error|warning): " xcodebuild.log | sort -u | head -80
+              echo '```'
+            else
+              echo "None."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E "error: " xcodebuild.log | sort -u | head -40 || true
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ios/xcodebuild.log
+          if-no-files-found: warn
 
       - name: Package IPA
         run: |

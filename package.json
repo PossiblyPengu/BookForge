@@ -1,6 +1,7 @@
 {
   "name": "pageturner",
-  "version": "1.0.0",
+  "version": "2.5.0",
+  "build": 40,
   "description": "Convert MP3 chapters into M4B audiobooks",
   "main": "index.js",
   "directories": {
@@ -19,7 +20,10 @@
     "cap:add:android": "npx cap add android",
     "cap:sync": "npx cap sync",
     "cap:open:ios": "npx cap open ios",
-    "cap:open:android": "npx cap open android"
+    "cap:open:android": "npx cap open android",
+    "version": "node scripts/version.js",
+    "version:check": "node scripts/version.js --check",
+    "version:bump": "node scripts/version.js --bump"
   },
   "repository": {
     "type": "git",

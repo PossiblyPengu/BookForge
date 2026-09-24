@@ -7,8 +7,9 @@
  * controls, and persists progress.
  */
 
-import { $, fmtDuration, debounce, listSheet, coverUrl, toast } from "./util.js";
+import { $, fmtDuration, debounce, listSheet, coverUrl, toast, onPageHidden } from "./util.js";
 import { getFile, putBook, kvGet, kvSet } from "./db.js";
+import { registerAudioOwner, claimAudio } from "./audio-focus.js";
 
 const audio = new Audio();
 audio.preload = "auto";
@@ -76,6 +77,7 @@ const updateUI = () => {
   $("player-chapter-name").textContent = ch?.title || "—";
   setIcon("player-play", !audio.paused);
   try { navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing"; } catch { /* noop */ }
+  if (player.book) updatePositionState();
   player.onUpdate?.();
 };
 
@@ -184,8 +186,11 @@ export const openPlayer = async (book, { onClose, onUpdate } = {}) => {
 
 export const closePlayer = async () => {
   audio.pause();
+  // Schedule, then run it now. The old code scheduled the 2s debounce and
+  // cleared player.book immediately after, so the save always bailed out and
+  // the position you stopped at was lost.
   savePos();
-  await new Promise((r) => setTimeout(r, 50));
+  savePos.flush();
   player.urls.forEach((u) => URL.revokeObjectURL(u));
   player.urls = [];
   player.book = null;
@@ -209,10 +214,39 @@ const wireMediaSession = () => {
   const h = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch { /* unsupported */ } };
   h("play", () => audio.play());
   h("pause", () => audio.pause());
-  h("seekbackward", () => skip(-15));
-  h("seekforward", () => skip(30));
+  h("stop", () => closePlayer());
+  h("seekbackward", (d) => skip(-(d?.seekOffset || 15)));
+  h("seekforward", (d) => skip(d?.seekOffset || 30));
   h("previoustrack", () => skipChapter(-1));
   h("nexttrack", () => skipChapter(1));
+  // lock-screen scrubbing — the position is book-wide, not per-file
+  h("seekto", (d) => {
+    if (d?.seekTime == null) return;
+    if (d.fastSeek && audio.fastSeek) {
+      const local = d.seekTime - (player.fileStarts[player.fileIndex] || 0);
+      if (local >= 0 && local <= (audio.duration || 0)) { audio.fastSeek(local); return; }
+    }
+    seekGlobal(d.seekTime);
+  });
+  updatePositionState();
+};
+
+/**
+ * Feed the lock screen the whole book's timeline. Without this there's no
+ * progress bar and nothing to scrub — and the numbers have to be the global
+ * ones, or a multi-file book reports each file as the whole thing.
+ */
+const updatePositionState = () => {
+  if (!navigator.mediaSession?.setPositionState) return;
+  const duration = player.duration || audio.duration || 0;
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  try {
+    navigator.mediaSession.setPositionState({
+      duration,
+      playbackRate: audio.playbackRate || 1,
+      position: Math.min(Math.max(position(), 0), duration),
+    });
+  } catch { /* a position past duration mid-file-switch — next tick fixes it */ }
 };
 
 // chapter picker
@@ -223,7 +257,8 @@ const openChapters = () => {
     sub: fmtDuration(c.globalStart),
     checked: c === cur,
     value: i,
-  })), (i) => seekGlobal(player.chapters[i].globalStart).then(() => audio.play()));
+  })), (i) => seekGlobal(player.chapters[i].globalStart).then(() => audio.play()),
+  { search: true }); // a long audiobook has more chapters than fit on screen
 };
 
 // sleep timer
@@ -283,15 +318,29 @@ export const initPlayer = () => {
   });
 
   audio.addEventListener("timeupdate", () => { updateUI(); savePos(); checkSleep(); });
-  audio.addEventListener("play", updateUI);
+  audio.addEventListener("play", () => { claimAudio("audiobook"); updateUI(); });
   audio.addEventListener("pause", updateUI);
+  audio.addEventListener("ratechange", updatePositionState);
+  // A decode failure or an evicted blob used to just go quiet mid-book.
+  audio.addEventListener("error", () => {
+    if (!player.book) return;
+    const n = player.fileIndex + 1;
+    toast(player.urls.length > 1
+      ? `Couldn’t play part ${n} of ${player.urls.length} — the file may be damaged`
+      : "Couldn’t play this audiobook — the file may be damaged", { error: true, ms: 6000 });
+    updateUI();
+  });
   audio.addEventListener("ended", async () => {
     const next = player.fileIndex + 1;
     if (next < player.urls.length) await loadFile(next, 0, true);
     else { updateUI(); savePos(); }
   });
 
+  registerAudioOwner("audiobook", () => audio.pause());
   if (!sleepInterval) sleepInterval = setInterval(checkSleep, 5000);
+  // losing the last two seconds of an audiobook position is worse than for a
+  // book — it's a spot in a narration, not a page
+  onPageHidden(() => savePos.flush());
 };
 
 export const playerActive = () => !!player.book;

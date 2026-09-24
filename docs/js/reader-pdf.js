@@ -4,7 +4,7 @@
  * when near the viewport and released when far away (iOS memory).
  */
 
-import { debounce, findText } from "./util.js";
+import { debounce, findText, findAllText, excerptAround } from "./util.js";
 
 let pdfjsLib = null;
 const loadPdfjs = async () => {
@@ -261,6 +261,16 @@ export const openPdfReader = async (stage, book, { updateProgressUI, saveProgres
   }, 150);
   strip.addEventListener("scroll", onScroll, { passive: true });
 
+  // A page's canvas is sized from the strip when it renders, and renderPage()
+  // skips anything already rendered — so rotating the device left every
+  // visible page stuck at the old scale. Throw the bitmaps away and redraw.
+  const onResize = debounce(() => {
+    if (!strip.isConnected || !strip.clientWidth) return;
+    for (const p of pages) if (p) clearPage(p);
+    setCurrent(current);
+  }, 200);
+  window.addEventListener("resize", onResize);
+
   // Build page shells for layout, then jump to the saved page
   for (let i = 0; i < total; i++) pageForIndex(i);
   requestAnimationFrame(() => setCurrent(current));
@@ -271,6 +281,29 @@ export const openPdfReader = async (stage, book, { updateProgressUI, saveProgres
     bookmark: () => ({ page: current + 1 }),
     gotoBookmark: (t) => setCurrent((t.page || 1) - 1, { smooth: true }),
     turn: (dir) => setCurrent(current + (dir === "next" ? 1 : -1), { smooth: true }),
+    // Text extraction is the slow part (one worker round-trip per page), so
+    // results stream out page by page and the caller can stop iterating.
+    async *search(query) {
+      let found = 0;
+      for (let i = 0; i < total; i++) {
+        const page = await doc.getPage(i + 1);
+        const tc = await page.getTextContent();
+        const text = tc.items.map((it) => it.str + (it.hasEOL ? "\n" : "")).join("");
+        const hits = findAllText(text, query, 8);
+        if (hits.length) {
+          found += hits.length;
+          yield {
+            label: `Page ${i + 1}`,
+            items: hits.map((h) => ({
+              excerpt: excerptAround(text, h.start, h.end),
+              target: { page: i + 1 },
+            })),
+          };
+        }
+        yield { progress: (i + 1) / total, found };
+      }
+    },
+    goToSearch: (t) => setCurrent((t.page || 1) - 1, { smooth: true }),
     async *textBlocks() {
       const pageIndex = current; // pin the page: scrolling must not retarget mid-read
       const page = await doc.getPage(pageIndex + 1);
@@ -320,6 +353,10 @@ export const openPdfReader = async (stage, book, { updateProgressUI, saveProgres
     },
     // the loading task owns teardown (worker + document) in current pdf.js;
     // PDFDocumentProxy.destroy() is gone, and calling it threw on close
-    destroy: () => { strip.remove(); task.destroy(); },
+    destroy: () => {
+      window.removeEventListener("resize", onResize);
+      strip.remove();
+      task.destroy();
+    },
   };
 };

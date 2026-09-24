@@ -3,12 +3,82 @@
   "name": "Pageturner",
   "short_name": "Pageturner",
   "description": "A private ebook reader and audiobook player — entirely on your device.",
+  "lang": "en",
+  "dir": "ltr",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
   "background_color": "#111110",
   "theme_color": "#f0a040",
-  "categories": ["utilities", "music"],
+  "categories": [
+    "utilities",
+    "music"
+  ],
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "file_handlers": [
+    {
+      "action": "./",
+      "name": "Book or audiobook",
+      "accept": {
+        "application/epub+zip": [
+          ".epub"
+        ],
+        "application/pdf": [
+          ".pdf"
+        ],
+        "application/x-mobipocket-ebook": [
+          ".mobi",
+          ".azw",
+          ".azw3"
+        ],
+        "application/x-fictionbook+xml": [
+          ".fb2",
+          ".fbz"
+        ],
+        "application/vnd.comicbook+zip": [
+          ".cbz"
+        ],
+        "application/vnd.comicbook-rar": [
+          ".cbr"
+        ],
+        "text/plain": [
+          ".txt"
+        ],
+        "text/markdown": [
+          ".md",
+          ".markdown"
+        ],
+        "text/html": [
+          ".html",
+          ".htm"
+        ],
+        "audio/mp4": [
+          ".m4b",
+          ".m4a"
+        ],
+        "audio/mpeg": [
+          ".mp3"
+        ],
+        "audio/flac": [
+          ".flac"
+        ],
+        "audio/ogg": [
+          ".ogg",
+          ".oga",
+          ".opus"
+        ],
+        "audio/wav": [
+          ".wav"
+        ]
+      }
+    }
+  ],
   "share_target": {
     "action": "./",
     "method": "POST",
@@ -17,7 +87,34 @@
       "files": [
         {
           "name": "files",
-          "accept": ["audio/*", ".epub", ".mobi", ".azw", ".azw3", ".kfx", ".fb2", ".fbz", ".cbz", ".cbr", ".pdf", ".txt", ".md", ".markdown", ".html", ".htm", ".zip", ".mp3", ".m4a", ".m4b", ".aac", ".ogg", ".oga", ".opus", ".flac", ".wav"]
+          "accept": [
+            "audio/*",
+            ".epub",
+            ".mobi",
+            ".azw",
+            ".azw3",
+            ".kfx",
+            ".fb2",
+            ".fbz",
+            ".cbz",
+            ".cbr",
+            ".pdf",
+            ".txt",
+            ".md",
+            ".markdown",
+            ".html",
+            ".htm",
+            ".zip",
+            ".mp3",
+            ".m4a",
+            ".m4b",
+            ".aac",
+            ".ogg",
+            ".oga",
+            ".opus",
+            ".flac",
+            ".wav"
+          ]
         }
       ]
     }
@@ -27,7 +124,13 @@
       "name": "Continue Reading",
       "short_name": "Continue",
       "url": "./?continue=1",
-      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ],
   "icons": [

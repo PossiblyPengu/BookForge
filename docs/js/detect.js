@@ -2,11 +2,13 @@
  * detect.js — file format detection.
  *
  * kind: "ebook" (foliate-rendered) | "pdf" | "text" | "audio"
+ *     | "unsupported" (recognised, can't be opened — carries a `reason`)
+ *     | "unknown"
  */
 
 export const AUDIO_EXTS = new Set(["m4b", "m4a", "mp3", "aac", "flac", "ogg", "oga", "opus", "wav"]);
 export const TEXT_EXTS = new Set(["txt", "md", "markdown", "html", "htm"]);
-export const FOLIATE_EXTS = new Set(["epub", "mobi", "azw", "azw3", "fb2", "fbz", "cbz", "kfx"]);
+export const FOLIATE_EXTS = new Set(["epub", "mobi", "azw", "azw3", "fb2", "fbz", "cbz"]);
 
 const ext = (name) => (name.match(/\.([a-z0-9]+)$/i)?.[1] || "").toLowerCase();
 
@@ -43,12 +45,25 @@ const isFb2Xml = async (file) => {
 };
 
 /**
+ * Formats we can name but not open, with the reason to show. Claiming
+ * support and then failing with a generic error is worse than saying why.
+ */
+const UNSUPPORTED = {
+  kfx: "Kindle KFX books are DRM-protected — Pageturner can’t open them.",
+  azw4: "AZW4 is a Kindle PDF wrapper. Import the original PDF instead.",
+};
+
+/**
  * Detect book kind + concrete format label.
- * Returns { kind, format } — format is an uppercase display label.
+ * Returns { kind, format } — format is an uppercase display label. Formats
+ * that are recognised but unopenable come back as kind "unsupported" with a
+ * `reason` the importer surfaces.
  */
 export const detectFormat = async (file) => {
   const e = ext(file.name || "");
 
+  if (UNSUPPORTED[e])
+    return { kind: "unsupported", format: e.toUpperCase(), reason: UNSUPPORTED[e] };
   if (AUDIO_EXTS.has(e) || file.type?.startsWith("audio/"))
     return { kind: "audio", format: (e || "audio").toUpperCase() };
   if (e === "pdf" || (await isPdf(file))) return { kind: "pdf", format: "PDF" };
@@ -59,7 +74,7 @@ export const detectFormat = async (file) => {
   if (e === "cbr" || (await isRar(file))) return { kind: "ebook", format: "CBR" };
   if (e === "fbz") return { kind: "ebook", format: "FBZ" };
   if (e === "fb2" || (await isFb2Xml(file))) return { kind: "ebook", format: "FB2" };
-  if (["mobi", "azw", "azw3", "kfx"].includes(e) || (await isMobi(file)))
+  if (["mobi", "azw", "azw3"].includes(e) || (await isMobi(file)))
     return { kind: "ebook", format: e.toUpperCase() || "MOBI" };
   if (await isZip(file)) {
     // zip container — EPUB or CBZ; let foliate decide, label generically

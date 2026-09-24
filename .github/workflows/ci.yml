@@ -31,6 +31,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Version in sync (PWA + iOS)
+        run: npm run version:check
+
       - name: Test
         run: npm test
 

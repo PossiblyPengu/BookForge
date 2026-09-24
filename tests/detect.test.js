@@ -63,6 +63,22 @@ describe("detectFormat", () => {
     const f = makeFile("data.xyz", new Uint8Array([1, 2, 3, 4, 5]));
     expect((await detectFormat(f)).kind).toBe("unknown");
   });
+
+  // KFX is a DRM container foliate-js can't read. Reporting it as an ebook
+  // meant the import failed with a generic "couldn't import" and no reason.
+  it("flags DRM-locked Kindle formats as unsupported, with a reason", async () => {
+    const d = await detectFormat(makeFile("book.kfx", new Uint8Array(80)));
+    expect(d.kind).toBe("unsupported");
+    expect(d.format).toBe("KFX");
+    expect(d.reason).toMatch(/DRM/i);
+  });
+
+  it("still detects the Kindle formats it can open", async () => {
+    for (const ext of ["mobi", "azw", "azw3"]) {
+      const d = await detectFormat(makeFile(`book.${ext}`, new Uint8Array(80)));
+      expect(d.kind).toBe("ebook");
+    }
+  });
 });
 
 describe("metaMatches", () => {

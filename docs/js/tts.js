@@ -17,6 +17,7 @@
  */
 
 import { $, toast, chunk } from "./util.js";
+import { registerAudioOwner, claimAudio } from "./audio-focus.js";
 import {
   settings, loadSettings, saveSettings, currentEngine, silentWavUrl, web,
 } from "./tts-engines.js";
@@ -161,6 +162,7 @@ export const ttsController = {
     this._meta = meta;
     try {
       // Everything iOS gates on a user gesture happens before the first await.
+      claimAudio("read-aloud"); // an audiobook playing in the background must yield
       const eng = currentEngine();
       if (eng.kind === "speech") eng.unlock();
       else player.unlock();
@@ -517,6 +519,7 @@ export const ttsController = {
       return;
     }
     const session = this._session;
+    claimAudio("read-aloud");
     keepalive.start();
     this._setPlaying(true);
     const clip = this._pausedClip;
@@ -565,6 +568,10 @@ export const ttsController = {
     this.onStateChange?.(false);
   },
 };
+
+// Starting an audiobook pauses read-aloud rather than stopping it, so the
+// sentence it was on survives.
+registerAudioOwner("read-aloud", () => ttsController.pause());
 
 /** Play a clip outside a read-aloud session (voice previews). */
 export const playClip = (blob) => new Promise((resolve) => {

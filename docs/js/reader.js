@@ -2,7 +2,7 @@
  * reader.js — ebook reader host.
  *
  * Dispatches to one of three renderers:
- *   foliate-view  — EPUB, MOBI/AZW3/KFX, FB2/FBZ, CBZ
+ *   foliate-view  — EPUB, MOBI/AZW3, FB2/FBZ, CBZ
  *   pdf renderer  — pdf.js canvases in a swipeable strip
  *   text renderer — TXT/MD/HTML in a styled scroll view
  *
@@ -10,12 +10,16 @@
  * TOC sheet, TTS bar) and persists reading position.
  */
 
-import { $, debounce, openSheet, closeSheet, toast, coverUrl } from "./util.js";
+import {
+  $, debounce, openSheet, closeSheet, isSheetOpen, toast, coverUrl, onPageHidden,
+  copyText,
+} from "./util.js";
 import { getFile, putBook, kvGet, kvSet } from "./db.js";
 import { openTextReader } from "./reader-text.js";
 import { openPdfReader } from "./reader-pdf.js";
 import { cbrToCbz } from "./cbr.js";
 import { Overlayer } from "../vendor/foliate/overlayer.js";
+import { FootnoteHandler } from "../vendor/foliate/footnotes.js";
 import { foliateTts } from "./tts-foliate.js";
 import { ttsController } from "./tts.js";
 import { pickTtsSleep } from "./tts-voices.js";
@@ -138,6 +142,9 @@ const saveProgress = debounce(async () => {
 }, 1200);
 
 let lastStatus = { chapter: "", page: "", left: "" };
+// where the progress slider is being dragged to, before it's committed —
+// the reader mustn't fight the thumb by writing its own position back
+let sliderPreview = null;
 
 /**
  * Where the reader is, for the bars and the quiet status line.
@@ -146,8 +153,10 @@ let lastStatus = { chapter: "", page: "", left: "" };
  */
 const updateProgressUI = (fraction, label, status = null) => {
   const pct = `${Math.round((fraction || 0) * 100)}%`;
-  $("reader-slider").value = Math.round((fraction || 0) * 1000);
-  $("reader-pct").textContent = status?.page ? `${status.page} · ${pct}` : pct;
+  if (sliderPreview == null) {
+    $("reader-slider").value = Math.round((fraction || 0) * 1000);
+    $("reader-pct").textContent = status?.page ? `${status.page} · ${pct}` : pct;
+  }
   $("reader-loc-label").textContent = label || "";
   lastStatus = status || { chapter: "", page: label || "", left: pct };
   $("reader-chapter").textContent = lastStatus.chapter || "";
@@ -188,7 +197,10 @@ const openFoliate = async (book, file) => {
   // the chrome is kept clear by the view's own inset (main.css), so the
   // paginator only needs a little breathing room above and below the text
   view.renderer?.setAttribute("margin", "16px");
-  await view.init({ lastLocation: book.progress?.cfi || null });
+  // NB: every listener below has to be attached before view.init(), which
+  // renders the opening section and fires its "load" synchronously. Wiring
+  // them afterwards left that one section with no tap handling, no key
+  // handling, no text selection and no saved highlights.
   // Comics are all images — nothing for read-aloud to find, and trying
   // would just page through the book in silence.
   const comic = book.format === "CBZ" || book.format === "CBR";
@@ -202,10 +214,35 @@ const openFoliate = async (book, file) => {
     ...foliateTts(view),
     bookmark: () => ({ cfi: view.lastLocation?.cfi }),
     gotoBookmark: (t) => view.goTo(t.cfi),
+    // foliate scans section by section and draws its own match annotations;
+    // normalise its {pre,match,post} excerpts onto the shape the other
+    // renderers produce so the results list only knows one format.
+    async *search(query) {
+      let found = 0;
+      for await (const r of view.search({ query })) {
+        if (r === "done") return;
+        if (r.subitems) {
+          found += r.subitems.length;
+          yield {
+            label: (r.label || "").trim(),
+            items: r.subitems.map((s) => ({
+              excerpt: { before: s.excerpt?.pre || "", match: s.excerpt?.match || "", after: s.excerpt?.post || "" },
+              target: { cfi: s.cfi },
+            })),
+          };
+        } else if (r.progress != null) {
+          yield { progress: r.progress, found };
+        }
+      }
+    },
+    goToSearch: (t) => view.goTo(t.cfi),
+    clearSearch: () => view.clearSearch(),
     destroy: () => { view.remove(); view = null; },
     setFlow: true,
   };
   if (comic) delete renderer.textBlocks;
+  // nothing to search in a book that is only page images
+  if (comic) { delete renderer.search; delete renderer.goToSearch; delete renderer.clearSearch; }
 
   view.addEventListener("relocate", (e) => {
     const { fraction, tocItem } = e.detail;
@@ -220,48 +257,170 @@ const openFoliate = async (book, file) => {
     const { reason } = e.detail || {};
     if (reason === "snap" || reason === "page" || reason === "scroll") userMoved();
   });
-  // draw user annotations as soft highlights
-  view.addEventListener("draw-annotation", (e) =>
-    e.detail.draw(Overlayer.highlight, { color: "#e8c46a", padding: 1 }));
+  // draw user annotations as soft highlights, search hits in a cooler tint so
+  // the two don't read as the same thing
+  view.addEventListener("draw-annotation", (e) => {
+    const isHit = String(e.detail.annotation?.value || "").startsWith("foliate-search:");
+    e.detail.draw(Overlayer.highlight, { color: isHit ? "#6aa9e8" : "#e8c46a", padding: 1 });
+  });
   // tapping an existing highlight offers removal
   view.addEventListener("show-annotation", (e) => {
     const { value } = e.detail;
-    showChip("Remove highlight", e.detail.range, async () => {
-      await view.deleteAnnotation({ value });
-      activeBook.highlights = (activeBook.highlights || []).filter((h) => h.value !== value);
-      await putBook(activeBook);
-      toast("Highlight removed");
-    });
+    const saved = (activeBook?.highlights || []).find((h) => h.value === value);
+    showChip([
+      saved?.text && {
+        label: "Copy",
+        onTap: async () => {
+          const ok = await copyText(quoteOf(saved.text));
+          toast(ok ? "Copied" : "Couldn’t copy", { error: !ok });
+        },
+      },
+      {
+        label: "Remove",
+        onTap: async () => {
+          await view.deleteAnnotation({ value });
+          activeBook.highlights = (activeBook.highlights || []).filter((h) => h.value !== value);
+          await putBook(activeBook);
+          toast("Highlight removed");
+        },
+      },
+    ], e.detail.range);
   });
+  wireLinks();
   view.addEventListener("load", (e) => {
     const { doc, index } = e.detail;
     if (!doc) return;
     markFlowText(doc);
     doc.addEventListener("click", (ev) => zoneTap(ev, doc));
+    doc.addEventListener("keydown", readerKey);
     wireSelection(doc, index);
     // re-apply saved highlights whenever a section (re)loads
     for (const h of activeBook?.highlights || []) view.addAnnotation(h).catch(() => {});
   });
+
+  // everything is listening — now render
+  await view.init({ lastLocation: book.progress?.cfi || null });
   applyStyles();
   return renderer;
+};
+
+// ---------------------------------------------------------------------------
+// Links: footnotes in a popover, and a way back from every other jump
+// ---------------------------------------------------------------------------
+
+// Following a footnote used to land you in the endnotes with no back button
+// anywhere in the reader. Notes now open in place; anything else that jumps
+// leaves a "Back" chip behind.
+let jumpBack = null;
+
+const showJumpBack = (cfi) => {
+  if (!cfi) return;
+  jumpBack = cfi;
+  const btn = $("reader-back");
+  btn.hidden = false;
+};
+
+const clearJumpBack = () => {
+  jumpBack = null;
+  const btn = $("reader-back");
+  if (btn) btn.hidden = true;
+};
+
+/** Remember where we are, then run a jump that the reader may want undone. */
+export const jumpFrom = (go) => {
+  const from = view?.lastLocation?.cfi || activeRenderer?.bookmark?.()?.cfi || null;
+  const r = go();
+  if (from) showJumpBack(from);
+  return r;
+};
+
+const noteHandler = new FootnoteHandler();
+
+// The note renders into its own <foliate-view>, which the handler creates
+// detached. It has to be in the document *before* the render pass or the
+// paginator never gets a layout and the load event never fires — that's what
+// before-render is for.
+noteHandler.addEventListener("before-render", (e) => {
+  const v = e.detail.view;
+  const body = $("note-body");
+  body.textContent = "";
+  body.appendChild(v);
+  $("note-kind").textContent = "Note";
+  $("note-goto").hidden = true;
+  openSheet("sheet-note");
+  // a short fragment in a small box wants scrolling, not pagination
+  v.renderer?.setAttribute?.("flow", "scrolled");
+  v.renderer?.setAttribute?.("gap", "4%");
+  v.renderer?.setStyles?.(bookCss());
+});
+
+noteHandler.addEventListener("render", (e) => {
+  const { view: noteView, href, type } = e.detail;
+  noteView.renderer?.setAttribute?.("flow", "scrolled");
+  noteView.renderer?.setStyles?.(bookCss());
+  $("note-kind").textContent = {
+    footnote: "Footnote", endnote: "Endnote", note: "Note",
+    biblioentry: "Reference", definition: "Definition",
+  }[type] || "Note";
+  // the popover is for reading in place; this is the escape hatch to the
+  // full note, and it leaves a way back
+  $("note-goto").hidden = false;
+  $("note-goto").onclick = () => {
+    closeSheet();
+    jumpFrom(() => view?.goTo(href));
+  };
+});
+
+const wireLinks = () => {
+  view.addEventListener("link", (e) => {
+    const { href } = e.detail;
+    const handled = noteHandler.handle(view.book, e);
+    if (handled) {
+      // handle() already cancelled the navigation; if rendering the note
+      // fails, fall back to going there rather than swallowing the tap
+      handled.catch((err) => {
+        console.warn("footnote render failed", err);
+        jumpFrom(() => view.goTo(href));
+      });
+      return;
+    }
+    // a plain cross-reference: foliate navigates, we leave a way back
+    showJumpBack(view.lastLocation?.cfi || null);
+  });
+  view.addEventListener("external-link", (e) => {
+    // let it through to a new tab, but don't let a book navigate the app away
+    e.preventDefault();
+    window.open(e.detail.href, "_blank", "noopener");
+  });
 };
 
 // ---------- selection → highlight chip (foliate docs) ----------
 let selChip = null;
 const killChip = () => { selChip?.remove(); selChip = null; };
 
-const showChip = (label, range, onTap) => {
+/**
+ * Float a small action bar over `range`. `actions` is [{ label, onTap }] —
+ * a selection offers more than one thing to do with it, so this is a row of
+ * buttons rather than the single button it started as.
+ */
+const showChip = (actions, range) => {
   const rect = [...(range?.getClientRects?.() || [])].pop();
   killChip();
   if (!rect) return;
   const doc = range.startContainer?.ownerDocument;
   const frect = doc?.defaultView?.frameElement?.getBoundingClientRect() || { left: 0, top: 0 };
-  selChip = document.createElement("button");
+  selChip = document.createElement("div");
   selChip.className = "sel-chip";
-  selChip.textContent = label;
   selChip.style.left = `${frect.left + rect.left + rect.width / 2}px`;
   selChip.style.top = `${Math.max(8, frect.top + rect.top - 46)}px`;
-  selChip.addEventListener("click", async () => { killChip(); await onTap(); });
+  for (const { label, onTap } of actions.filter(Boolean)) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sel-chip-btn";
+    btn.textContent = label;
+    btn.addEventListener("click", async () => { killChip(); await onTap(); });
+    selChip.appendChild(btn);
+  }
   document.body.appendChild(selChip);
 };
 
@@ -270,18 +429,48 @@ const wireSelection = (doc, index) => {
     const sel = doc.getSelection?.();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
     const range = sel.getRangeAt(0);
-    showChip("Highlight", range, async () => {
-      const cfi = view.getCFI(index, range);
-      const text = sel.toString().trim().slice(0, 300);
-      activeBook.highlights = [...(activeBook.highlights || []), { value: cfi, text, at: Date.now() }];
-      await putBook(activeBook);
-      await view.addAnnotation({ value: cfi });
-      sel.removeAllRanges();
-      toast("Highlighted");
-    });
+    const text = sel.toString().trim();
+    const clear = () => sel.removeAllRanges();
+    showChip([
+      {
+        label: "Highlight",
+        onTap: async () => {
+          const cfi = view.getCFI(index, range);
+          activeBook.highlights = [
+            ...(activeBook.highlights || []),
+            { value: cfi, text: text.slice(0, 300), at: Date.now() },
+          ];
+          await putBook(activeBook);
+          await view.addAnnotation({ value: cfi });
+          clear();
+          toast("Highlighted");
+        },
+      },
+      {
+        label: "Copy",
+        onTap: async () => {
+          const ok = await copyText(quoteOf(text));
+          clear();
+          toast(ok ? "Copied" : "Couldn’t copy", { error: !ok });
+        },
+      },
+      navigator.share && {
+        label: "Share",
+        onTap: async () => {
+          try { await navigator.share({ text: quoteOf(text) }); } catch { /* cancelled */ }
+          clear();
+        },
+      },
+    ], range);
   };
   doc.addEventListener("mouseup", () => setTimeout(check, 10));
   doc.addEventListener("touchend", () => setTimeout(check, 300));
+};
+
+/** A copied passage is more use with the book it came from attached. */
+const quoteOf = (text) => {
+  const by = [activeBook?.title, activeBook?.author].filter(Boolean).join(" — ");
+  return by ? `${text}\n\n— ${by}` : text;
 };
 
 // Touch screens turn pages by swiping (the paginator's own drag-and-snap);
@@ -322,6 +511,48 @@ const turn = (dir) => {
 
 const toggleChrome = () => $("view-reader").classList.toggle("chrome-hidden");
 
+// ---------- keyboard ----------
+// Foliate renders each section in its own iframe and doesn't forward key
+// events, so this is bound to the host document *and* to every section
+// document as it loads — otherwise the arrow keys die as soon as the reader
+// takes focus.
+const readerKey = (e) => {
+  if ($("view-reader").hidden) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const target = e.target;
+  const typing = target?.matches?.("input, textarea, select, [contenteditable]");
+
+  if (e.key === "Escape") {
+    if (isSheetOpen()) closeSheet();
+    else if (!typing) closeReader();
+    return;
+  }
+  if (typing || isSheetOpen()) return;
+
+  const act = {
+    ArrowRight: () => turn("next"),
+    ArrowDown: () => turn("next"),
+    PageDown: () => turn("next"),
+    ArrowLeft: () => turn("prev"),
+    ArrowUp: () => turn("prev"),
+    PageUp: () => turn("prev"),
+    " ": () => turn("next"),
+    f: () => openContents("search"),
+    "/": () => openContents("search"),
+    t: () => openContents("toc"),
+    c: () => openContents("toc"),
+    b: () => toggleBookmark(),
+    "+": () => stepFontSize(10),
+    "=": () => stepFontSize(10),
+    "-": () => stepFontSize(-10),
+  }[e.key];
+  if (!act) return;
+  // let the space bar and +/- reach a focused control rather than hijacking it
+  if (target?.closest?.("button, a, [role=button]")) return;
+  e.preventDefault();
+  act();
+};
+
 // ---------------------------------------------------------------------------
 // Open / close
 // ---------------------------------------------------------------------------
@@ -331,6 +562,12 @@ export const openReader = async (book, hooks = {}) => {
   activeBook = book;
   book.lastOpenedAt = Date.now();
   await putBook(book);
+
+  resetSearch();
+  searchQuery = "";
+  clearJumpBack();
+  $("contents-search").value = "";
+  if (contentsTab === "search") contentsTab = "toc";
 
   $("reader-title").textContent = book.title;
   applyStyles(); // theme the chrome before the book appears
@@ -369,6 +606,9 @@ export const openReader = async (book, hooks = {}) => {
 export const closeReader = async () => {
   ttsController.stop();
   killChip();
+  resetSearch();
+  searchQuery = "";
+  clearJumpBack();
   const p = activeRenderer?.getProgress?.();
   if (activeBook && p) { activeBook.progress = p; await putBook(activeBook); }
   if (activeRenderer?.destroy) activeRenderer.destroy();
@@ -489,11 +729,159 @@ const contentsRow = ({ title, sub, quote, current, depth = 0, onPick, onDelete, 
   return row;
 };
 
+// ---------- in-book search ----------
+// One scan at a time: `searchRun` is bumped on every new query, on tab
+// changes and on close, so a scan still walking a 600-page book notices it
+// has been superseded and stops appending.
+// Searching a common word can match thousands of times; stop collecting
+// past this and say so, rather than building a list nobody can scroll.
+const MAX_HITS = 400;
+
+let searchQuery = "";
+let searchRun = 0;
+let searchGroups = [];
+let searchHits = 0;
+let searchProgress = 0;
+let searchDone = false;
+let searchTruncated = false;
+
+const resetSearch = () => {
+  searchRun++;
+  searchGroups = [];
+  searchHits = 0;
+  searchProgress = 0;
+  searchDone = false;
+  searchTruncated = false;
+};
+
+const searchable = () => typeof activeRenderer?.search === "function";
+
+const searchStatusText = () => {
+  if (!searchable()) return "This format can’t be searched.";
+  if (searchQuery.trim().length < 2) return "Type at least two characters.";
+  if (!searchDone) return `Searching… ${searchHits} found`;
+  if (!searchHits) return `No matches for “${searchQuery.trim()}”.`;
+  return searchTruncated
+    ? `First ${searchHits} results — narrow the search for more`
+    : `${searchHits} result${searchHits === 1 ? "" : "s"}`;
+};
+
+const updateSearchStatus = () => {
+  const el = $("contents-search-status");
+  if (!el) return;
+  el.textContent = searchStatusText();
+  const bar = $("contents-search-bar");
+  if (bar) {
+    bar.hidden = searchDone || !searchable() || searchQuery.trim().length < 2;
+    bar.firstChild.style.width = `${Math.round(searchProgress * 100)}%`;
+  }
+};
+
+const searchGroupEl = (group) => {
+  const frag = document.createDocumentFragment();
+  if (group.label) {
+    const h = document.createElement("p");
+    h.className = "contents-group";
+    h.textContent = group.label;
+    frag.appendChild(h);
+  }
+  for (const hit of group.items) {
+    const row = document.createElement("div");
+    row.className = "contents-row";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "contents-item";
+    const text = document.createElement("span");
+    text.className = "ci-text";
+    const q = document.createElement("div");
+    q.className = "ci-hit";
+    // built from text nodes, never innerHTML — this is book content
+    q.append(
+      document.createTextNode(hit.excerpt.before),
+      Object.assign(document.createElement("mark"), { textContent: hit.excerpt.match }),
+      document.createTextNode(hit.excerpt.after),
+    );
+    text.appendChild(q);
+    btn.appendChild(text);
+    btn.addEventListener("click", () => {
+      closeSheet();
+      userMoved();
+      jumpFrom(() => activeRenderer?.goToSearch?.(hit.target));
+    });
+    row.appendChild(btn);
+    frag.appendChild(row);
+  }
+  return frag;
+};
+
+const runSearch = async (q) => {
+  resetSearch();
+  activeRenderer?.clearSearch?.();
+  searchQuery = q;
+  const run = searchRun;
+  if (contentsTab === "search") renderContents();
+  if (!searchable() || q.trim().length < 2) return;
+
+  try {
+    for await (const r of activeRenderer.search(q)) {
+      if (run !== searchRun) return;
+      if (r.progress != null) searchProgress = r.progress;
+      if (r.items?.length) {
+        const room = MAX_HITS - searchHits;
+        const group = r.items.length > room ? { ...r, items: r.items.slice(0, room) } : r;
+        if (group.items.length < r.items.length) searchTruncated = true;
+        searchGroups.push(group);
+        searchHits += group.items.length;
+        // append rather than re-render: a page-by-page scan would otherwise
+        // rebuild the whole list once per page
+        $("contents-results")?.appendChild(searchGroupEl(group));
+      }
+      updateSearchStatus();
+      if (searchHits >= MAX_HITS) { searchTruncated = true; break; }
+    }
+  } catch (err) {
+    console.warn("in-book search failed", err);
+  }
+  if (run !== searchRun) return;
+  searchDone = true;
+  searchProgress = 1;
+  updateSearchStatus();
+};
+
+const renderSearchTab = (list) => {
+  const status = document.createElement("p");
+  status.className = "contents-search-status";
+  status.id = "contents-search-status";
+  status.setAttribute("role", "status");
+  list.appendChild(status);
+
+  const bar = document.createElement("div");
+  bar.className = "contents-search-progress";
+  bar.id = "contents-search-bar";
+  bar.appendChild(document.createElement("i"));
+  list.appendChild(bar);
+
+  const results = document.createElement("div");
+  results.id = "contents-results";
+  for (const g of searchGroups) results.appendChild(searchGroupEl(g));
+  list.appendChild(results);
+  updateSearchStatus();
+};
+
 const renderContents = () => {
   const list = $("contents-list");
   list.textContent = "";
-  for (const b of $("contents-tabs").querySelectorAll("button"))
-    b.classList.toggle("active", b.dataset.val === contentsTab);
+  for (const b of $("contents-tabs").querySelectorAll("button")) {
+    const on = b.dataset.val === contentsTab;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  }
+  const searchTab = contentsTab === "search";
+  $("contents-search-wrap").hidden = !searchTab;
+  if (searchTab) {
+    renderSearchTab(list);
+    return;
+  }
   const empty = (msg) => {
     const p = document.createElement("p");
     p.className = "contents-empty";
@@ -556,12 +944,29 @@ const renderContents = () => {
   }
 };
 
-const openContents = () => {
+const openContents = (tab = null) => {
+  // a format with no searchable text shouldn't offer a dead tab
+  $("contents-tabs").querySelector('[data-val="search"]').hidden = !searchable();
+  if (tab) contentsTab = tab;
+  if (contentsTab === "search" && !searchable()) contentsTab = "toc";
   // books without a table of contents open on bookmarks
   if (contentsTab === "toc" && !tocEntries().length) contentsTab = "bookmarks";
   renderContents();
   openSheet("sheet-contents");
+  if (contentsTab === "search") $("contents-search").focus();
 };
+
+// applyStyles() reflects the new value into the Aa sheet's readout
+const stepFontSize = (d) => {
+  readerSettings.fontSize = Math.min(250, Math.max(60, readerSettings.fontSize + d));
+  applyStyles();
+  saveReaderSettings();
+  afterReflow();
+};
+
+// Restyling reflows the page; renderers that measure in pixels need to put
+// the reader back where they were. Foliate handles this itself.
+const afterReflow = () => requestAnimationFrame(() => activeRenderer?.reflow?.());
 
 const initAppearance = () => {
   const seg = (id, key) => {
@@ -572,6 +977,7 @@ const initAppearance = () => {
       b.addEventListener("click", () => {
         readerSettings[key] = b.dataset.val;
         applyStyles(); saveReaderSettings(); setActive();
+        afterReflow();
       }));
     setActive();
   };
@@ -581,14 +987,25 @@ const initAppearance = () => {
   seg("reader-margin-seg", "margin");
   seg("reader-align-seg", "align");
   seg("reader-flow-seg", "flow");
-  const size = (d) => {
-    readerSettings.fontSize = Math.min(250, Math.max(60, readerSettings.fontSize + d));
-    applyStyles(); saveReaderSettings();
-  };
-  $("font-minus").addEventListener("click", () => size(-10));
-  $("font-plus").addEventListener("click", () => size(10));
+  $("font-minus").addEventListener("click", () => stepFontSize(-10));
+  $("font-plus").addEventListener("click", () => stepFontSize(10));
   for (const b of $("contents-tabs").querySelectorAll("button"))
-    b.addEventListener("click", () => { contentsTab = b.dataset.val; renderContents(); });
+    b.addEventListener("click", () => {
+      contentsTab = b.dataset.val;
+      renderContents();
+      if (contentsTab === "search") $("contents-search").focus();
+    });
+
+  const searchInput = $("contents-search");
+  const fire = debounce(() => runSearch(searchInput.value), 350);
+  searchInput.addEventListener("input", () => {
+    // clearing the box should drop the drawn match highlights straight away
+    if (!searchInput.value.trim()) { resetSearch(); searchQuery = ""; activeRenderer?.clearSearch?.(); renderContents(); return; }
+    fire();
+  });
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); runSearch(searchInput.value); }
+  });
 };
 
 // read-aloud speed, cycled from the mini player
@@ -610,14 +1027,34 @@ const cycleRate = () => {
 export const initReader = async () => {
   await loadReaderSettings();
   initAppearance();
+  // iOS discards backgrounded web apps, so don't leave the page you're on
+  // sitting in a 1.2s debounce
+  onPageHidden(() => saveProgress.flush());
+  document.addEventListener("keydown", readerKey);
   $("reader-close").addEventListener("click", closeReader);
-  $("reader-toc-btn").addEventListener("click", openContents);
+  $("reader-back").addEventListener("click", () => {
+    const to = jumpBack;
+    clearJumpBack();
+    if (to) { userMoved(); view?.goTo(to); }
+  });
+  $("reader-toc-btn").addEventListener("click", () => openContents());
   $("reader-aa-btn").addEventListener("click", () => openSheet("sheet-appearance"));
-  $("reader-slider").addEventListener("input", (e) => {
-    const frac = e.target.value / 1000;
+  // Dragging used to seek on every input event — for an EPUB that's a section
+  // load per pixel of travel. Show where you'd land, and only go on release.
+  const slider = $("reader-slider");
+  const seekTo = (frac) => {
     userMoved();
     if (view) view.goToFraction(frac);
     else activeRenderer?.seekFraction?.(frac);
+  };
+  slider.addEventListener("input", () => {
+    sliderPreview = slider.value / 1000;
+    $("reader-pct").textContent = `${Math.round(sliderPreview * 100)}%`;
+  });
+  slider.addEventListener("change", () => {
+    const frac = sliderPreview ?? slider.value / 1000;
+    sliderPreview = null;
+    seekTo(frac);
   });
   // stage taps outside foliate docs (margins) toggle chrome
   $("reader-stage").addEventListener("click", (e) => {

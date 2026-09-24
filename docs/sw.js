@@ -1,6 +1,6 @@
 
-const CACHE_NAME = 'pageturner-cache-v35';
-const RUNTIME_CACHE = 'pageturner-runtime-v35';
+const CACHE_NAME = 'pageturner-cache-v40';
+const RUNTIME_CACHE = 'pageturner-runtime-v40';
 const APP_SHELL = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const APP_SHELL = [
   './icon.svg',
   './css/main.css',
   './js/app.js',
+  './js/audio-focus.js',
   './js/backup.js',
   './js/book-parser.js',
   './js/cbr.js',
@@ -26,6 +27,8 @@ const APP_SHELL = [
   './js/tts-foliate.js',
   './js/tts-voices.js',
   './js/util.js',
+  './js/version.js',
+  './js/zip.js',
   './vendor/foliate/view.js',
   './vendor/foliate/paginator.js',
   './vendor/foliate/epub.js',

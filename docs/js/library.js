@@ -3,10 +3,13 @@
  * metadata search + manual edit.
  */
 
-import { $, toast, openSheet, closeSheet, listSheet, coverUrl, dropCoverUrl, fmtBytes } from "./util.js";
-import { allBooks, putBook, deleteBook, kvGet, kvSet } from "./db.js";
+import {
+  $, toast, openSheet, closeSheet, listSheet, coverUrl, dropCoverUrl, fmtBytes,
+  fmtDuration,
+} from "./util.js";
+import { allBooks, getBook, putBook, deleteBook, kvGet, kvSet } from "./db.js";
 import { importFiles } from "./importer.js";
-import { searchMetadata, fetchCoverBlob } from "./metadata.js";
+import { searchMetadata, fetchCoverBlob, metaMatches } from "./metadata.js";
 import { detectSeries } from "./book-parser.js";
 
 let onOpenBook = () => {};
@@ -22,6 +25,10 @@ export const initLibrary = async (openBook) => {
 let books = [];
 let query = "";
 let sortMode = "recent";
+
+// selection mode: ids ticked for a bulk action
+let selecting = false;
+const selected = new Set();
 
 const SORTS = {
   recent: { title: "Recently opened", cmp: (a, b) => (b.lastOpenedAt || b.addedAt) - (a.lastOpenedAt || a.addedAt) },
@@ -58,16 +65,83 @@ const GLYPH_BOOK =
 const GLYPH_AUDIO =
   '<svg class="cover-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
 
+// ---------------------------------------------------------------------------
+// "Continue reading" — one tap back into the book you were last in
+// ---------------------------------------------------------------------------
+
+/** The book to offer resuming: most recently opened, started but not finished. */
+const continueBook = () =>
+  books
+    .filter((b) => b.lastOpenedAt && (b.progress?.fraction || 0) > 0.005
+      && (b.progress?.fraction || 0) < 0.995)
+    .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt)[0] || null;
+
+const renderContinue = () => {
+  const card = $("continue-card");
+  // it's a shortcut back to one book, so it only gets in the way while
+  // someone is searching, or is ticking books for a bulk action
+  const book = (query.trim() || selecting) ? null : continueBook();
+  card.hidden = !book;
+  if (!book) return;
+
+  const audio = book.kind === "audio";
+  $("continue-kicker").textContent = audio ? "Continue listening" : "Continue reading";
+  $("continue-title").textContent = book.title;
+
+  const pct = Math.round((book.progress.fraction || 0) * 100);
+  const total = book.audio?.durationSec || 0;
+  const left = audio && total
+    ? `${fmtDuration(Math.max(0, total - (book.progress.positionSec || 0)))} left`
+    : null;
+  $("continue-sub").textContent =
+    [book.author, left || `${pct}%`].filter(Boolean).join(" · ");
+  $("continue-fill").style.width = `${pct}%`;
+
+  const cover = $("continue-cover");
+  cover.textContent = "";
+  const url = coverUrl(book);
+  if (url) {
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = "";
+    cover.appendChild(img);
+  } else {
+    cover.innerHTML = audio ? GLYPH_AUDIO : GLYPH_BOOK;
+  }
+  card.setAttribute("aria-label",
+    `${audio ? "Continue listening to" : "Continue reading"} ${book.title}, ${pct} percent through`);
+};
+
+/**
+ * The book "Continue reading" resumes — also used by the manifest's
+ * "Continue Reading" app shortcut, so the two can't disagree. Falls back to
+ * the most recent book when nothing has been started yet.
+ */
+export const resumeBook = async () => {
+  if (!books.length) books = await allBooks();
+  return continueBook() || books[0] || null;
+};
+
+export const initContinue = () => {
+  $("continue-card").addEventListener("click", () => {
+    const book = continueBook();
+    if (book) onOpenBook(book);
+  });
+};
+
 const renderGrid = () => {
   const grid = $("library-grid");
   const empty = $("library-empty");
   grid.textContent = "";
   empty.hidden = books.length > 0;
+  renderContinue();
+  grid.classList.toggle("selecting", selecting);
   for (const book of applyView()) {
     const card = document.createElement("button");
     card.type = "button";
-    card.className = "book-card";
+    card.className = "book-card" + (selected.has(book.id) ? " selected" : "");
     card.dataset.id = book.id;
+    if (selecting) card.setAttribute("aria-pressed", selected.has(book.id) ? "true" : "false");
 
     const cover = document.createElement("div");
     cover.className = "book-cover";
@@ -101,6 +175,12 @@ const renderGrid = () => {
       bar.appendChild(fill);
       cover.appendChild(bar);
     }
+    if (selecting) {
+      const tick = document.createElement("span");
+      tick.className = "book-tick";
+      tick.textContent = "✓";
+      cover.appendChild(tick);
+    }
     card.appendChild(cover);
 
     const t = document.createElement("div");
@@ -112,10 +192,134 @@ const renderGrid = () => {
     a.textContent = book.author || "Unknown author";
     card.appendChild(a);
 
-    card.addEventListener("click", () => openDetail(book.id));
+    card.addEventListener("click", () => {
+      if (selecting) toggleSelected(book.id);
+      else openDetail(book.id);
+    });
     grid.appendChild(card);
   }
 };
+
+// ---------------------------------------------------------------------------
+// Selection mode — bulk delete and bulk metadata
+// ---------------------------------------------------------------------------
+
+const visibleIds = () => applyView().map((b) => b.id);
+
+const syncSelectUI = () => {
+  const n = selected.size;
+  $("library-nav-title").textContent = selecting
+    ? (n ? `${n} selected` : "Select books")
+    : "Library";
+  $("select-bar").hidden = !selecting;
+  $("select-done").hidden = !selecting;
+  for (const id of ["select-btn", "sort-btn", "import-btn"]) $(id).hidden = selecting;
+  $("select-delete").disabled = !n;
+  $("select-meta").disabled = !n;
+  $("select-delete").textContent = n ? `Delete ${n}` : "Delete";
+  const all = visibleIds();
+  $("select-all").textContent =
+    all.length && all.every((id) => selected.has(id)) ? "Select none" : "Select all";
+};
+
+const toggleSelected = (id) => {
+  if (selected.has(id)) selected.delete(id);
+  else selected.add(id);
+  renderGrid();
+  syncSelectUI();
+};
+
+const setSelecting = (on) => {
+  selecting = on;
+  selected.clear();
+  $("app").classList.toggle("selecting", on);
+  renderGrid();
+  syncSelectUI();
+};
+
+const bulkDelete = () => {
+  const ids = [...selected];
+  const targets = books.filter((b) => ids.includes(b.id));
+  if (!targets.length) return;
+  listSheet(
+    `Delete ${targets.length} item${targets.length === 1 ? "" : "s"}?`,
+    [{ title: `Delete ${targets.length}`, value: true }],
+    async () => {
+      showImporting(`Deleting ${targets.length}…`);
+      try {
+        for (const b of targets) {
+          await deleteBook(b.id);
+          dropCoverUrl(b.id);
+        }
+      } finally {
+        hideImporting();
+      }
+      setSelecting(false);
+      await refreshLibrary();
+      toast(`Deleted ${targets.length} item${targets.length === 1 ? "" : "s"}`);
+    },
+    { note: targets.length <= 6 ? targets.map((b) => b.title).join(" · ") : "This can't be undone." },
+  );
+};
+
+/**
+ * Look up metadata for every selected book, applying only confident matches.
+ * The single-book flow asks which edition; across a batch that would mean one
+ * question per book, so this takes the unambiguous ones and reports the rest.
+ */
+const bulkMetadata = async () => {
+  const targets = books.filter((b) => selected.has(b.id));
+  if (!targets.length) return;
+  setSelecting(false);
+  let fixed = 0;
+  let missed = 0;
+  try {
+    for (let i = 0; i < targets.length; i++) {
+      showImporting(`Looking up metadata… ${i + 1} of ${targets.length}`);
+      const book = targets[i];
+      const cands = await searchMetadata(book.title, book.author).catch(() => []);
+      const match = cands.find((c) => metaMatches(c, book));
+      if (!match) { missed++; continue; }
+      const cur = (await getBook(book.id)) || book;
+      if (!cur.coverBlob && match.cover)
+        cur.coverBlob = (await fetchCoverBlob(match.cover)) || cur.coverBlob;
+      if (match.author) cur.author = match.author;
+      if (match.title) cur.title = match.title;
+      if (!cur.year && match.year) cur.year = match.year;
+      if (!cur.desc && match.desc) cur.desc = match.desc;
+      cur.identifiers = { ...(cur.identifiers || {}), ...match.identifiers };
+      cur.metaSource = match.source;
+      cur.needsMeta = false;
+      await putBook(cur);
+      dropCoverUrl(cur.id);
+      fixed++;
+    }
+  } finally {
+    hideImporting();
+  }
+  await refreshLibrary();
+  toast(missed
+    ? `Updated ${fixed}, no confident match for ${missed}`
+    : `Updated ${fixed} book${fixed === 1 ? "" : "s"}`, { ms: 5000 });
+};
+
+export const initSelect = () => {
+  $("select-btn").addEventListener("click", () => setSelecting(true));
+  $("select-done").addEventListener("click", () => setSelecting(false));
+  $("select-delete").addEventListener("click", bulkDelete);
+  $("select-meta").addEventListener("click", bulkMetadata);
+  $("select-all").addEventListener("click", () => {
+    const all = visibleIds();
+    if (all.every((id) => selected.has(id))) selected.clear();
+    else for (const id of all) selected.add(id);
+    renderGrid();
+    syncSelectUI();
+  });
+  syncSelectUI();
+};
+
+/** True while the library is in selection mode (app.js suppresses tab keys). */
+export const isSelecting = () => selecting;
 
 // ---------------------------------------------------------------------------
 // Import
@@ -145,6 +349,24 @@ export const doImport = async (fileList) => {
   } finally {
     hideImporting();
   }
+};
+
+/**
+ * File Handling API: when the installed app is the OS handler for a book
+ * (manifest `file_handlers`), the files arrive here rather than as a share.
+ * launch_handler is "focus-existing", so this can fire long after boot.
+ */
+export const wireFileHandler = () => {
+  if (!("launchQueue" in window)) return;
+  window.launchQueue.setConsumer(async (params) => {
+    if (!params?.files?.length) return;
+    const files = [];
+    for (const handle of params.files) {
+      const file = await handle.getFile?.().catch(() => null);
+      if (file) files.push(file);
+    }
+    if (files.length) await doImport(files);
+  });
 };
 
 // Shared-files handoff from the service worker share target
@@ -265,6 +487,33 @@ export const initEditSheet = () => {
   $("edit-cancel").addEventListener("click", () => openDetail(detailBook?.id));
 };
 
+/**
+ * Mark finished, or start over. Without this a book abandoned at 40% sits in
+ * the Continue card forever, and re-reading one has no way back to page one.
+ */
+const runProgress = () => {
+  const b = detailBook;
+  const pct = Math.round((b.progress?.fraction || 0) * 100);
+  const done = pct >= 100;
+  const audio = b.kind === "audio";
+  listSheet(pct ? `${pct}% ${audio ? "listened" : "read"}` : "Not started yet", [
+    !done && { title: audio ? "Mark as finished" : "Mark as finished", value: "finish" },
+    pct > 0 && { title: audio ? "Start from the beginning" : "Start from the beginning", value: "reset" },
+  ].filter(Boolean), async (v) => {
+    if (v === "finish") {
+      // fraction 1 drops it out of Continue; the position is left alone so
+      // reopening still lands where they stopped
+      await saveDetail({ progress: { ...(b.progress || {}), fraction: 1 } });
+      toast("Marked as finished");
+    } else if (v === "reset") {
+      await saveDetail({ progress: { fraction: 0 }, lastOpenedAt: null });
+      toast("Progress cleared");
+    }
+  }, {
+    note: "Finished books leave the Continue card but stay in your library.",
+  });
+};
+
 const runDelete = () => {
   const b = detailBook;
   listSheet(`Delete "${b.title}"?`, [{ title: "Delete", value: true }], async () => {
@@ -282,6 +531,7 @@ export const initDetail = () => {
     closeSheet();
     if (b) onOpenBook(b);
   });
+  $("detail-progress-btn").addEventListener("click", runProgress);
   $("detail-meta-btn").addEventListener("click", runMetaSearch);
   $("detail-edit-btn").addEventListener("click", runMetaEdit);
   $("detail-delete-btn").addEventListener("click", runDelete);

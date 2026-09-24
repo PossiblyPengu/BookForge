@@ -22,9 +22,41 @@ export const fmtBytes = (n) => {
   return `${n.toFixed(i ? 1 : 0)} ${units[i]}`;
 };
 
+/**
+ * Trailing-edge debounce. The returned function carries `.flush()`, which
+ * runs a pending call immediately — needed because iOS kills backgrounded web
+ * apps without warning, and a debounced "save my reading position" that never
+ * fires loses the page you were on.
+ */
 export const debounce = (fn, ms) => {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  let t = null;
+  let pending = null;
+  const wrapped = (...args) => {
+    pending = args;
+    clearTimeout(t);
+    t = setTimeout(() => { t = null; const a = pending; pending = null; fn(...a); }, ms);
+  };
+  wrapped.flush = () => {
+    if (t === null) return;
+    clearTimeout(t);
+    t = null;
+    const a = pending || [];
+    pending = null;
+    fn(...a);
+  };
+  return wrapped;
+};
+
+/**
+ * Run `fn` whenever the page is being backgrounded or torn down. pagehide
+ * covers navigation and the iOS app switcher; visibilitychange catches the
+ * lock button. Both can be the last moment we get.
+ */
+export const onPageHidden = (fn) => {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") fn();
+  });
+  window.addEventListener("pagehide", fn);
 };
 
 export const uid = () =>
@@ -45,7 +77,9 @@ export const dropCoverUrl = (id) => {
 // ---------- toast ----------
 let toastTimer;
 export const toast = (msg, { error = false, ms = 3200 } = {}) => {
-  document.querySelectorAll(".toast").forEach((t) => t.remove());
+  // :not(.toast-sticky) keeps the "new version available" prompt alive — it
+  // waits on a tap, and any passing toast used to wipe it
+  document.querySelectorAll(".toast:not(.toast-sticky)").forEach((t) => t.remove());
   const el = document.createElement("div");
   el.className = "toast" + (error ? " toast-err" : "");
   el.setAttribute("role", "status");
@@ -59,21 +93,41 @@ export const toast = (msg, { error = false, ms = 3200 } = {}) => {
 const overlay = () => $("sheet-overlay");
 let openSheetEl = null;
 let onSheetClose = null;
+let focusBeforeSheet = null;
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
+
+const focusablesIn = (el) =>
+  [...el.querySelectorAll(FOCUSABLE)].filter((n) => !n.hidden && n.offsetParent !== null);
 
 export const openSheet = (id, onClose = null) => {
+  const previous = focusBeforeSheet || document.activeElement;
   closeSheet();
+  focusBeforeSheet = previous;
   openSheetEl = $(id);
   onSheetClose = onClose;
   overlay().hidden = false;
   openSheetEl.hidden = false;
+  // Move focus into the dialog, but onto the container rather than the first
+  // control: focusing a button or input here would pop up the iOS keyboard
+  // and fight the sheet animation. Callers that want a field focused (the
+  // in-book search) do it themselves.
+  openSheetEl.tabIndex = -1;
+  openSheetEl.focus({ preventScroll: true });
 };
 
 export const closeSheet = () => {
   if (openSheetEl) openSheetEl.hidden = true;
   overlay().hidden = true;
   const cb = onSheetClose;
+  const restore = focusBeforeSheet;
   openSheetEl = null;
   onSheetClose = null;
+  focusBeforeSheet = null;
+  // give focus back to whatever opened the sheet, so keyboard users don't
+  // land at the top of the document
+  if (restore?.isConnected) restore.focus?.({ preventScroll: true });
   if (cb) cb();
 };
 
@@ -110,6 +164,26 @@ const wireSheetDrag = (sheet) => {
 export const initSheets = () => {
   overlay().addEventListener("click", closeSheet);
   document.querySelectorAll(".sheet").forEach(wireSheetDrag);
+  // aria-modal tells a screen reader to stay in the dialog; Tab doesn't
+  // honour it, so wrap it by hand or focus walks the page behind the sheet
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab" || !openSheetEl) return;
+    const items = focusablesIn(openSheetEl);
+    if (!items.length) { e.preventDefault(); return; }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (!openSheetEl.contains(active)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  });
 };
 
 /**
@@ -207,13 +281,22 @@ export const listSheet = (title, items, onPick, { search = false, note = "", onC
   };
   const renderItems = (list) => {
     rows.textContent = "";
-    for (const item of list) rows.appendChild(buildRow(item));
+    let checkedRow = null;
+    for (const item of list) {
+      const row = buildRow(item);
+      if (item.checked && !checkedRow) checkedRow = row;
+      rows.appendChild(row);
+    }
     if (!list.length) {
       const p = document.createElement("p");
       p.style.cssText = "padding:24px;text-align:center;color:var(--text-2)";
       p.textContent = "Nothing found.";
       rows.appendChild(p);
     }
+    // Open on the current choice, not the top: chapter 30 of an audiobook and
+    // the selected voice among a couple of hundred were both off-screen.
+    if (checkedRow) requestAnimationFrame(() =>
+      checkedRow.scrollIntoView({ block: "center" }));
   };
   renderRows("");
   openSheet("sheet-list", onClose);
@@ -233,6 +316,31 @@ export const segControl = (el, initial, onChange) => {
 
 export const confirmSheet = (title, confirmLabel, onConfirm) => {
   listSheet(title, [{ title: confirmLabel, value: true }], (v) => v && onConfirm());
+};
+
+/**
+ * Copy text to the clipboard. The async Clipboard API needs a secure context
+ * and isn't in older WebKit, so fall back to a throwaway textarea.
+ */
+export const copyText = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch { /* fall through */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length); // iOS needs the explicit range
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
 };
 
 export const isIOS = () =>
@@ -278,16 +386,63 @@ const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * `searchFrom` and wrapping to the start if it isn't found after it.
  * Returns { start, end } offsets into `hay`, or null.
  */
+/**
+ * A whitespace-tolerant matcher for `needleText`: every run of whitespace in
+ * the needle matches any run in the haystack, so a phrase still matches when
+ * the source broke it across lines. `flags` adds e.g. "i" for searching.
+ */
+const needleRe = (needleText, flags = "g") => {
+  const needle = String(needleText).trim().split(/\s+/)
+    .map(reEscape).filter(Boolean).join("\\s+");
+  return needle ? new RegExp(needle, flags) : null;
+};
+
 export const findText = (hay, needleText, searchFrom = 0) => {
   if (!hay || !needleText) return null;
-  const needle = needleText.trim().split(/\s+/)
-    .map(reEscape).filter(Boolean).join("\\s+");
-  if (!needle) return null;
-  const re = new RegExp(needle, "g");
+  const re = needleRe(needleText);
+  if (!re) return null;
   re.lastIndex = Math.min(searchFrom, hay.length);
   let m = re.exec(hay);
   if (!m) { re.lastIndex = 0; m = re.exec(hay); }
   return m ? { start: m.index, end: m.index + m[0].length } : null;
+};
+
+// ---------- in-book search helpers ----------
+
+/**
+ * Every case-insensitive match of `needleText` in `hay`, as
+ * [{ start, end }], capped at `limit` so one page of a repeated word can't
+ * flood the results list.
+ */
+export const findAllText = (hay, needleText, limit = 40) => {
+  const re = needleRe(needleText, "gi");
+  if (!hay || !re) return [];
+  const out = [];
+  for (let m = re.exec(hay); m && out.length < limit; m = re.exec(hay)) {
+    out.push({ start: m.index, end: m.index + m[0].length });
+    if (m[0].length === 0) re.lastIndex++; // guard against a zero-width match
+  }
+  return out;
+};
+
+/**
+ * A one-line excerpt around [start, end) with `pad` characters of context on
+ * either side, trimmed to word boundaries and ellipsised where it was cut.
+ * Returns { before, match, after }, so the caller can emphasise the match
+ * without building HTML from book text.
+ */
+export const excerptAround = (hay, start, end, pad = 40) => {
+  const from = Math.max(0, start - pad);
+  const to = Math.min(hay.length, end + pad);
+  let before = hay.slice(from, start);
+  let after = hay.slice(end, to);
+  if (from > 0) before = "…" + before.replace(/^\S*\s/, "");
+  if (to < hay.length) after = after.replace(/\s\S*$/, "") + "…";
+  return {
+    before: before.replace(/\s+/g, " "),
+    match: hay.slice(start, end).replace(/\s+/g, " "),
+    after: after.replace(/\s+/g, " "),
+  };
 };
 
 export const rangeForChunk = (el, chunkText, searchFrom = 0) => {

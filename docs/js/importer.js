@@ -150,16 +150,33 @@ export const importFiles = async (fileList, onProgress) => {
     const book = await importAudiobook(items);
     if (book) created.push(book);
   }
-  for (const { file, kind, format } of others) {
+  for (const { file, kind, format, reason } of others) {
     onProgress?.(`Importing ${file.name}…`);
     try {
-      created.push(await importOne(file, kind, format));
+      created.push(await importOne(file, kind, format, reason));
     } catch (err) {
       console.warn("Import failed:", file.name, err);
-      toast(`Couldn't import ${file.name}`, { error: true });
+      // say why where we know — "couldn't import" alone leaves people
+      // re-trying a file that can never work
+      const why = reasonFor(err);
+      toast(`Couldn’t import ${file.name}${why ? ` — ${why}` : ""}`, { error: true, ms: 6000 });
     }
   }
   return created;
+};
+
+/**
+ * Turn a thrown error into something worth reading. A full library is the
+ * common real-world failure and the browser's own wording for it ("Failed to
+ * execute 'put' on 'IDBObjectStore'…") tells nobody anything.
+ */
+const reasonFor = (err) => {
+  const name = err?.name || "";
+  if (name === "QuotaExceededError" || /quota/i.test(err?.message || ""))
+    return "there's no room left on this device. Free up space, or remove a few books.";
+  if (name === "NotReadableError" || name === "NotFoundError")
+    return "the file couldn't be read — it may have moved or been deleted.";
+  return err?.message || "";
 };
 
 /** Folder portion of a dropped/picked file — for audiobook grouping. */
@@ -191,12 +208,13 @@ export const expandZip = async (file) => {
   return files.length ? files : null;
 };
 
-const importOne = async (file, kind, format) => {
+const importOne = async (file, kind, format, reason) => {
   let meta = { title: "", author: "", desc: "", year: "", coverBlob: null };
   if (kind === "ebook") meta = await parseEbook(file, format);
   else if (kind === "pdf") meta = await parsePdf(file);
   else if (kind === "text") meta = await parseText(file);
-  else if (kind === "unknown") throw new Error("Unsupported format");
+  else if (kind === "unsupported") throw new Error(reason || `${format} isn’t supported.`);
+  else if (kind === "unknown") throw new Error("Pageturner doesn’t recognise this file type.");
 
   const id = uid();
   const fileKey = `file:${id}`;
