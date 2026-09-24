@@ -102,13 +102,23 @@ export const fetchCoverBlob = async (url) => {
   }
 };
 
-/** Cheap confidence check: does a candidate look like the book? */
-export const metaMatches = (cand, { title, author }) => {
-  const ct = norm(cand.title);
+/** A title reduced to what identifies it: no subtitle, no leading article. */
+const coreTitle = (t) =>
+  norm(String(t || "").split(/[:([]/)[0]).replace(/^(the|a|an) /, "");
+
+/**
+ * Strict enough to apply without asking. The earlier rule accepted any
+ * candidate whose title merely *contained* ours, so "The Salt Road" matched
+ * "The Salt Roads" and silently got a stranger's cover. Here the core titles
+ * must be equal, and where both sides name an author, a surname must be
+ * shared. (The manual picker shows every candidate and lets the person choose.)
+ */
+export const metaConfident = (cand, { title, author }) => {
+  const bt = coreTitle(title);
+  if (!bt || coreTitle(cand.title) !== bt) return false;
   const ca = norm(cand.author);
-  const bt = norm(title);
   const ba = norm(author);
-  const titleOk = bt && (ct.includes(bt) || bt.includes(ct));
-  const authorOk = !ba || !ca || ca.includes(ba) || ba.includes(ca);
-  return titleOk && authorOk;
+  if (!ca || !ba) return true;
+  const surname = (a) => a.split(" ").filter((w) => w.length > 1).pop() || a;
+  return ca.includes(surname(ba)) || ba.includes(surname(ca));
 };

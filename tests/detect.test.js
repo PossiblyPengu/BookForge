@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { detectFormat } from "../docs/js/detect.js";
-import { metaMatches } from "../docs/js/metadata.js";
+import { metaConfident } from "../docs/js/metadata.js";
 
 const makeFile = (name, bytes, type = "") => {
   const f = new File([bytes], name, { type });
@@ -81,18 +81,31 @@ describe("detectFormat", () => {
   });
 });
 
-describe("metaMatches", () => {
+describe("metaConfident", () => {
   const c = { title: "The Hobbit", author: "J.R.R. Tolkien" };
   it("matches when title and author align", () => {
-    expect(metaMatches(c, { title: "The Hobbit", author: "Tolkien" })).toBe(true);
+    expect(metaConfident(c, { title: "The Hobbit", author: "Tolkien" })).toBe(true);
   });
   it("matches on title alone when author missing", () => {
-    expect(metaMatches(c, { title: "Hobbit", author: "" })).toBe(true);
+    expect(metaConfident(c, { title: "Hobbit", author: "" })).toBe(true);
   });
   it("rejects wrong author", () => {
-    expect(metaMatches(c, { title: "The Hobbit", author: "Brandon Sanderson" })).toBe(false);
+    expect(metaConfident(c, { title: "The Hobbit", author: "Brandon Sanderson" })).toBe(false);
   });
   it("rejects wrong title", () => {
-    expect(metaMatches(c, { title: "Dune", author: "Tolkien" })).toBe(false);
+    expect(metaConfident(c, { title: "Dune", author: "Tolkien" })).toBe(false);
+  });
+  // auto-fill gave "The Salt Road" the cover of Nalo Hopkinson's "The Salt
+  // Roads": a title that merely contains ours isn't the same book
+  it("rejects a title that only contains ours", () => {
+    const roads = { title: "The Salt Roads", author: "Nalo Hopkinson" };
+    expect(metaConfident(roads, { title: "The Salt Road", author: "" })).toBe(false);
+    expect(metaConfident({ title: "Italy", author: "" }, { title: "It", author: "" })).toBe(false);
+  });
+  it("ignores subtitles and edition labels", () => {
+    expect(metaConfident({ title: "Dune: Deluxe Edition", author: "Frank Herbert" },
+      { title: "Dune", author: "Frank Herbert" })).toBe(true);
+    expect(metaConfident({ title: "Emma (Penguin Classics)", author: "Jane Austen" },
+      { title: "Emma", author: "Austen" })).toBe(true);
   });
 });

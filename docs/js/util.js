@@ -74,6 +74,108 @@ export const dropCoverUrl = (id) => {
   if (u) { URL.revokeObjectURL(u); coverUrlCache.delete(id); }
 };
 
+// ---------- covers ----------
+
+// Book-cloth colours: [cloth, ink]. Muted, so a shelf of generated covers
+// reads as a shelf rather than a paint chart.
+const COVER_CLOTH = [
+  ["#2f4858", "#e9dcc2"], ["#5b3a29", "#f1e3c8"], ["#264653", "#e9c46a"],
+  ["#6d2e46", "#f2d0a9"], ["#3d5a40", "#e8e1c5"], ["#1d3557", "#f1faee"],
+  ["#7a4419", "#f6e7cb"], ["#4a4e69", "#f2e9e4"], ["#2b2d42", "#edf2f4"],
+  ["#8a5a44", "#f4ede1"], ["#40513b", "#ede4c2"], ["#5e4b8b", "#efe6d8"],
+];
+
+/** FNV-1a — a stable hash, so a book keeps its colour across sessions. */
+const hash = (s) => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+};
+
+const HEADPHONES =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></svg>';
+
+/**
+ * A designed cover for a book with no art of its own: title and author set on
+ * a cloth colour chosen from the title. Text scales with the element (CSS
+ * container units), so the same markup works from a 38px thumbnail to the
+ * Now Playing artwork.
+ */
+export const generatedCover = (book) => {
+  const [cloth, ink] = COVER_CLOTH[hash(`${book.title}|${book.author}`) % COVER_CLOTH.length];
+  const el = document.createElement("div");
+  el.className = `gen-cover${book.kind === "audio" ? " gen-cover-audio" : ""}`;
+  el.style.setProperty("--cloth", cloth);
+  el.style.setProperty("--ink", ink);
+  el.setAttribute("aria-hidden", "true");
+  if (book.kind === "audio") {
+    const g = document.createElement("span");
+    g.className = "gen-cover-glyph";
+    g.innerHTML = HEADPHONES;
+    el.appendChild(g);
+  }
+  const title = document.createElement("span");
+  title.className = "gen-cover-title";
+  title.textContent = book.title || "Untitled";
+  el.appendChild(title);
+  const rule = document.createElement("span");
+  rule.className = "gen-cover-rule";
+  el.appendChild(rule);
+  if (book.author) {
+    const author = document.createElement("span");
+    author.className = "gen-cover-author";
+    author.textContent = book.author;
+    el.appendChild(author);
+  }
+  // small sizes show a monogram instead of unreadable type
+  const mono = document.createElement("span");
+  mono.className = "gen-cover-mono";
+  mono.textContent = (book.title || "?").replace(/^(the|a|an)\s+/i, "").trim().charAt(0).toUpperCase();
+  el.appendChild(mono);
+  return el;
+};
+
+/**
+ * A colour to tint a screen with: the average of the book's cover art, or the
+ * cloth colour of its generated cover. Resolves null if the art can't be read.
+ */
+export const coverTint = async (book) => {
+  if (!book.coverBlob) return COVER_CLOTH[hash(`${book.title}|${book.author}`) % COVER_CLOTH.length][0];
+  try {
+    if (!globalThis.createImageBitmap) return null;
+    const bmp = await globalThis.createImageBitmap(book.coverBlob);
+    const c = document.createElement("canvas");
+    c.width = c.height = 8;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(bmp, 0, 0, 8, 8);
+    bmp.close?.();
+    const d = g.getImageData(0, 0, 8, 8).data;
+    let r = 0, gr = 0, b = 0;
+    for (let i = 0; i < d.length; i += 4) { r += d[i]; gr += d[i + 1]; b += d[i + 2]; }
+    const n = d.length / 4;
+    return `rgb(${Math.round(r / n)}, ${Math.round(gr / n)}, ${Math.round(b / n)})`;
+  } catch {
+    return null;
+  }
+};
+
+/** The book's own cover if it has one, else a generated one. */
+export const coverFor = (book, { lazy = false } = {}) => {
+  const url = coverUrl(book);
+  if (!url) return generatedCover(book);
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = "";
+  if (lazy) img.loading = "lazy";
+  return img;
+};
+
+/** Replace `el`'s contents with the book's cover. */
+export const fillCover = (el, book, opts) => {
+  el.textContent = "";
+  el.appendChild(coverFor(book, opts));
+};
+
 // ---------- toast ----------
 let toastTimer;
 export const toast = (msg, { error = false, ms = 3200 } = {}) => {

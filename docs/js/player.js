@@ -7,7 +7,9 @@
  * controls, and persists progress.
  */
 
-import { $, fmtDuration, debounce, listSheet, coverUrl, toast, onPageHidden } from "./util.js";
+import {
+  $, fmtDuration, debounce, listSheet, coverUrl, fillCover, coverTint, toast, onPageHidden,
+} from "./util.js";
 import { getFile, putBook, kvGet, kvSet } from "./db.js";
 import { registerAudioOwner, claimAudio } from "./audio-focus.js";
 
@@ -65,6 +67,20 @@ const setIcon = (id, playing) => {
 
 let seekPreview = null; // slider value while dragging — don't fight the user
 
+/** "12 min", "40 s", "1 h 5 min" — how long, at a glance. */
+const shortLeft = (sec) => {
+  if (sec < 60) return `${Math.ceil(sec)} s`;
+  const m = Math.round(sec / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+};
+
+/** What the sleep button says: its countdown while set. */
+const sleepLabel = () => {
+  if (player.sleepAt === "chapter") return "End of ch.";
+  if (player.sleepAt) return shortLeft(Math.max(0, (player.sleepAt - Date.now()) / 1000));
+  return "Sleep";
+};
+
 const updateUI = () => {
   const pos = position();
   const dur = player.duration || audio.duration || 0;
@@ -75,6 +91,10 @@ const updateUI = () => {
   $("player-remaining").textContent = "-" + fmtDuration(Math.max(0, dur - pos));
   const ch = currentChapter();
   $("player-chapter-name").textContent = ch?.title || "—";
+  const chLeft = ch?.globalEnd ? Math.max(0, ch.globalEnd - pos) : 0;
+  $("player-chapter-left").textContent = chLeft ? `· ${shortLeft(chLeft)} left` : "";
+  $("player-sleep-label").textContent = sleepLabel();
+  $("player-sleep").classList.toggle("on", !!player.sleepAt);
   setIcon("player-play", !audio.paused);
   try { navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing"; } catch { /* noop */ }
   if (player.book) updatePositionState();
@@ -165,17 +185,19 @@ export const openPlayer = async (book, { onClose, onUpdate } = {}) => {
   // UI
   $("player-title").textContent = book.title;
   $("player-author").textContent = book.author || "";
-  const cov = $("player-cover");
-  cov.textContent = "";
-  const cu = coverUrl(book);
-  if (cu) { const img = document.createElement("img"); img.src = cu; img.alt = ""; cov.appendChild(img); }
-  else cov.innerHTML = '<svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+  fillCover($("player-cover"), book);
+  // the screen takes a wash of the cover's colour, like a record sleeve
+  $("view-player").style.removeProperty("--tint");
+  coverTint(book).then((c) => { if (c && player.book === book) $("view-player").style.setProperty("--tint", c); });
+  const chaptered = player.chapters.length > 1;
+  $("player-chapter-btn").hidden = !chaptered;
+  $("player-chapters").hidden = !chaptered;
 
   // restore persisted playback speed
   const speed = await kvGet("audio-speed");
   if (speed && SPEEDS.includes(speed)) {
     audio.playbackRate = speed;
-    $("player-speed").textContent = `${speed}×`;
+    $("player-speed-val").textContent = `${speed}×`;
   }
 
   $("view-player").hidden = false;
@@ -272,6 +294,7 @@ const openSleep = () => {
     else if (v === -1) player.sleepAt = "chapter";
     else player.sleepAt = Date.now() + v * 60000;
     toast(v === 0 ? "Sleep timer off" : v === -1 ? "Sleeping at end of chapter" : `Sleeping in ${v} min`);
+    updateUI(); // the button shows the countdown — update it even while paused
   });
 };
 
@@ -293,6 +316,7 @@ const checkSleep = () => {
 
 export const initPlayer = () => {
   $("player-close").addEventListener("click", closePlayer);
+  $("player-chapters").addEventListener("click", openChapters);
   $("player-play").addEventListener("click", playPause);
   $("player-back15").addEventListener("click", () => skip(-15));
   $("player-fwd30").addEventListener("click", () => skip(30));
@@ -304,7 +328,7 @@ export const initPlayer = () => {
     const cur = SPEEDS.indexOf(audio.playbackRate);
     const next = SPEEDS[(cur + 1) % SPEEDS.length];
     audio.playbackRate = next;
-    $("player-speed").textContent = `${next}×`;
+    $("player-speed-val").textContent = `${next}×`;
     kvSet("audio-speed", next);
   });
   // drag → preview only; commit the seek on release so we don't spam loadFile
@@ -348,5 +372,7 @@ export const playerState = () => ({
   book: player.book,
   playing: !audio.paused,
   toggle: playPause,
+  fraction: player.duration ? Math.min(1, position() / player.duration) : 0,
+  chapter: player.chapters.length > 1 ? currentChapter()?.title || "" : "",
 });
 export const reopenPlayer = () => { if (player.book) $("view-player").hidden = false; };

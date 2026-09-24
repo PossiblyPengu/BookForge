@@ -4,18 +4,26 @@
  */
 
 import {
-  $, toast, openSheet, closeSheet, listSheet, coverUrl, dropCoverUrl, fmtBytes,
-  fmtDuration,
+  $, toast, openSheet, closeSheet, listSheet, dropCoverUrl, fmtBytes,
+  fmtDuration, coverFor, fillCover,
 } from "./util.js";
 import { allBooks, getBook, putBook, deleteBook, kvGet, kvSet } from "./db.js";
 import { importFiles } from "./importer.js";
-import { searchMetadata, fetchCoverBlob, metaMatches } from "./metadata.js";
+import { searchMetadata, fetchCoverBlob, metaConfident } from "./metadata.js";
 import { detectSeries } from "./book-parser.js";
 
 let onOpenBook = () => {};
 export const initLibrary = async (openBook) => {
   onOpenBook = openBook;
   sortMode = (await kvGet("library-sort")) || "recent";
+  filterMode = (await kvGet("library-filter")) || "all";
+  for (const b of $("library-filter").querySelectorAll("button")) {
+    b.addEventListener("click", async () => {
+      filterMode = b.dataset.val;
+      await kvSet("library-filter", filterMode);
+      renderGrid();
+    });
+  }
   $("library-search").addEventListener("input", (e) => {
     query = e.target.value;
     renderGrid();
@@ -25,6 +33,7 @@ export const initLibrary = async (openBook) => {
 let books = [];
 let query = "";
 let sortMode = "recent";
+let filterMode = "all"; // "all" | "books" | "audio"
 
 // selection mode: ids ticked for a bulk action
 let selecting = false;
@@ -38,8 +47,19 @@ const SORTS = {
   format: { title: "Format",          cmp: (a, b) => (a.format || "").localeCompare(b.format || "") || (a.title || "").localeCompare(b.title || "") },
 };
 
+const FILTERS = {
+  all: () => true,
+  books: (b) => b.kind !== "audio",
+  audio: (b) => b.kind === "audio",
+};
+
+// the filter only means something when the library holds both kinds
+const mixedLibrary = () =>
+  books.some((b) => b.kind === "audio") && books.some((b) => b.kind !== "audio");
+
 const applyView = () => {
   let list = books;
+  if (mixedLibrary()) list = list.filter(FILTERS[filterMode] || FILTERS.all);
   const q = query.trim().toLowerCase();
   if (q) list = list.filter((b) =>
     `${b.title || ""} ${b.author || ""}`.toLowerCase().includes(q));
@@ -60,10 +80,13 @@ export const pickSort = () =>
     renderGrid();
   });
 
-const GLYPH_BOOK =
-  '<svg class="cover-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>';
-const GLYPH_AUDIO =
-  '<svg class="cover-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+// Only formats that change how a book behaves get a badge. EPUB and its
+// cousins are the default, and a label on every cover was noise.
+const BADGE_FORMATS = new Set(["PDF", "CBZ", "CBR", "TXT", "Markdown", "HTML"]);
+const HEADPHONES_BADGE =
+  '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></svg>';
+const isFinished = (b) => (b.progress?.fraction || 0) >= 0.995;
+const isNew = (b) => !b.lastOpenedAt && !(b.progress?.fraction > 0.005);
 
 // ---------------------------------------------------------------------------
 // "Continue reading" — one tap back into the book you were last in
@@ -97,17 +120,7 @@ const renderContinue = () => {
     [book.author, left || `${pct}%`].filter(Boolean).join(" · ");
   $("continue-fill").style.width = `${pct}%`;
 
-  const cover = $("continue-cover");
-  cover.textContent = "";
-  const url = coverUrl(book);
-  if (url) {
-    const img = document.createElement("img");
-    img.src = url;
-    img.alt = "";
-    cover.appendChild(img);
-  } else {
-    cover.innerHTML = audio ? GLYPH_AUDIO : GLYPH_BOOK;
-  }
+  fillCover($("continue-cover"), book);
   card.setAttribute("aria-label",
     `${audio ? "Continue listening to" : "Continue reading"} ${book.title}, ${pct} percent through`);
 };
@@ -136,7 +149,33 @@ const renderGrid = () => {
   empty.hidden = books.length > 0;
   renderContinue();
   grid.classList.toggle("selecting", selecting);
-  for (const book of applyView()) {
+
+  const view = applyView();
+  const mixed = mixedLibrary();
+  $("library-head").hidden = !books.length;
+  $("library-search-wrap").hidden = !books.length; // nothing to search yet
+  if (!selecting) {
+    $("select-btn").hidden = !books.length;
+    $("sort-btn").hidden = !books.length;
+  }
+  $("library-filter").hidden = !mixed;
+  for (const b of $("library-filter").querySelectorAll("button")) {
+    const on = b.dataset.val === (mixed ? filterMode : "all");
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  const noun = (n) => (mixed && filterMode === "audio" ? `audiobook${n === 1 ? "" : "s"}` : `book${n === 1 ? "" : "s"}`);
+  $("library-count").textContent = view.length === books.length
+    ? `${books.length} ${noun(books.length)}`
+    : `${view.length} of ${books.length}`;
+  if (!view.length && books.length) {
+    const none = document.createElement("p");
+    none.className = "library-none";
+    none.textContent = query.trim() ? `Nothing matches “${query.trim()}”.` : "Nothing here yet.";
+    grid.appendChild(none);
+  }
+
+  for (const book of view) {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "book-card" + (selected.has(book.id) ? " selected" : "");
@@ -145,29 +184,33 @@ const renderGrid = () => {
 
     const cover = document.createElement("div");
     cover.className = "book-cover";
-    const url = coverUrl(book);
-    if (url) {
-      const img = document.createElement("img");
-      img.src = url;
-      img.alt = "";
-      img.loading = "lazy";
-      cover.appendChild(img);
-    } else {
-      cover.innerHTML = book.kind === "audio" ? GLYPH_AUDIO : GLYPH_BOOK;
+    cover.appendChild(coverFor(book, { lazy: true }));
+    // generated audiobook covers already carry headphones — the badge is for real art
+    if (book.kind === "audio" && book.coverBlob) {
+      const badge = document.createElement("span");
+      badge.className = "book-badge book-badge-audio";
+      badge.innerHTML = HEADPHONES_BADGE;
+      badge.title = "Audiobook";
+      cover.appendChild(badge);
+    } else if (BADGE_FORMATS.has(book.format)) {
+      const badge = document.createElement("span");
+      badge.className = "book-badge";
+      badge.textContent = book.format === "Markdown" ? "MD" : book.format;
+      cover.appendChild(badge);
     }
-    const badge = document.createElement("span");
-    badge.className = "book-badge" + (book.kind === "audio" ? " book-badge-audio" : "");
-    badge.textContent = book.format;
-    cover.appendChild(badge);
-    if (book.needsMeta) {
-      const dot = document.createElement("span");
-      dot.className = "book-needs-meta";
-      dot.textContent = "?";
-      dot.title = "Metadata incomplete — tap to fix";
-      cover.appendChild(dot);
+    if (isNew(book)) {
+      const pill = document.createElement("span");
+      pill.className = "book-pill";
+      pill.textContent = "New";
+      cover.appendChild(pill);
+    } else if (isFinished(book)) {
+      const done = document.createElement("span");
+      done.className = "book-pill book-pill-done";
+      done.textContent = "✓ Finished";
+      cover.appendChild(done);
     }
     const frac = book.progress?.fraction || 0;
-    if (frac > 0.005) {
+    if (frac > 0.005 && !isFinished(book)) {
       const bar = document.createElement("div");
       bar.className = "book-progress";
       const fill = document.createElement("i");
@@ -176,9 +219,10 @@ const renderGrid = () => {
       cover.appendChild(bar);
     }
     if (selecting) {
+      // a corner check, like Photos — the cover stays visible
       const tick = document.createElement("span");
       tick.className = "book-tick";
-      tick.textContent = "✓";
+      tick.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17l9-10"/></svg>';
       cover.appendChild(tick);
     }
     card.appendChild(cover);
@@ -190,6 +234,7 @@ const renderGrid = () => {
     const a = document.createElement("div");
     a.className = "book-card-author";
     a.textContent = book.author || "Unknown author";
+    if (!book.author) a.classList.add("book-card-author-missing");
     card.appendChild(a);
 
     card.addEventListener("click", () => {
@@ -278,7 +323,7 @@ const bulkMetadata = async () => {
       showImporting(`Looking up metadata… ${i + 1} of ${targets.length}`);
       const book = targets[i];
       const cands = await searchMetadata(book.title, book.author).catch(() => []);
-      const match = cands.find((c) => metaMatches(c, book));
+      const match = cands.find((c) => metaConfident(c, book));
       if (!match) { missed++; continue; }
       const cur = (await getBook(book.id)) || book;
       if (!cur.coverBlob && match.cover)
@@ -399,29 +444,76 @@ export const checkSharedFiles = async () => {
 
 let detailBook = null;
 
+/** "9h 32m" — an audiobook's length reads better in hours than h:mm:ss. */
+const fmtLength = (sec) => {
+  const h = Math.floor(sec / 3600);
+  const m = Math.round((sec % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m} min`;
+};
+
+/** "3 days ago", in the reader's own language. */
+const ago = (t) => {
+  if (!t) return "";
+  const s = (Date.now() - t) / 1000;
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  if (s < 60) return "just now";
+  if (s < 3600) return rtf.format(-Math.round(s / 60), "minute");
+  if (s < 86400) return rtf.format(-Math.round(s / 3600), "hour");
+  if (s < 86400 * 30) return rtf.format(-Math.round(s / 86400), "day");
+  if (s < 86400 * 365) return rtf.format(-Math.round(s / (86400 * 30)), "month");
+  return rtf.format(-Math.round(s / (86400 * 365)), "year");
+};
+
 export const openDetail = async (id) => {
   detailBook = books.find((b) => b.id === id) || null;
   if (!detailBook) return;
   const b = detailBook;
+  const audio = b.kind === "audio";
+  const frac = b.progress?.fraction || 0;
+  const finished = isFinished(b);
+  const started = frac > 0.005;
+  const dur = b.audio?.durationSec || 0;
 
   $("detail-title").textContent = b.title;
   $("detail-author").textContent = b.author || "Unknown author";
+  $("detail-author").classList.toggle("book-card-author-missing", !b.author);
   const series = detectSeries(b.title || "");
-  $("detail-format").textContent =
-    `${b.format} · ${fmtBytes(b.fileSize)}`
-    + (b.year ? ` · ${b.year}` : "")
-    + (series ? ` · ${series.series}${series.bookNum ? ` #${series.bookNum}` : ""}` : "");
-  const dc = $("detail-cover");
-  dc.textContent = "";
-  const url = coverUrl(b);
-  if (url) {
-    const img = document.createElement("img");
-    img.src = url; img.alt = "";
-    dc.appendChild(img);
-  } else {
-    dc.innerHTML = b.kind === "audio" ? GLYPH_AUDIO : GLYPH_BOOK;
-  }
-  $("detail-open-btn").textContent = b.kind === "audio" ? "Listen" : "Read";
+  $("detail-format").textContent = [
+    b.format,
+    audio && dur ? fmtLength(dur) : null,
+    fmtBytes(b.fileSize),
+    b.year,
+    series ? `${series.series}${series.bookNum ? ` #${series.bookNum}` : ""}` : null,
+  ].filter(Boolean).join(" · ");
+  fillCover($("detail-cover"), b);
+
+  const pct = Math.round(frac * 100);
+  $("detail-progress-fill").style.width = `${finished ? 100 : pct}%`;
+  $("detail-progress-label").textContent = finished ? "Finished"
+    : !started ? "Not started"
+    : audio && dur ? `${fmtDuration(Math.max(0, dur - (b.progress?.positionSec || 0)))} left`
+    : `${pct}% read`;
+  $("detail-progress-extra").textContent = b.lastOpenedAt
+    ? `Opened ${ago(b.lastOpenedAt)}` : `Added ${ago(b.addedAt)}`;
+
+  // the one thing most people came here to do, worded for where they are
+  $("detail-open-btn").textContent = audio
+    ? (finished ? "Listen again" : started ? "Continue listening" : "Listen")
+    : (finished ? "Read again" : started ? "Continue reading" : "Read");
+
+  const desc = (b.desc || "").trim();
+  const d = $("detail-desc");
+  d.textContent = desc;
+  d.hidden = !desc;
+  d.classList.remove("expanded");
+  $("detail-desc-more").hidden = true;
+  // whether it's clamped is only measurable once the sheet has laid out
+  requestAnimationFrame(() => {
+    $("detail-desc-more").hidden = !desc || d.scrollHeight <= d.clientHeight + 2;
+  });
+
+  // replaces the "?" that used to sit on the cover with no explanation
+  $("detail-missing").hidden = !b.needsMeta;
   openSheet("sheet-book");
 };
 
@@ -526,11 +618,22 @@ const runDelete = () => {
 };
 
 export const initDetail = () => {
-  $("detail-open-btn").addEventListener("click", () => {
+  $("detail-open-btn").addEventListener("click", async () => {
     const b = detailBook;
     closeSheet();
-    if (b) onOpenBook(b);
+    if (!b) return;
+    // "Read again" means from the beginning, not from the last page
+    if (isFinished(b)) {
+      b.progress = { fraction: 0 };
+      await putBook(b);
+    }
+    onOpenBook(b);
   });
+  $("detail-desc-more").addEventListener("click", () => {
+    $("detail-desc").classList.add("expanded");
+    $("detail-desc-more").hidden = true;
+  });
+  $("detail-missing-fix").addEventListener("click", runMetaSearch);
   $("detail-progress-btn").addEventListener("click", runProgress);
   $("detail-meta-btn").addEventListener("click", runMetaSearch);
   $("detail-edit-btn").addEventListener("click", runMetaEdit);

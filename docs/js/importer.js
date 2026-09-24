@@ -11,7 +11,7 @@ import { detectFormat, AUDIO_EXTS, TEXT_EXTS, FOLIATE_EXTS } from "./detect.js";
 import { putBook, putFile, getBook } from "./db.js";
 import { uid, toast } from "./util.js";
 import { inferBook, extractSortKey } from "./book-parser.js";
-import { searchMetadata, fetchCoverBlob, metaMatches } from "./metadata.js";
+import { searchMetadata, fetchCoverBlob, metaConfident } from "./metadata.js";
 import { cbrToCbz } from "./cbr.js";
 
 const foliate = () => import("../vendor/foliate/view.js");
@@ -81,10 +81,19 @@ const parsePdf = async (file) => {
   };
 };
 
-const parseText = async (file) => ({
-  title: file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim(),
-  author: "", desc: "", year: "", coverBlob: null,
-});
+// A document usually names itself better than its filename does: a Markdown
+// file's first "# heading", an HTML file's <title>.
+const parseText = async (file) => {
+  const fromName = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+  let title = "";
+  try {
+    const head = await file.slice(0, 8192).text();
+    if (/\.(md|markdown)$/i.test(file.name)) title = head.match(/^#\s+(.+?)\s*#*\s*$/m)?.[1] || "";
+    else if (/\.html?$/i.test(file.name))
+      title = new DOMParser().parseFromString(head, "text/html").title || "";
+  } catch { /* fall back to the filename */ }
+  return { title: title.trim() || fromName, author: "", desc: "", year: "", coverBlob: null };
+};
 
 const parseAudioFile = async (file) => {
   const mm = await loadMM();
@@ -304,7 +313,7 @@ const importAudiobook = async (items) => {
 const autoMeta = async (book) => {
   try {
     const cands = await searchMetadata(book.title, book.author);
-    const match = cands.find((c) => metaMatches(c, book));
+    const match = cands.find((c) => metaConfident(c, book));
     if (!match) return;
     // merge into a fresh record — the user may have opened/read the book
     // while the lookup was in flight; never regress progress or edits

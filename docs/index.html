@@ -84,7 +84,7 @@
           </div>
         </header>
         <div class="view-body" id="library-body">
-          <div class="library-search">
+          <div class="library-search" id="library-search-wrap">
             <input type="search" id="library-search" placeholder="Search library" autocomplete="off" />
           </div>
           <button type="button" class="continue-card" id="continue-card" hidden>
@@ -99,12 +99,36 @@
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             </span>
           </button>
+          <div class="library-head" id="library-head" hidden>
+            <span class="library-count" id="library-count"></span>
+            <div class="seg seg-sm" id="library-filter" role="group" aria-label="Show" hidden>
+              <button type="button" data-val="all">All</button>
+              <button type="button" data-val="books">Books</button>
+              <button type="button" data-val="audio">Audiobooks</button>
+            </div>
+          </div>
           <div class="library-grid" id="library-grid"></div>
-          <div class="empty-state" id="library-empty">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
-            <p class="empty-title">Your library is empty</p>
-            <p class="empty-sub">Import EPUB, PDF, MOBI, FB2, CBZ/CBR, TXT, or audiobook files to get started.</p>
-            <button type="button" class="btn btn-primary" id="empty-import-btn">Import Books</button>
+          <div class="empty-state welcome" id="library-empty">
+            <img class="welcome-icon" src="icons/icon-192.png" alt="" width="76" height="76" />
+            <h2 class="welcome-title">Welcome to Pageturner</h2>
+            <p class="welcome-sub">Your books and audiobooks, kept on this device.</p>
+            <ul class="welcome-points">
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+                <span><b>Read anything</b>EPUB, PDF, MOBI, FB2, comics and plain text</span>
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></svg>
+                <span><b>Listen</b>Audiobooks, or have any book read aloud</span>
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+                <span><b>Private</b>Nothing leaves your device, and it works offline</span>
+              </li>
+            </ul>
+            <button type="button" class="btn btn-primary btn-lg" id="empty-import-btn">Add books</button>
+            <button type="button" class="btn btn-ghost btn-lg" id="empty-install-btn" hidden>Install the app</button>
+            <p class="welcome-drop">or drop files anywhere on this window</p>
           </div>
         </div>
       </section>
@@ -121,7 +145,7 @@
             <p class="list-group-label">Appearance</p>
             <div class="list-card">
               <div class="list-row">
-                <span>Theme</span>
+                <span class="row-label"><span class="row-icon" style="--ic:#5e5ce6"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>Theme</span>
                 <div class="seg" id="set-theme">
                   <button type="button" data-val="auto">Auto</button>
                   <button type="button" data-val="light">Light</button>
@@ -131,10 +155,10 @@
             </div>
           </div>
           <div class="list-group">
-            <p class="list-group-label">Text to Speech</p>
+            <p class="list-group-label">Read Aloud</p>
             <div class="list-card">
               <div class="list-row">
-                <span>Engine</span>
+                <span class="row-label"><span class="row-icon" style="--ic:#ff9f0a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg></span>Voice type</span>
                 <div class="seg" id="set-tts-engine">
                   <button type="button" data-val="auto">Auto</button>
                   <button type="button" data-val="web">Device</button>
@@ -143,67 +167,71 @@
                 </div>
               </div>
               <button type="button" class="list-row list-row-btn" id="set-tts-voice">
-                <span>Voice</span>
-                <span class="list-value" id="set-tts-voice-name">Default</span>
+                <span class="row-label"><span class="row-icon" style="--ic:#30b0c7"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M19 8a4 4 0 0 1 0 6"/></svg></span>Voice</span>
+                <span class="list-value list-value-chevron" id="set-tts-voice-name">Default</span>
               </button>
               <div class="list-row">
-                <span>Speed</span>
-                <span class="list-value" id="set-tts-rate-val">1.0×</span>
-              </div>
-              <div class="list-row list-row-slider">
-                <input type="range" id="set-tts-rate" min="0.5" max="2.5" step="0.25" value="1" />
+                <span class="row-label"><span class="row-icon" style="--ic:#34c759"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14l4-4"/><path d="M3.3 17a9 9 0 1 1 17.4 0"/></svg></span>Speed</span>
+                <div class="stepper" role="group" aria-label="Read-aloud speed">
+                  <button type="button" id="set-tts-rate-down" aria-label="Slower">−</button>
+                  <span id="set-tts-rate-val" aria-live="polite">1×</span>
+                  <button type="button" id="set-tts-rate-up" aria-label="Faster">+</button>
+                </div>
               </div>
               <button type="button" class="list-row list-row-btn" id="set-tts-preview">
-                <span>Hear this voice</span>
+                <span class="row-label"><span class="row-icon" style="--ic:#ff375f"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>Hear this voice</span>
                 <span class="list-value" id="set-tts-preview-state">&#9654;</span>
               </button>
             </div>
-            <p class="list-group-note" id="tts-engine-note">Auto uses neural voices on iPhone and iPad, where they keep reading with the screen locked, and your system voices elsewhere. Neural voices download once (~60&nbsp;MB) and run offline. HQ is a higher-quality voice for devices with WebGPU (~330&nbsp;MB). Tap a voice’s ▶ in the picker to hear it first.</p>
+            <p class="list-group-note" id="tts-engine-note">Neural voices sound more natural and keep reading with the screen locked. Each downloads once (about 60&nbsp;MB) and then works offline. Auto picks neural on iPhone and iPad.</p>
           </div>
           <div class="list-group">
-            <p class="list-group-label">Library Data</p>
+            <p class="list-group-label">Library</p>
             <div class="list-card">
               <button type="button" class="list-row list-row-btn" id="backup-export">
-                <span>Export library</span>
-                <span class="list-value">.zip</span>
+                <span class="row-label"><span class="row-icon" style="--ic:#0a84ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg></span>Back up library</span>
+                <span class="list-value list-value-chevron">.zip</span>
               </button>
               <button type="button" class="list-row list-row-btn" id="backup-import">
-                <span>Restore backup</span>
-                <span class="list-value">Choose…</span>
+                <span class="row-label"><span class="row-icon" style="--ic:#64d2ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></span>Restore a backup</span>
+                <span class="list-value list-value-chevron"></span>
               </button>
             </div>
-            <p class="list-group-note">Export saves every book, file, cover, and reading position into one zip — restorable here or on another device.</p>
+            <p class="list-group-note">A backup holds every book, cover and reading position in one file you can restore here or on another device.</p>
           </div>
           <div class="list-group">
             <p class="list-group-label">Help</p>
             <div class="list-card">
               <button type="button" class="list-row list-row-btn" id="set-install">
-                <span>Install on this device</span>
-                <span class="list-value" id="set-install-state">How…</span>
+                <span class="row-label"><span class="row-icon" style="--ic:#34c759"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 18h.01"/></svg></span>Install on this device</span>
+                <span class="list-value list-value-chevron" id="set-install-state">How</span>
               </button>
               <button type="button" class="list-row list-row-btn" id="set-shortcuts" hidden>
-                <span>Keyboard shortcuts</span>
-                <span class="list-value">View</span>
+                <span class="row-label"><span class="row-icon" style="--ic:#8e8e93"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></span>Keyboard shortcuts</span>
+                <span class="list-value list-value-chevron"></span>
               </button>
               <button type="button" class="list-row list-row-btn" id="set-credits">
-                <span>Credits &amp; licences</span>
-                <span class="list-value">View</span>
+                <span class="row-label"><span class="row-icon" style="--ic:#ff453a"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.3 3 4.5 6.7 4.5c2.2 0 3.6 1.2 5.3 3 1.7-1.8 3.1-3 5.3-3 3.7 0 5.8 3.8 4.3 7.2C19.5 16.4 12 21 12 21z"/></svg></span>Credits &amp; licences</span>
+                <span class="list-value list-value-chevron"></span>
               </button>
             </div>
           </div>
           <div class="list-group">
-            <p class="list-group-label">About</p>
+            <p class="list-group-label">Storage</p>
             <div class="list-card">
-              <div class="list-row"><span>Version</span><span class="list-value" id="set-version">2.5.0</span></div>
-              <div class="list-row"><span>Storage</span><span class="list-value" id="set-storage">—</span></div>
+              <div class="list-row">
+                <span class="row-label"><span class="row-icon" style="--ic:#ff9f0a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></span>Used</span>
+                <span class="list-value" id="set-storage">—</span>
+              </div>
               <button type="button" class="list-row list-row-btn" id="set-free-space">
-                <span>Free up space</span>
-                <span class="list-value" id="set-free-space-val">—</span>
+                <span class="row-label"><span class="row-icon" style="--ic:#bf5af2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg></span>Free up space</span>
+                <span class="list-value list-value-chevron" id="set-free-space-val">—</span>
               </button>
             </div>
             <p class="list-group-note list-group-warn" id="set-storage-note" hidden></p>
-            <p class="list-group-note">Freeing up space removes downloaded voices and engine files. Your books, covers and reading positions are untouched; anything needed again is re-downloaded.</p>
+            <p class="list-group-note">Clears downloaded voices and engine files only; books, covers and reading positions stay. Anything needed again downloads again.</p>
           </div>
+          <p class="settings-foot"><span>Pageturner</span> <span id="set-version">2.6.0</span></p>
         </div>
       </section>
 
@@ -280,25 +308,20 @@
       <section class="view view-overlay" id="view-player" hidden>
         <header class="nav-bar">
           <div class="nav-bar-inner">
-            <button type="button" class="nav-btn" id="player-close" aria-label="Back to library">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            <button type="button" class="nav-btn" id="player-close" aria-label="Close player">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
             </button>
             <h1 class="nav-title nav-title-sm">Now Playing</h1>
-            <div class="nav-actions">
-              <button type="button" class="nav-btn" id="player-sleep" aria-label="Sleep timer">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/><path d="M6.38 18.7 4 21"/><path d="M17.64 18.67 20 21"/></svg>
-              </button>
-            </div>
+            <span class="nav-btn-spacer" aria-hidden="true"></span>
           </div>
         </header>
         <div class="player-body">
-          <div class="player-cover" id="player-cover">
-            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-          </div>
+          <div class="player-cover" id="player-cover"></div>
           <h2 class="player-title" id="player-title"></h2>
           <p class="player-author" id="player-author"></p>
           <button type="button" class="player-chapter" id="player-chapter-btn">
             <span id="player-chapter-name">Chapter</span>
+            <span class="player-chapter-left" id="player-chapter-left"></span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
           </button>
           <div class="player-progress">
@@ -325,7 +348,20 @@
               <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="m5 4 10 8-10 8V4z"/><rect x="17" y="4" width="2" height="16"/></svg>
             </button>
           </div>
-          <button type="button" class="player-speed" id="player-speed">1×</button>
+          <div class="player-options">
+            <button type="button" class="player-option" id="player-speed" aria-label="Playback speed">
+              <span class="po-value" id="player-speed-val">1×</span>
+              <span class="po-label">Speed</span>
+            </button>
+            <button type="button" class="player-option" id="player-sleep" aria-label="Sleep timer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+              <span class="po-label" id="player-sleep-label">Sleep</span>
+            </button>
+            <button type="button" class="player-option" id="player-chapters" aria-label="Chapters">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+              <span class="po-label">Chapters</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -357,29 +393,60 @@
         <button type="button" class="nav-btn" id="mini-play" aria-label="Play">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         </button>
+        <div class="mini-progress" aria-hidden="true"><i id="mini-fill"></i></div>
       </div>
     </div>
 
     <!-- ================= SHEETS ================= -->
     <div class="sheet-overlay" id="sheet-overlay" hidden></div>
 
-    <div class="sheet" id="sheet-book" hidden role="dialog" aria-modal="true">
+    <div class="sheet" id="sheet-book" hidden role="dialog" aria-modal="true" aria-labelledby="detail-title">
       <div class="sheet-grabber"></div>
-      <div class="sheet-body">
+      <div class="sheet-body book-page">
         <div class="book-detail-head">
           <div class="book-detail-cover" id="detail-cover"></div>
           <div class="book-detail-meta">
             <h2 id="detail-title"></h2>
-            <p id="detail-author"></p>
+            <p class="book-detail-author" id="detail-author"></p>
             <p class="book-detail-format" id="detail-format"></p>
           </div>
         </div>
-        <div class="sheet-actions">
-          <button type="button" class="btn btn-primary" id="detail-open-btn">Read</button>
-          <button type="button" class="btn btn-ghost" id="detail-progress-btn">Reading Progress</button>
-          <button type="button" class="btn btn-ghost" id="detail-meta-btn">Find Metadata</button>
-          <button type="button" class="btn btn-ghost" id="detail-edit-btn">Edit</button>
-          <button type="button" class="btn btn-danger" id="detail-delete-btn">Delete</button>
+
+        <div class="book-progress-block">
+          <div class="bp-bar"><i id="detail-progress-fill"></i></div>
+          <div class="bp-meta">
+            <span id="detail-progress-label">Not started</span>
+            <span id="detail-progress-extra"></span>
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-primary btn-lg" id="detail-open-btn">Read</button>
+
+        <div class="book-missing" id="detail-missing" hidden>
+          <span>The title or author is missing.</span>
+          <button type="button" id="detail-missing-fix">Find details</button>
+        </div>
+
+        <p class="book-desc" id="detail-desc" hidden></p>
+        <button type="button" class="book-desc-more" id="detail-desc-more" hidden>More</button>
+
+        <div class="book-actions">
+          <button type="button" class="book-action" id="detail-progress-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.3 2.3L15.8 9.8"/></svg>
+            <span>Progress</span>
+          </button>
+          <button type="button" class="book-action" id="detail-meta-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <span>Find details</span>
+          </button>
+          <button type="button" class="book-action" id="detail-edit-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            <span>Edit</span>
+          </button>
+          <button type="button" class="book-action book-action-danger" id="detail-delete-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+            <span>Delete</span>
+          </button>
         </div>
       </div>
     </div>

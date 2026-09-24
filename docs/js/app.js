@@ -3,7 +3,7 @@
  */
 
 import {
-  $, initSheets, toast, fmtBytes, coverUrl, listSheet, closeSheet, isSheetOpen,
+  $, initSheets, toast, fmtBytes, fillCover, listSheet, closeSheet, isSheetOpen,
   isIOS, isStandalone,
 } from "./util.js";
 import { kvGet, kvSet, storageEstimate } from "./db.js";
@@ -190,6 +190,9 @@ const reclaim = async () => {
 const initHelp = async () => {
   $("set-install").addEventListener("click", showInstallHelp);
   if (isStandalone()) $("set-install-state").textContent = "Installed";
+  // the welcome screen offers installing too, until it's done
+  $("empty-install-btn").hidden = isStandalone();
+  $("empty-install-btn").addEventListener("click", showInstallHelp);
 
   // shortcuts only mean something with a keyboard
   const hasKeyboard = !window.matchMedia?.("(pointer: coarse)").matches;
@@ -278,14 +281,28 @@ const initSettings = async () => {
     });
   });
 
-  const rate = $("set-tts-rate");
-  rate.value = s.rate;
-  $("set-tts-rate-val").textContent = `${s.rate}×`;
-  rate.addEventListener("input", () => {
-    s.rate = parseFloat(rate.value);
-    $("set-tts-rate-val").textContent = `${s.rate}×`;
+  // A stepper rather than a slider: speed is picked from a handful of values,
+  // and a slider plus a separate readout row took two rows to say one thing.
+  const RATE_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5];
+  const showRate = () => {
+    $("set-tts-rate-val").textContent = `${+s.rate.toFixed(2)}×`;
+    $("set-tts-rate-down").disabled = s.rate <= RATE_STEPS[0] + 0.001;
+    $("set-tts-rate-up").disabled = s.rate >= RATE_STEPS.at(-1) - 0.001;
+  };
+  const stepRate = (dir) => {
+    // from an in-between value (older builds allowed any), step to the
+    // nearest mark in the direction pressed
+    const next = dir > 0
+      ? RATE_STEPS.find((r) => r > s.rate + 0.001)
+      : [...RATE_STEPS].reverse().find((r) => r < s.rate - 0.001);
+    if (next == null) return;
+    s.rate = next;
     ttsController.saveSettings();
-  });
+    showRate();
+  };
+  $("set-tts-rate-down").addEventListener("click", () => stepRate(-1));
+  $("set-tts-rate-up").addEventListener("click", () => stepRate(1));
+  showRate();
 
   $("set-tts-voice").addEventListener("click", async () => {
     stopPreview();
@@ -389,6 +406,7 @@ const showView = (name) => {
 // Mini player (shown when audio session is alive but player view closed)
 // ---------------------------------------------------------------------------
 
+let miniBookId = null;
 const updateMini = () => {
   const st = playerState();
   const mini = $("mini-player");
@@ -396,11 +414,13 @@ const updateMini = () => {
   if (!st.book || playerOpen) { mini.hidden = true; return; }
   mini.hidden = false;
   $("mini-title").textContent = st.book.title;
-  $("mini-sub").textContent = st.book.author || "Audiobook";
-  const mc = $("mini-cover");
-  mc.textContent = "";
-  const url = coverUrl(st.book);
-  if (url) { const img = document.createElement("img"); img.src = url; img.alt = ""; mc.appendChild(img); }
+  $("mini-sub").textContent = st.chapter || st.book.author || "Audiobook";
+  $("mini-fill").style.width = `${(st.fraction * 100).toFixed(2)}%`;
+  // this runs on every timeupdate — only rebuild the cover when the book changes
+  if (miniBookId !== st.book.id) {
+    miniBookId = st.book.id;
+    fillCover($("mini-cover"), st.book);
+  }
   $("mini-play").innerHTML = st.playing
     ? '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>'
     : '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';

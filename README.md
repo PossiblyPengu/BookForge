@@ -5,14 +5,16 @@ An offline-capable, installable e-reader and audiobook player PWA. Everything ru
 ## Features
 
 - **Reading:** EPUB, MOBI/AZW3, FB2/FBZ, CBZ and CBR comics, PDF, TXT/Markdown/HTML
-- **Audiobooks:** M4B/M4A/MP3/FLAC/OGG/OPUS/WAV — multi-file books with per-file or embedded chapters, speed control, sleep timer, resume position, lock-screen controls with a scrubbable position
+- **Audiobooks:** M4B/M4A/MP3/FLAC/OGG/OPUS/WAV — multi-file books with per-file or embedded chapters, speed control, sleep timer with a live countdown, time left in the chapter, a Now Playing screen tinted from the cover, resume position, lock-screen controls with a scrubbable position
 - **One voice at a time:** read-aloud and the audiobook player yield to each other rather than both playing
 - **Text-to-speech:** read-aloud with device voices (Web Speech API) or on-device neural voices (Piper + ONNX Runtime WASM — no audio leaves the device)
 - **In-book search:** full-text search with live results and highlighted matches, across EPUB-family books, PDFs and plain text
 - **Bookmarks & highlights:** select text to highlight, copy or share it; bookmark any page; both listed alongside the table of contents
 - **Footnotes in place:** note references open in a popover instead of throwing you into the endnotes, and any jump — note, cross-reference or search hit — leaves a Back chip
 - **Metadata:** automatic lookup via Google Books + Open Library, candidate picker when the match is ambiguous, manual editing
-- **Library:** local-first — books, covers, and reading progress persist in IndexedDB; search and sort by title, author, format or recency; Continue-reading card resumes in one tap; select mode for bulk delete and bulk metadata lookup
+- **Library:** local-first — books, covers, and reading progress persist in IndexedDB; search, sort, and a Books/Audiobooks filter; Continue-reading card resumes in one tap; select mode for bulk delete and bulk metadata lookup
+- **Covers for everything:** books without art get a designed cover (title and author on a book-cloth colour chosen from the title), legible from thumbnail to full screen
+- **Book page:** progress and when you last opened it, the description, a primary action worded for where you are (Read / Continue reading / Read again), and a nudge when details are missing
 - **Backup:** export the whole library (books, covers, positions) to one zip and restore it here or on another device
 - **Installable:** iOS-style design, Add to Home Screen on iOS, generated iOS launch images, standalone display, offline via service worker
 - **OS integration:** share-target import, and file handlers — double-click a book to open it in the installed app
@@ -125,6 +127,8 @@ docs/
 - Google Drive integration from the previous Forge version was removed — the app is local-first.
 - **iOS launch images** are generated per device size (iOS only uses an exactly matching `apple-touch-startup-image`), portrait only. `npm run icons` writes both the PNGs and the `<link>` tags between the `launch-images` markers in `index.html`.
 - **Backups** are plain zips of stored entries (books and audio are already compressed), with ZIP64 for libraries or files over 4 GiB. `docs/js/zip.js` assembles the archive by reference from IndexedDB's Blobs, so exporting never copies the library into memory, and restores through the central directory with `Blob.slice()`. Archives open in any unzip tool; backups from earlier versions (deflated) still restore.
+- **Automatic metadata** only applies a match whose core title is identical (and whose author agrees, when both are known). A title that merely contains yours — "The Salt Road" vs "The Salt Roads" — is left for the manual picker rather than silently giving the book someone else's cover.
+- **Light theme contrast:** the amber accent is used as a fill; text and icons on light surfaces use a deeper amber (`--accent-ink`, ≥4.6:1).
 - **Storage** is the browser's. Settings → About warns when the quota is nearly full or persistent storage wasn't granted; an exported backup is the only copy that survives the browser clearing site data.
 - The manifest has no `screenshots`, so Android/desktop install prompts show the plain variant.
 - **Rotation** re-renders PDF pages (their canvases are sized when drawn) and restores the reading fraction in the text renderer, whose scroll offset is absolute. EPUBs reflow through foliate's own `ResizeObserver`.

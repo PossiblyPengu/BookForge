@@ -226,7 +226,12 @@ const openFoliate = async (book, file) => {
           yield {
             label: (r.label || "").trim(),
             items: r.subitems.map((s) => ({
-              excerpt: { before: s.excerpt?.pre || "", match: s.excerpt?.match || "", after: s.excerpt?.post || "" },
+              excerpt: {
+                // foliate cuts context at a fixed length, often mid-word
+                before: (s.excerpt?.pre || "").replace(/^…S*s+/, "…"),
+                match: s.excerpt?.match || "",
+                after: (s.excerpt?.post || "").replace(/s+S*…$/, "…"),
+              },
               target: { cfi: s.cfi },
             })),
           };
@@ -257,12 +262,10 @@ const openFoliate = async (book, file) => {
     const { reason } = e.detail || {};
     if (reason === "snap" || reason === "page" || reason === "scroll") userMoved();
   });
-  // draw user annotations as soft highlights, search hits in a cooler tint so
-  // the two don't read as the same thing
-  view.addEventListener("draw-annotation", (e) => {
-    const isHit = String(e.detail.annotation?.value || "").startsWith("foliate-search:");
-    e.detail.draw(Overlayer.highlight, { color: isHit ? "#6aa9e8" : "#e8c46a", padding: 1 });
-  });
+  // user highlights are drawn warm; search hits are drawn by foliate itself,
+  // restyled cool via Overlayer.outline above, so the two never look alike
+  view.addEventListener("draw-annotation", (e) =>
+    e.detail.draw(Overlayer.highlight, { color: "#e8c46a", padding: 1 }));
   // tapping an existing highlight offers removal
   view.addEventListener("show-annotation", (e) => {
     const { value } = e.detail;
@@ -333,6 +336,12 @@ export const jumpFrom = (go) => {
   if (from) showJumpBack(from);
   return r;
 };
+
+// foliate draws search hits itself, as Overlayer.outline with no options —
+// a 3px red box around every match. Search is the only thing that uses
+// outline, so restyle it here at runtime (a patch to the vendored file would
+// be lost on the next `npm run vendor`).
+Overlayer.outline = (rects) => Overlayer.highlight(rects, { color: "#5b9bd5", padding: 1 });
 
 const noteHandler = new FootnoteHandler();
 
