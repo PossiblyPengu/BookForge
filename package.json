@@ -1,7 +1,7 @@
 {
   "name": "pageturner",
   "version": "2.7.0",
-  "build": 42,
+  "build": 43,
   "description": "Convert MP3 chapters into M4B audiobooks",
   "main": "index.js",
   "directories": {

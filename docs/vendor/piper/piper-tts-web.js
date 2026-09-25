@@ -445,40 +445,39 @@ __publicField(_TtsSession, "WASM_LOCATIONS", DEFAULT_WASM_PATHS);
 __publicField(_TtsSession, "_instance", null);
 let TtsSession = _TtsSession;
 const INFERENCE_PROGRESS_URL = "tts://inference-progress";
-const MAX_CHUNK_LENGTH = 400;
+// Pageturner patch (scripts/patch-piper.js, __ptClip): at most ~100
+// characters per inference. ONNX Runtime's memory grows with the clip it
+// generates (~22 MB a second of audio) and never shrinks, so a long
+// sentence in one go left it holding ~400 MB, past what iOS lets a page use.
+const MAX_CHUNK_LENGTH = 100;
 function splitIntoChunks(text, maxLength = MAX_CHUNK_LENGTH) {
-  const trimmed = text.trim();
-  if (!trimmed) return [];
-  if (trimmed.length <= maxLength) return [trimmed];
-  const sentences = trimmed.match(/[^.!?…\n]+[.!?…]*\s*/g) ?? [trimmed];
   const chunks = [];
-  let current = "";
-  const pushCurrent = () => {
-    const c = current.trim();
-    if (c) chunks.push(c);
-    current = "";
-  };
-  for (const sentence of sentences) {
-    if ((current + sentence).length > maxLength) pushCurrent();
-    if (sentence.length > maxLength) {
-      let piece = "";
-      for (const word of sentence.split(/\s+/)) {
-        if ((piece + " " + word).trim().length > maxLength) {
-          const p = piece.trim();
-          if (p) chunks.push(p);
-          piece = word;
-        } else {
-          piece = piece ? `${piece} ${word}` : word;
-        }
+  let rest = text.trim();
+  while (rest.length > maxLength) {
+    const head = rest.slice(0, maxLength + 1);
+    // where the last break of a kind ends, if the piece before it fits
+    const lastBreak = (re) => {
+      let at = -1;
+      for (const m of head.matchAll(re)) {
+        const end = m.index + m[0].length;
+        if (end <= maxLength) at = end;
       }
-      current = piece;
-    } else {
-      current += sentence;
-    }
+      return at;
+    };
+    // a sentence end, else a clause break, else a word break; the first two
+    // only if they don't leave a short scrap in front
+    const min = maxLength / 3;
+    let cut = lastBreak(/[.!?…]+["'”’)\]]*(?=\s)/g);
+    if (cut < min) cut = lastBreak(/[,;:]["'”’)\]]*(?=\s)|[—–]/g);
+    if (cut < min) cut = lastBreak(/\S(?=\s)/g);
+    if (cut <= 0) cut = maxLength;
+    chunks.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
   }
-  pushCurrent();
+  if (rest) chunks.push(rest);
   return chunks;
 }
+export { splitIntoChunks };
 async function predict(config, callback) {
   const session = new TtsSession({
     voiceId: config.voiceId,

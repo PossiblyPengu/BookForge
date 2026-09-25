@@ -4,6 +4,7 @@
  *   2. let the phonemizer's main() run more than once (further down)
  *   3. TtsSession.release(), to free a voice's memory (further down)
  *   4. keep downloaded voices in the Cache API (further down)
+ *   5. bound how much audio one inference generates (further down)
  *
  * Upstream piper-tts-web creates a fresh phonemizer (a WebAssembly module
  * that loads espeak-ng's 18 MB data file into its own memory) for every
@@ -246,6 +247,58 @@ async function flush() {
 }
 `;
 
+// ---------------------------------------------------------------------------
+// One inference: at most ~100 characters of text
+// ---------------------------------------------------------------------------
+//
+// ONNX Runtime's WebAssembly memory grows to fit the longest clip it has
+// generated and never shrinks. The voice's decoder needs ~22 MB for every
+// second of audio (measured with a medium voice's decoder in ORT 1.18), so
+// one 240-character sentence (~16 s) took the runtime to ~400 MB with the
+// weights, and iOS killed the page mid-read ("A problem repeatedly
+// occurred"). Upstream only splits text past 400 characters. Splitting at
+// ~100 (6–7 s of speech) keeps it near 200 MB. Sentences in read-aloud are
+// already chunked to 240, so this only divides the long ones: at a sentence
+// end, else a clause break, else between words. predict() runs the pieces
+// one after another and joins their audio.
+
+const CLIP_MARK = "__ptClip";
+
+const CLIP_REPLACEMENT = `// Pageturner patch (scripts/patch-piper.js, ${CLIP_MARK}): at most ~100
+// characters per inference. ONNX Runtime's memory grows with the clip it
+// generates (~22 MB a second of audio) and never shrinks, so a long
+// sentence in one go left it holding ~400 MB, past what iOS lets a page use.
+const MAX_CHUNK_LENGTH = 100;
+function splitIntoChunks(text, maxLength = MAX_CHUNK_LENGTH) {
+  const chunks = [];
+  let rest = text.trim();
+  while (rest.length > maxLength) {
+    const head = rest.slice(0, maxLength + 1);
+    // where the last break of a kind ends, if the piece before it fits
+    const lastBreak = (re) => {
+      let at = -1;
+      for (const m of head.matchAll(re)) {
+        const end = m.index + m[0].length;
+        if (end <= maxLength) at = end;
+      }
+      return at;
+    };
+    // a sentence end, else a clause break, else a word break; the first two
+    // only if they don't leave a short scrap in front
+    const min = maxLength / 3;
+    let cut = lastBreak(/[.!?\u2026]+["'\u201d\u2019)\\]]*(?=\\s)/g);
+    if (cut < min) cut = lastBreak(/[,;:]["'\u201d\u2019)\\]]*(?=\\s)|[\u2014\u2013]/g);
+    if (cut < min) cut = lastBreak(/\\S(?=\\s)/g);
+    if (cut <= 0) cut = maxLength;
+    chunks.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) chunks.push(rest);
+  return chunks;
+}
+export { splitIntoChunks };
+`;
+
 /** Replace [from, to) in `s`, where `to` is the start of the next function. */
 const replaceSpan = (s, from, to, text, what, file) => {
   const a = s.indexOf(from);
@@ -285,6 +338,13 @@ const PATCHES = [
       return replaceSpan(s, "async function download(voiceId, callback) {", "async function voices() {",
         STORE_EXPORTS, "voice download/list functions", file);
     },
+  },
+  {
+    name: "bounded clip per inference",
+    file: "main",
+    mark: CLIP_MARK,
+    apply: (s, file) => replaceSpan(s, "const MAX_CHUNK_LENGTH = 400;", "async function predict(config, callback) {",
+      CLIP_REPLACEMENT, "splitIntoChunks", file),
   },
 ];
 

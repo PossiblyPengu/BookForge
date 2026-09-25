@@ -206,7 +206,8 @@ export const ttsController = {
 
   _status(text) { const el = $("tts-status"); if (el) el.textContent = text; },
   _downloadProgress(p) {
-    if (!p) return;
+    // piper also reports its progress through a long sentence here
+    if (!p || p.url?.startsWith("tts://")) return;
     this._status(p.total
       ? `Downloading voice… ${Math.round((p.loaded / p.total) * 100)}%`
       : "Downloading voice…");
