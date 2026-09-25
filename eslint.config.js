@@ -21,6 +21,8 @@ export default [
         btoa: "readonly",
         atob: "readonly",
         HTMLElement: "readonly",
+        Event: "readonly",
+        KeyboardEvent: "readonly",
         NodeFilter: "readonly",
         Range: "readonly",
         DOMParser: "readonly",
@@ -62,7 +64,7 @@ export default [
     },
   },
   {
-    files: ["scripts/**/*.js"],
+    files: ["scripts/**/*.{js,mjs}"],
     languageOptions: {
       globals: {
         require: "readonly",
