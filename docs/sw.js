@@ -1,6 +1,16 @@
 
-const CACHE_NAME = 'pageturner-cache-v41';
-const RUNTIME_CACHE = 'pageturner-runtime-v41';
+const CACHE_NAME = 'pageturner-cache-v42';
+const RUNTIME_CACHE = 'pageturner-runtime-v42';
+// Engine binaries (ONNX runtime, espeak data, model weights): ~30 MB that
+// rarely changes. Kept across app updates rather than re-downloaded with every
+// build, and re-checked with a cheap conditional request when a new version
+// activates, so a changed binary still arrives.
+const ENGINE_CACHE = 'pageturner-engines';
+// Only these are this worker's to delete. Downloaded voices (pageturner-voices),
+// the HQ model (transformers-cache, kokoro-voices) and shared files are not
+// tied to a build and must survive updates.
+const OWN_VERSIONED = /^pageturner-(cache|runtime)-v\d+$/;
+const isEngineAsset = (url) => url.includes('/vendor/') && /\.(wasm|data|onnx|bin)(\?|$)/.test(url);
 const APP_SHELL = [
   './',
   './index.html',
@@ -82,15 +92,50 @@ self.addEventListener('install', event => {
   self.skipWaiting();
 });
 
-// Activate: clean up old caches
+/**
+ * Re-check each cached engine binary against the server. A 304 costs a few
+ * hundred bytes; only a binary that actually changed downloads again.
+ */
+const revalidateEngines = async () => {
+  const cache = await caches.open(ENGINE_CACHE);
+  for (const req of await cache.keys()) {
+    const old = await cache.match(req);
+    const headers = {};
+    const etag = old && old.headers.get('etag');
+    const modified = old && old.headers.get('last-modified');
+    if (etag) headers['If-None-Match'] = etag;
+    else if (modified) headers['If-Modified-Since'] = modified;
+    try {
+      const res = await fetch(req.url, { headers, cache: 'no-store' });
+      if (res.status === 200) await cache.put(req, res);
+      // 304: unchanged. Anything else (offline, 5xx): keep what we have.
+    } catch { /* offline — keep it */ }
+  }
+};
+
+// Activate: retire this app's previous versioned caches — and nothing else.
+// It used to delete every cache but the current ones, which threw away the
+// downloaded HQ voice and all the engine files on every update.
 self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys
-        .filter(key => key !== CACHE_NAME && key !== RUNTIME_CACHE && key !== 'shared-files')
-        .map(key => caches.delete(key)))
-    )
-  );
+  event.waitUntil((async () => {
+    const engines = await caches.open(ENGINE_CACHE);
+    for (const key of await caches.keys()) {
+      if (!OWN_VERSIONED.test(key) || key === CACHE_NAME || key === RUNTIME_CACHE) continue;
+      // earlier builds kept engine binaries in the per-build runtime cache —
+      // carry them over rather than downloading them again
+      if (key.startsWith('pageturner-runtime-')) {
+        const old = await caches.open(key);
+        for (const req of await old.keys()) {
+          if (isEngineAsset(req.url) && !(await engines.match(req))) {
+            const res = await old.match(req);
+            if (res) await engines.put(req, res);
+          }
+        }
+      }
+      await caches.delete(key);
+    }
+    await revalidateEngines();
+  })());
   self.clients.claim();
 });
 
@@ -133,9 +178,12 @@ self.addEventListener('fetch', event => {
         ? new Request(event.request, { cache: 'no-cache' })
         : event.request;
       return fetch(req).then(response => {
-        if (response.ok && event.request.url.includes('/vendor/')) {
+        // status 200 only: a 206 partial response can't be cached
+        if (response.status === 200 && event.request.url.includes('/vendor/')) {
           const clone = response.clone();
-          caches.open(RUNTIME_CACHE).then(c => c.put(event.request, clone));
+          caches.open(isEngineAsset(event.request.url) ? ENGINE_CACHE : RUNTIME_CACHE)
+            .then(c => c.put(event.request, clone))
+            .catch(() => {});
         }
         return response;
       });

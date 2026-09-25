@@ -183,6 +183,20 @@ export const web = {
 // ---------------------------------------------------------------------------
 // Piper (lazy)
 // ---------------------------------------------------------------------------
+//
+// ONNX Runtime holds a voice's weights in WebAssembly memory, which never
+// shrinks, until the session is released; dropping the object gives nothing
+// back. A session that's been replaced (another voice picked or previewed)
+// is released as soon as nothing is synthesising with it, so its memory is
+// reused by the next voice instead of piling up until iOS kills the page.
+const busy = new Map(); // session → predictions in flight
+const retired = new WeakSet();
+const retire = async (session) => {
+  if (!session || retired.has(session)) return;
+  retired.add(session);
+  if (!busy.get(session)) await session.release?.().catch(() => {});
+};
+
 export const piper = {
   id: "piper",
   kind: "audio",
@@ -199,9 +213,13 @@ export const piper = {
       const mod = await import("../vendor/piper/piper-tts-web.js");
       // TtsSession is a singleton — reset it when the voice changed so create()
       // actually loads the new model + config instead of reusing the old one.
+      // The old one is freed first (unless it's mid-sentence, then just
+      // after), so two models aren't held at once.
       if (this.voiceId !== settings.piperVoice) {
+        const old = this.session || mod.TtsSession._instance;
         mod.TtsSession._instance = null;
         this.session = null;
+        await retire(old);
       }
       const wasmBase = new URL("../vendor/piper/", import.meta.url).href;
       const ortBase = new URL("../vendor/ort/", import.meta.url).href;
@@ -222,17 +240,38 @@ export const piper = {
   },
 
   synth: null, // set below — needs `piper` in scope
-  /** Drop the loaded model so the next ensure() loads the picked voice. */
-  reset() { this.session = null; },
+  /** Free the loaded model; the next ensure() loads the current voice. */
+  reset() {
+    const old = this.session;
+    this.session = null;
+    this.voiceId = null;
+    return retire(old);
+  },
 };
 piper.synth = synthQueue(
-  async (text) => (await piper.ensure()).predict(text),
+  async (text) => {
+    let session = await piper.ensure();
+    if (retired.has(session)) session = await piper.ensure(); // replaced meanwhile
+    busy.set(session, (busy.get(session) || 0) + 1);
+    try {
+      return await session.predict(text);
+    } finally {
+      const n = busy.get(session) - 1;
+      if (n) busy.set(session, n);
+      else {
+        busy.delete(session);
+        if (retired.has(session)) session.release?.().catch(() => {});
+      }
+    }
+  },
   () => settings.piperVoice,
 );
 
 // ---------------------------------------------------------------------------
 // Kokoro (lazy). Offered only where WebGPU exists: on WASM it runs 3–4×
-// slower than real time, which can't sustain read-aloud.
+// slower than real time, which can't sustain read-aloud. Not on iPhone or
+// iPad even with WebGPU (iOS 26): the fp32 model is ~330 MB, held once in
+// JS and again on the GPU, which is past what iOS lets a web page use.
 // ---------------------------------------------------------------------------
 export const KOKORO_VOICES = [
   ["af_heart", "Heart", "American English · female"],
@@ -249,7 +288,7 @@ export const kokoro = {
   kind: "audio",
   tts: null,
   loading: null,
-  available: () => typeof navigator !== "undefined" && !!navigator.gpu,
+  available: () => typeof navigator !== "undefined" && !!navigator.gpu && !isIOS(),
   ready() { return !!this.tts; },
 
   async ensure(onProgress) {
@@ -259,7 +298,7 @@ export const kokoro = {
       const mod = await import("../vendor/kokoro/kokoro.web.js");
       // self-hosted ONNX runtime: the CSP (and offline use) rule out its CDN
       mod.env.wasmPaths = new URL("../vendor/kokoro/", import.meta.url).href;
-      const gpu = kokoro.available();
+      const gpu = !!navigator.gpu;
       this.tts = await mod.KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
         dtype: gpu ? "fp32" : "q8",
         device: gpu ? "webgpu" : "wasm",

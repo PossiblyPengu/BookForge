@@ -782,6 +782,46 @@ const testFn = async (withPiper) => {
         `bulk delete → ${startCount} - 2 = ${after.length}, selection mode closed`);
     }
 
+    // 12b. Saved voices. Piper used to save voices to OPFS with
+    //      createWritable(), which Safari lacks — so iPhone and iPad downloaded
+    //      the ~60 MB voice every session. Voices now live in the Cache API.
+    //      A stand-in voice is seeded here rather than downloading 60 MB.
+    {
+      const el = (id) => document.getElementById(id);
+      const piperMod = await import("./vendor/piper/piper-tts-web.js");
+      const KEY = "en_US-amy-low";
+      const url = `${piperMod.HF_BASE}/${piperMod.PATH_MAP[KEY]}`;
+      const voices = await caches.open("pageturner-voices");
+      await voices.put(url, new Response(new Blob(["fake model"]), { headers: { "content-length": "10" } }));
+      await voices.put(`${url}.json`, new Response("{}"));
+      log((await piperMod.stored()).includes(KEY), `a voice in the Cache API is listed as stored (${KEY})`);
+
+      // voices saved to OPFS by earlier builds (Chrome, where it worked) still count
+      const root = await navigator.storage.getDirectory();
+      const dir = await root.getDirectoryHandle("piper", { create: true });
+      const LEGACY = "en_GB-alan-low";
+      const fh = await dir.getFileHandle(`${LEGACY}.onnx`, { create: true });
+      const w = await fh.createWritable(); await w.write("legacy"); await w.close();
+      log((await piperMod.stored()).includes(LEGACY), "voices saved by earlier builds (OPFS) are still found");
+
+      // the Saved voices sheet lists both, with sizes, and can remove one
+      const tv = await import("./js/tts-voices.js");
+      await tv.openSavedVoices();
+      await wait(150);
+      const rows = [...el("sheet-list-body").querySelectorAll(".sheet-list-row")];
+      const titles = rows.map((r) => r.querySelector(".item-title")?.textContent || "");
+      log(rows.length === 2 && titles.some((t) => /Amy/i.test(t)) && /on this device/.test(el("sheet-list-body").textContent),
+        `Saved voices sheet → ${JSON.stringify(titles)}`);
+      const amyRow = rows.find((r) => /Amy/i.test(r.textContent));
+      amyRow.querySelector(".sheet-list-action").click();
+      for (let i = 0; i < 30 && (await piperMod.stored()).includes(KEY); i++) await wait(100);
+      log(!(await piperMod.stored()).includes(KEY) && !(await voices.match(url)),
+        "Remove deletes the voice from the device");
+      (await import("./js/util.js")).closeSheet();
+      await piperMod.remove(LEGACY);
+      log(!(await piperMod.stored()).includes(LEGACY), "removing a legacy OPFS voice works too");
+    }
+
     // 13. Backup round trip. The exporter was rewritten to assemble the zip
     //     by reference instead of copying the library into memory, so check
     //     the whole cycle: export → lose a book → restore → same bytes back.

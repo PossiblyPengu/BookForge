@@ -158,7 +158,7 @@
             <p class="list-group-label">Read Aloud</p>
             <div class="list-card">
               <div class="list-row">
-                <span class="row-label"><span class="row-icon" style="--ic:#ff9f0a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg></span>Voice type</span>
+                <span class="row-label"><span class="row-icon" style="--ic:#ff9f0a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg></span>Quality</span>
                 <div class="seg" id="set-tts-engine">
                   <button type="button" data-val="auto">Auto</button>
                   <button type="button" data-val="web">Device</button>
@@ -183,7 +183,13 @@
                 <span class="list-value" id="set-tts-preview-state">&#9654;</span>
               </button>
             </div>
-            <p class="list-group-note" id="tts-engine-note">Neural voices sound more natural and keep reading with the screen locked. Each downloads once (about 60&nbsp;MB) and then works offline. Auto picks neural on iPhone and iPad.</p>
+            <div class="list-card list-card-gap">
+              <button type="button" class="list-row list-row-btn" id="set-voices-saved">
+                <span class="row-label"><span class="row-icon" style="--ic:#0a84ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></span>Saved voices</span>
+                <span class="list-value list-value-chevron" id="set-voices-saved-val">None</span>
+              </button>
+            </div>
+            <p class="list-group-note" id="tts-engine-note">Neural voices sound more natural and keep reading with the screen locked. Choosing one downloads it once (about 60&nbsp;MB) and keeps it on this device, so it works offline and stays through app updates. Auto picks neural on iPhone and iPad.</p>
           </div>
           <div class="list-group">
             <p class="list-group-label">Library</p>
@@ -231,7 +237,7 @@
             <p class="list-group-note list-group-warn" id="set-storage-note" hidden></p>
             <p class="list-group-note">Clears downloaded voices and engine files only; books, covers and reading positions stay. Anything needed again downloads again.</p>
           </div>
-          <p class="settings-foot"><span>Pageturner</span> <span id="set-version">2.6.0</span></p>
+          <p class="settings-foot"><span>Pageturner</span> <span id="set-version">2.7.0</span></p>
         </div>
       </section>
 

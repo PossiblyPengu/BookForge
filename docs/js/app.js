@@ -15,7 +15,9 @@ import {
 import { initReader, openReader } from "./reader.js";
 import { initPlayer, openPlayer, playerState, reopenPlayer, closePlayer } from "./player.js";
 import { ttsController } from "./tts.js";
-import { pickVoice, voiceLabel, previewVoice, stopPreview } from "./tts-voices.js";
+import {
+  pickVoice, voiceLabel, previewVoice, stopPreview, savedVoices, openSavedVoices, watchSavedVoices,
+} from "./tts-voices.js";
 import { currentVoice, kokoro } from "./tts-engines.js";
 import { deliverBackup, restoreBackup } from "./backup.js";
 import { VERSION, BUILD } from "./version.js";
@@ -146,7 +148,8 @@ const showCredits = () =>
  * offline until the next online visit.
  */
 const RECLAIMABLE_CACHES = (name) =>
-  /^pageturner-runtime-/.test(name) || name === "transformers-cache" || name === "kokoro-voices";
+  /^pageturner-runtime-/.test(name) || name === "pageturner-engines" || name === "pageturner-voices"
+  || name === "transformers-cache" || name === "kokoro-voices";
 
 const opfsPiperDir = async (create = false) => {
   const root = await navigator.storage?.getDirectory?.();
@@ -187,6 +190,8 @@ const reclaim = async () => {
   await root?.removeEntry?.("piper", { recursive: true }).catch(() => {});
 };
 
+let onSettingsShown = () => {}; // set by initHelp, called by showView
+
 const initHelp = async () => {
   $("set-install").addEventListener("click", showInstallHelp);
   if (isStandalone()) $("set-install-state").textContent = "Installed";
@@ -205,7 +210,9 @@ const initHelp = async () => {
     const bytes = await reclaimableBytes().catch(() => null);
     sizeEl.textContent = bytes == null ? "—" : bytes ? fmtBytes(bytes) : "Nothing to clear";
   };
-  showSize();
+  // sizing can mean reading files tens of MB each (engine files cached
+  // without a length), so only when Settings is open, not at every launch
+  onSettingsShown = showSize;
   $("set-free-space").addEventListener("click", async () => {
     const bytes = await reclaimableBytes().catch(() => 0);
     if (!bytes) { toast("Nothing cached to clear"); return; }
@@ -321,6 +328,18 @@ const initSettings = async () => {
   speechSynthesis.onvoiceschanged = updateVoiceLabel;
   updateVoiceLabel();
 
+  // how many neural voices are kept on this device, and how much room they take
+  const updateSaved = async () => {
+    const saved = await savedVoices().catch(() => []);
+    const bytes = saved.reduce((n, v) => n + v.bytes, 0);
+    $("set-voices-saved-val").textContent = saved.length
+      ? `${saved.length} · ${fmtBytes(bytes)}` : "None";
+    updateVoiceLabel();
+  };
+  watchSavedVoices(updateSaved);
+  updateSaved();
+  $("set-voices-saved").addEventListener("click", () => { stopPreview(); openSavedVoices(); });
+
   // The build this copy of the app was released as, and — when they differ —
   // the one the service worker is still serving, so an installed app can be
   // checked against the latest deploy.
@@ -400,6 +419,7 @@ const showView = (name) => {
   document.querySelectorAll(".tab-item").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === name));
   for (const [k, id] of Object.entries(VIEWS)) $(id).hidden = k !== name;
+  if (name === "settings") onSettingsShown();
 };
 
 // ---------------------------------------------------------------------------

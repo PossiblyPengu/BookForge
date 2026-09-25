@@ -3027,6 +3027,9 @@ var createPiperPhonemize = (() => {
       if (!calledRun) dependenciesFulfilled = runCaller;
     };
     function callMain(args = []) {
+      // Pageturner patch (scripts/patch-piper.js): restore the stack pointer
+      // after main(), so callMain() can run once per sentence.
+      var __ptStackTop = stackAlloc(0);
       var entryFunction = _main;
       args.unshift(thisProgram);
       var argc = args.length;
@@ -3043,6 +3046,8 @@ var createPiperPhonemize = (() => {
         return ret;
       } catch (e) {
         return handleException(e);
+      } finally {
+        stackAlloc(stackAlloc(0) - __ptStackTop);
       }
     }
     function run(args = arguments_) {

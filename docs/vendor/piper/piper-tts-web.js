@@ -140,46 +140,58 @@ const PATH_MAP = {
   "en_US-norman-medium": "en/en_US/norman/medium/en_US-norman-medium.onnx",
   "it_IT-paola-medium": "it/it_IT/paola/medium/it_IT-paola-medium.onnx"
 };
+// Pageturner patch (scripts/patch-piper.js): voices live in the Cache API.
+const __ptVoiceCache = "pageturner-voices";
+async function __ptOpfsDir() {
+  try {
+    return await (await navigator.storage.getDirectory()).getDirectoryHandle("piper");
+  } catch {
+    return null;
+  }
+}
 async function writeBlob(url, blob) {
   if (!url.match("https://huggingface.co")) return;
   try {
-    const root = await navigator.storage.getDirectory();
-    const dir = await root.getDirectoryHandle("piper", {
-      create: true
-    });
-    const path = url.split("/").at(-1);
-    const file = await dir.getFileHandle(path, { create: true });
-    const writable = await file.createWritable();
-    await writable.write(blob);
-    await writable.close();
+    const cache = await caches.open(__ptVoiceCache);
+    await cache.put(url, new Response(blob, {
+      headers: {
+        "content-type": blob.type || "application/octet-stream",
+        "content-length": String(blob.size)
+      }
+    }));
   } catch (e) {
     console.error(e);
   }
 }
 async function removeBlob(url) {
   try {
-    const root = await navigator.storage.getDirectory();
-    const dir = await root.getDirectoryHandle("piper");
-    const path = url.split("/").at(-1);
-    const file = await dir.getFileHandle(path);
-    await file.remove();
+    await (await caches.open(__ptVoiceCache)).delete(url);
   } catch (e) {
     console.error(e);
+  }
+  try {
+    await (await __ptOpfsDir())?.removeEntry(url.split("/").at(-1));
+  } catch {
   }
 }
 async function readBlob(url) {
   if (!url.match("https://huggingface.co")) return;
   try {
-    const root = await navigator.storage.getDirectory();
-    const dir = await root.getDirectoryHandle("piper", {
-      create: true
-    });
-    const path = url.split("/").at(-1);
-    const file = await dir.getFileHandle(path);
-    return await file.getFile();
-  } catch (e) {
-    return void 0;
+    const hit = await (await caches.open(__ptVoiceCache)).match(url);
+    if (hit) return await hit.blob();
+  } catch {
   }
+  try {
+    const dir = await __ptOpfsDir();
+    const file = dir && await dir.getFileHandle(url.split("/").at(-1));
+    const blob = file && await file.getFile();
+    if (blob) {
+      await writeBlob(url, blob);
+      return blob;
+    }
+  } catch {
+  }
+  return void 0;
 }
 async function fetchBlob(url, callback) {
   var _a;
@@ -279,6 +291,14 @@ const _TtsSession = class _TtsSession {
     await session.waitReady;
     return session;
   }
+  // Pageturner patch (scripts/patch-piper.js, __ptRelease): free the voice
+  // model inside ONNX Runtime. The session can't synthesise afterwards.
+  async release() {
+    if (_TtsSession._instance === this) _TtsSession._instance = null;
+    const ortSession = __privateGet(this, _ortSession);
+    __privateSet(this, _ortSession, null);
+    await (ortSession == null ? void 0 : ortSession.release());
+  }
   async init() {
     var _a, _b;
     const { createPiperPhonemize } = await import("./piper-o91UDS6e.js");
@@ -364,9 +384,9 @@ predictChunk_fn = async function(text) {
   const input = JSON.stringify([{ text: text.trim() }]);
   // Pageturner patch (scripts/patch-piper.js): one phonemizer per session,
   // reused for every sentence, instead of a new 18 MB WASM instance each.
-  if (!this.__pageturnerPhonemizer) {
+  if (!this.__ptPhonemizer) {
     const sink = { out: null, err: null };
-    this.__pageturnerPhonemizer = __privateGet(this, _createPiperPhonemize).call(this, {
+    this.__ptPhonemizer = __privateGet(this, _createPiperPhonemize).call(this, {
       print: (data) => { sink.out ??= data; },
       printErr: (message) => { sink.err ??= message; },
       locateFile: (url) => {
@@ -375,21 +395,28 @@ predictChunk_fn = async function(text) {
         return url;
       }
     }).then((module) => ({ module, sink }));
-    this.__pageturnerPhonemizer.catch(() => { this.__pageturnerPhonemizer = null; });
+    this.__ptPhonemizer.catch(() => { this.__ptPhonemizer = null; });
   }
-  const { module, sink } = await this.__pageturnerPhonemizer;
+  const phonemizer = this.__ptPhonemizer;
+  const { module, sink } = await phonemizer;
   sink.out = sink.err = null;
-  module.callMain([
-    "-l",
-    __privateGet(this, _modelConfig).espeak.voice,
-    "--input",
-    input,
-    "--espeak_data",
-    "/espeak-ng-data"
-  ]);
-  // callMain runs synchronously, so its output (or error) is in by now
-  if (sink.out == null) throw new Error(sink.err || "phonemizer produced no output");
-  const phonemeIds = JSON.parse(sink.out).phoneme_ids;
+  let phonemeIds;
+  try {
+    module.callMain([
+      "-l",
+      __privateGet(this, _modelConfig).espeak.voice,
+      "--input",
+      input,
+      "--espeak_data",
+      "/espeak-ng-data"
+    ]);
+    // callMain runs synchronously, so its output (or error) is in by now
+    if (sink.out == null) throw new Error(sink.err || "phonemizer produced no output");
+    phonemeIds = JSON.parse(sink.out).phoneme_ids;
+  } catch (e) {
+    if (this.__ptPhonemizer === phonemizer) this.__ptPhonemizer = null;
+    throw e;
+  }
   const speakerId = 0;
   const noiseScale = __privateGet(this, _modelConfig).inference.noise_scale;
   const lengthScale = __privateGet(this, _modelConfig).inference.length_scale;
@@ -471,7 +498,7 @@ async function download(voiceId, callback) {
   const path = PATH_MAP[voiceId];
   const urls = [`${HF_BASE}/${path}`, `${HF_BASE}/${path}.json`];
   await Promise.all(urls.map(async (url) => {
-    writeBlob(url, await fetchBlob(url, url.endsWith(".onnx") ? callback : void 0));
+    await writeBlob(url, await fetchBlob(url, url.endsWith(".onnx") ? callback : void 0));
   }));
 }
 async function remove(voiceId) {
@@ -480,26 +507,31 @@ async function remove(voiceId) {
   await Promise.all(urls.map((url) => removeBlob(url)));
 }
 async function stored() {
-  const root = await navigator.storage.getDirectory();
-  const dir = await root.getDirectoryHandle("piper", {
-    create: true
-  });
-  const result = [];
-  for await (const name of dir.keys()) {
+  const result = new Set();
+  const add = (name) => {
     const key = name.split(".")[0];
-    if (name.endsWith(".onnx") && key in PATH_MAP) {
-      result.push(key);
-    }
+    if (name.endsWith(".onnx") && key in PATH_MAP) result.add(key);
+  };
+  try {
+    for (const req of await (await caches.open(__ptVoiceCache)).keys()) add(req.url.split("/").at(-1));
+  } catch {
   }
-  return result;
+  try {
+    const dir = await __ptOpfsDir();
+    if (dir) for await (const name of dir.keys()) add(name);
+  } catch {
+  }
+  return [...result];
 }
 async function flush() {
   try {
-    const root = await navigator.storage.getDirectory();
-    const dir = await root.getDirectoryHandle("piper");
-    await dir.remove({ recursive: true });
+    await caches.delete(__ptVoiceCache);
   } catch (e) {
     console.error(e);
+  }
+  try {
+    await (await navigator.storage.getDirectory()).removeEntry("piper", { recursive: true });
+  } catch {
   }
 }
 async function voices() {

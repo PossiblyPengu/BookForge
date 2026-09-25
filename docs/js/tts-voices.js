@@ -2,7 +2,7 @@
  * tts-voices.js — voice picker, previews and the sleep-timer sheet.
  */
 
-import { toast, listSheet, fmtBytes } from "./util.js";
+import { toast, listSheet, fmtBytes, progressPill } from "./util.js";
 import {
   settings, saveSettings, engineId, currentVoice, setCurrentVoice,
   web, piper, kokoro, KOKORO_VOICES,
@@ -171,12 +171,125 @@ export const voiceLabel = async () => {
   return v ? v.name : "Default";
 };
 
+// --- voices saved on this device --------------------------------------------
+//
+// A neural voice is ~60 MB plus ~30 MB of engine files (the ONNX runtime and
+// espeak's phoneme data). Voices are kept in the Cache API (see
+// scripts/patch-piper.js) and engine files in the service worker's
+// pageturner-engines cache; both outlive app updates.
+
+// what the Piper engine loads besides the voice itself
+const PIPER_ENGINE_FILES = [
+  "../vendor/ort/ort-wasm-simd.wasm",
+  "../vendor/piper/piper_phonemize.wasm",
+  "../vendor/piper/piper_phonemize.data",
+].map((p) => new URL(p, import.meta.url).href);
+
+let onSavedChange = () => {};
+/** Settings registers here to refresh its "Saved voices" row. */
+export const watchSavedVoices = (fn) => { onSavedChange = fn; };
+
+/** Voices on this device: [{ key, title, sub, bytes }]. */
+export const savedVoices = async () => {
+  const [catalog, keys] = await Promise.all([piperCatalog().catch(() => []), piperStored()]);
+  return [...keys].map((key) => {
+    const v = catalog.find((x) => x.key === key);
+    return {
+      key,
+      title: v ? `${v.name} · ${v.quality}` : key,
+      sub: v ? [langLabel(v.language?.code), v.language?.country_english].filter(Boolean).join(" · ") : "",
+      bytes: v ? piperSize(v) : 0,
+    };
+  }).sort((a, b) => a.title.localeCompare(b.title));
+};
+
+/**
+ * Download a neural voice and keep it on this device, along with the engine
+ * files it runs on, so the first read-aloud needn't wait and it all works
+ * offline. Resolves true when saved.
+ */
+export const saveVoice = async (key) => {
+  const pill = progressPill("Downloading voice…");
+  try {
+    const mod = await import("../vendor/piper/piper-tts-web.js");
+    await mod.download(key, (p) => {
+      if (p?.total) pill.set(`Downloading voice… ${Math.round((p.loaded / p.total) * 100)}%`);
+    });
+    pill.set("Getting the voice engine ready…");
+    // fetched through the service worker, which keeps them across updates
+    await Promise.all(PIPER_ENGINE_FILES.map((u) => fetch(u).then((r) => r.blob()).catch(() => null)));
+    if (!(await piperStored()).has(key)) throw new Error("the voice couldn't be stored");
+    // ask the browser not to evict what was just downloaded
+    navigator.storage?.persist?.().catch(() => {});
+    toast("Voice saved — it will work offline");
+    return true;
+  } catch (err) {
+    console.warn("voice download failed", err);
+    toast(navigator.onLine === false
+      ? "You're offline — the voice will download when you're back online"
+      : `Couldn't download the voice${err?.message ? ` — ${err.message}` : ""}`, { error: true, ms: 6000 });
+    return false;
+  } finally {
+    pill.end();
+    onSavedChange();
+  }
+};
+
+export const removeVoice = async (key) => {
+  const mod = await import("../vendor/piper/piper-tts-web.js");
+  await mod.remove(key);
+  if (settings.piperVoice === key) piper.reset();
+  onSavedChange();
+};
+
+/** The Saved voices sheet: what's on the device, how big, and remove. */
+export const openSavedVoices = async () => {
+  const saved = await savedVoices();
+  const current = settings.piperVoice;
+  const currentSaved = saved.some((v) => v.key === current);
+  const items = saved.map((v) => ({
+    title: v.title,
+    sub: [v.sub, v.bytes ? fmtBytes(v.bytes) : ""].filter(Boolean).join(" · "),
+    badge: v.key === current ? "In use" : "",
+    value: v.key,
+    action: {
+      label: "Remove",
+      title: `Remove ${v.title} from this device`,
+      onAction: async () => {
+        await removeVoice(v.key);
+        toast(`${v.title} removed`);
+        openSavedVoices();
+      },
+    },
+  }));
+  if (!currentSaved) {
+    const label = await voiceLabel();
+    items.push({ title: `Download ${label}`, sub: "The voice you have selected", value: "__download" });
+  }
+  const total = saved.reduce((n, v) => n + v.bytes, 0);
+  listSheet("Saved voices", items, async (val) => {
+    if (val === "__download") await saveVoice(current);
+    else if (val && val !== current) {
+      settings.piperVoice = val;
+      piper.reset();
+      await saveSettings();
+      onSavedChange();
+      toast("Voice updated");
+    }
+  }, {
+    note: saved.length
+      ? `${saved.length} voice${saved.length === 1 ? "" : "s"} · ${fmtBytes(total)} on this device. `
+        + "Saved voices work offline and stay through app updates. Tap one to use it."
+      : "No neural voices saved yet. A voice downloads once and then stays on this device.",
+  });
+};
+
 export const pickVoice = async () => {
   const items = await listVoices();
   if (!items.length) { toast("No voices available"); return; }
   const note = engineId() === "web"
     ? "Tap ▶ to hear a voice."
-    : "Tap ▶ to hear a voice. Each neural voice downloads once, then runs offline.";
+    : "Tap ▶ to hear a voice. Choosing one downloads it once and keeps it on this device.";
   listSheet("Voice", items.map((item) => ({
     ...item,
     action: {
@@ -189,8 +302,12 @@ export const pickVoice = async () => {
     setCurrentVoice(val);
     piper.reset(); // next ensure() loads the picked voice
     await saveSettings();
-    toast("Voice updated");
-  }, { search: true, note, onClose: stopPreview });
+    // download the neural voice now, while they're here, rather than at the
+    // first read-aloud — and keep it
+    if (engineId() === "piper" && !(await piperStored()).has(val)) await saveVoice(val);
+    else toast("Voice updated");
+    onSavedChange();
+  }, { search: true, note, onClose: () => { stopPreview(); onSavedChange(); } });
 };
 
 export const pickTtsSleep = () => {

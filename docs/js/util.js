@@ -176,6 +176,27 @@ export const fillCover = (el, book, opts) => {
   el.appendChild(coverFor(book, opts));
 };
 
+// ---------- progress pill ----------
+
+/**
+ * A status pill for work that takes a while (a voice download). Updating it
+ * rewrites the text in place — a toast per progress tick would flicker.
+ * Returns { set(msg), end() }.
+ */
+export const progressPill = (msg) => {
+  const el = document.createElement("div");
+  el.className = "import-progress";
+  el.setAttribute("role", "status");
+  el.innerHTML = '<div class="spinner"></div><span></span>';
+  const label = el.querySelector("span");
+  label.textContent = msg;
+  document.body.appendChild(el);
+  return {
+    set: (m) => { label.textContent = m; },
+    end: () => el.remove(),
+  };
+};
+
 // ---------- toast ----------
 let toastTimer;
 export const toast = (msg, { error = false, ms = 3200 } = {}) => {

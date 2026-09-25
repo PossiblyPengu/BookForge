@@ -613,6 +613,10 @@ input, textarea { font: inherit; color: inherit; }
 .list-group-warn { color: var(--accent-ink); }
 .list-group-warn[hidden] { display: none; }
 .list-value-warn { color: var(--accent-ink); font-weight: 600; }
+.list-card-gap { margin-top: 10px; }
+/* four options beside a label — keep the label on one line at phone width */
+.row-label { white-space: nowrap; }
+#set-tts-engine button { padding-left: 10px; padding-right: 10px; }
 .list-card {
   background: var(--bg-card);
   border-radius: 12px;
