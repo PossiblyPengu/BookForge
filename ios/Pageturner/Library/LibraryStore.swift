@@ -30,7 +30,7 @@ final class LibraryStore: ObservableObject {
     private let coversDir: URL
     private let catalogueURL: URL
 
-    nonisolated init() {
+    init() {
         let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         booksDir = docs.appendingPathComponent("Books", isDirectory: true)

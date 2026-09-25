@@ -164,9 +164,9 @@ private struct NavigatorRepresentable: UIViewControllerRepresentable {
 }
 
 private struct OutlineRows: View {
-    let links: [Link]
+    let links: [ReadiumShared.Link]
     let depth: Int
-    let onSelect: (Link) -> Void
+    let onSelect: (ReadiumShared.Link) -> Void
 
     var body: some View {
         ForEach(Array(links.enumerated()), id: \.offset) { _, link in

@@ -15,7 +15,7 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var book: Book
     @Published var showChrome = true
     @Published var settings = ReaderSettings.load()
-    @Published var toc: [Link] = []
+    @Published var toc: [ReadiumShared.Link] = []
     @Published var canReadAloud = false
     @Published private(set) var readAloud: ReadAloud?
     @Published var notice: String?
@@ -27,7 +27,7 @@ final class ReaderModel: ObservableObject {
     private var directionalAdapter: DirectionalNavigationAdapter?
     private var inputTokens: Set<InputObservableToken> = []
 
-    nonisolated init(book: Book, library: LibraryStore) {
+    init(book: Book, library: LibraryStore) {
         self.book = book
         self.library = library
     }
@@ -90,7 +90,7 @@ final class ReaderModel: ObservableObject {
         withAnimation { showChrome.toggle() }
     }
 
-    func go(to link: Link) {
+    func go(to link: ReadiumShared.Link) {
         guard let navigator else { return }
         Task { _ = await navigator.go(to: link) }
     }
