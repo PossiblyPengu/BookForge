@@ -9,10 +9,11 @@
 
 import { detectFormat, AUDIO_EXTS, TEXT_EXTS, FOLIATE_EXTS } from "./detect.js";
 import { putBook, putFile, getBook } from "./db.js";
-import { uid, toast } from "./util.js";
+import { uid, toast, dropCoverUrl } from "./util.js";
 import { inferBook, extractSortKey } from "./book-parser.js";
 import { searchMetadata, fetchCoverBlob, metaConfident } from "./metadata.js";
 import { cbrToCbz } from "./cbr.js";
+import { readZip } from "./zip.js";
 
 const foliate = () => import("../vendor/foliate/view.js");
 const loadMM = async () => (await import("../vendor/music-metadata.mjs")).default;
@@ -121,21 +122,26 @@ const parseAudioFile = async (file) => {
 
 /**
  * Import files. Returns array of created book records.
- * onProgress(msg) optional.
+ * onProgress(msg) reports progress; `signal` (AbortSignal) cancels — what's
+ * already imported stays imported, the rest is skipped.
  */
-export const importFiles = async (fileList, onProgress) => {
+export const importFiles = async (fileList, onProgress, signal) => {
   const queue = [...fileList].filter((f) => f.size > 0).map((file) => ({ file, depth: 0 }));
-  if (!queue.length) return [];
+  const created = [];
+  if (!queue.length) return created;
 
   const audio = [];
   const others = [];
+  let scanned = 0;
   while (queue.length) {
+    if (signal?.aborted) return created;
     const { file, depth } = queue.shift();
+    onProgress?.(`Reading files… ${++scanned}`);
     const d = await detectFormat(file).catch(() => ({ kind: "unknown" }));
     // a .zip that isn't itself a book (epub/cbz are also zips) is a bulk
     // container — unpack it and queue its supported contents
     if (d.kind === "ebook" && depth < 2 && /\.zip$/i.test(file.name || "")) {
-      const inner = await expandZip(file).catch(() => null);
+      const inner = await expandZip(file, signal).catch(() => null);
       if (inner?.length) {
         onProgress?.(`Unpacking ${file.name}…`);
         queue.push(...inner.map((f) => ({ file: f, depth: depth + 1 })));
@@ -145,7 +151,6 @@ export const importFiles = async (fileList, onProgress) => {
     (d.kind === "audio" ? audio : others).push({ file, ...d });
   }
 
-  const created = [];
   // audio groups by folder: a zip/folder drop with per-book subdirectories
   // produces one audiobook each; a flat batch stays a single book
   const groups = new Map();
@@ -155,12 +160,15 @@ export const importFiles = async (fileList, onProgress) => {
     groups.get(dir).push(a);
   }
   for (const items of groups.values()) {
+    if (signal?.aborted) return created;
     onProgress?.("Importing audiobook…");
     const book = await importAudiobook(items);
     if (book) created.push(book);
   }
-  for (const { file, kind, format, reason } of others) {
-    onProgress?.(`Importing ${file.name}…`);
+  for (let i = 0; i < others.length; i++) {
+    if (signal?.aborted) return created;
+    const { file, kind, format, reason } = others[i];
+    onProgress?.(`Importing ${i + 1} of ${others.length}: ${file.name}…`);
     try {
       created.push(await importOne(file, kind, format, reason));
     } catch (err) {
@@ -198,23 +206,38 @@ const dirOf = (file) => {
 /**
  * Unpack a .zip bulk container. Returns File[] (folder paths kept in names)
  * or null when the zip is actually a book (epub mimetype / image-only cbz).
+ *
+ * Reads the central directory via zip.js rather than unzipSync: the old way
+ * copied the whole archive into memory AND decompressed every entry —
+ * archive bytes + unsupported files + all the books at once, which is what
+ * OOM-killed iPhone tabs on large drops. Here the directory is read first,
+ * unsupported entries never decompress, and stored entries come back as
+ * zero-copy slices of the archive itself.
  */
-export const expandZip = async (file) => {
-  const { unzipSync } = await import("../vendor/fflate.mjs");
-  const entries = unzipSync(new Uint8Array(await file.arrayBuffer()));
-  const names = Object.keys(entries).filter((n) => !n.endsWith("/"));
+export const expandZip = async (file, signal) => {
+  let inflateSync = null;
+  const entries = await readZip(file, {
+    inflate: (bytes, out) => inflateSync(bytes, out),
+  });
+  const names = entries.map((e) => e.name);
   const isEpub = names.some((n) => n.split("/").pop() === "mimetype");
   const onlyImages = names.length &&
     names.every((n) => /\.(jpe?g|png|gif|webp|avif|bmp|xml)$/i.test(n));
   if (isEpub || onlyImages) return null;
+  const wanted = entries.filter((e) => {
+    const base = e.name.split("/").pop() || "";
+    const ext = (base.match(/\.([a-z0-9]+)$/i)?.[1] || "").toLowerCase();
+    return SUPPORTED_EXT.has(ext) && !base.startsWith(".");
+  });
+  if (!wanted.length) return null;
+  if (wanted.some((e) => e.method === 8))
+    ({ inflateSync } = await import("../vendor/fflate.mjs"));
   const files = [];
-  for (const n of names) {
-    const base = n.split("/").pop() || "";
-    const e = (base.match(/\.([a-z0-9]+)$/i)?.[1] || "").toLowerCase();
-    if (!SUPPORTED_EXT.has(e) || base.startsWith(".")) continue;
-    files.push(new File([entries[n]], n, { type: "" }));
+  for (const e of wanted) {
+    if (signal?.aborted) return files.length ? files : null;
+    files.push(new File([await e.blob()], e.name, { type: "" }));
   }
-  return files.length ? files : null;
+  return files;
 };
 
 const importOne = async (file, kind, format, reason) => {
@@ -316,10 +339,14 @@ const autoMeta = async (book) => {
     const match = cands.find((c) => metaConfident(c, book));
     if (!match) return;
     // merge into a fresh record — the user may have opened/read the book
-    // while the lookup was in flight; never regress progress or edits
-    const cur = (await getBook(book.id)) || book;
+    // while the lookup was in flight; never regress progress or edits.
+    // If it's gone entirely the book was deleted mid-lookup: don't put it back.
+    const cur = await getBook(book.id);
+    if (!cur) return;
     if (!cur.coverBlob && match.cover)
       cur.coverBlob = (await fetchCoverBlob(match.cover)) || cur.coverBlob;
+    // the grid may already have rendered this book — invalidate its cover URL
+    dropCoverUrl(cur.id);
     if (!cur.desc && match.desc) cur.desc = match.desc;
     if (!cur.year && match.year) cur.year = match.year;
     if (!cur.author && match.author) cur.author = match.author;

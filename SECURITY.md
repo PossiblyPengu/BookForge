@@ -1,46 +1,58 @@
-# BookForge Security Notes
+# Pageturner Security Notes
 
-## Subresource Integrity (SRI)
+Pageturner is a static, local-first PWA. There is no application server — all
+parsing, playback, and storage happen in the browser on the user's device.
 
-BookForge loads several large dependencies from public CDNs (`esm.sh`,
-`unpkg.com`, `cdnjs.cloudflare.com`, `jsdelivr.net`, `accounts.google.com`).
-To protect against supply-chain or man-in-the-middle attacks, the app now
-verifies every external resource against known SHA-384 hashes.
+## Supply chain
 
-Hashes are stored in `docs/js/constants.js` under `CDN_SRI` and are checked
-at runtime by `docs/js/secure-loader.js`.
+- **No CDN dependencies.** Every script, parser, and TTS engine is vendored
+  under `docs/vendor/` and served from the same origin. `npm run vendor`
+  rebuilds the vendor tree from `node_modules`, so vendored code tracks
+  `package-lock.json`.
+- **CSP** (`docs/index.html`): `default-src 'self'`,
+  `script-src 'self' 'wasm-unsafe-eval'`, `object-src 'none'`,
+  `frame-ancestors 'none'`, `base-uri 'none'`, `form-action 'self'`. The
+  `wasm-unsafe-eval` exception is required by the ONNX/Piper WASM engines and
+  permits compiling WASM only — not `eval()` on strings.
+- **Security headers** (`docs/_headers`, served by Cloudflare Pages):
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, `Permissions-Policy` denies
+  camera/microphone/geolocation, plus cache rules that keep HTML/JS fresh
+  while caching icons and vendor assets.
 
-### Updating dependencies or hashes
+## Data & privacy
 
-After changing any CDN URL or version, regenerate the hashes:
+- **Library storage is on-device** (IndexedDB). Book files, covers, progress,
+  and settings never leave the device except for the lookups listed below.
+- **Metadata lookup is the only feature that phones home.** Automatic and
+  manual metadata search sends the book's title/author to Google Books and
+  Open Library, and covers are fetched from those hosts. Settings → Metadata
+  can disable online lookups; the queries and endpoints are in
+  `docs/js/metadata.js`. With lookups off the app makes no network requests
+  beyond its own files.
+- **Neural TTS voices** download once from Hugging Face (`huggingface.co`
+  in `connect-src`) and are cached for offline use. Speech synthesis itself
+  runs entirely on-device (Piper/Kokoro WASM or the OS speech synthesizer).
+- **Backups** are plain zips written locally; restoring validates the format
+  before touching IndexedDB.
 
-```bash
-npm run security:generate-sri
-```
+## Untrusted content handling
 
-This writes the new hashes into `docs/js/constants.js`. Commit that file.
+- **HTML books** render inside a `sandbox`ed iframe (no scripts, no
+  same-origin access); Markdown is escaped before formatting; plain text is
+  inserted via `textContent`.
+- **Archive import** (ZIP containers, CBR) inspects the central directory
+  before unpacking; entry names are treated as display strings only and never
+  written to disk as paths.
+- **Imported files** are stored as opaque Blobs and rendered through
+  vendored parsers; nothing imported is executed.
 
-**Do not deploy to production with empty `null` hash entries.** The loader will
-warn in the console but still load the resource, which is only acceptable for
-local development.
+## Native iOS app
 
-## Content Security Policy (CSP)
+The SwiftUI app under `ios/` is built unsigned on CI. It has the same
+local-first posture: files live in the app container, metadata lookups are
+the only network calls, and no analytics or third-party SDKs are embedded.
 
-The CSP in `docs/index.html` has been tightened so that `script-src` no longer
-requires `'unsafe-inline'`. Inline initialization logic was moved to
-`docs/js/sw-register.js`, which is loaded as a same-origin script.
+## Reporting
 
-`style-src` still allows `'unsafe-inline'` because Google Identity Services
-injects inline styles for its sign-in popups.
-
-## OAuth Client ID
-
-`GOOGLE_CLIENT_ID` is embedded in `docs/js/gdrive.js`. This is normal for
-client-side OAuth. Ensure the Google Cloud Console project restricts the
-authorized JavaScript origins to only the domains you deploy on.
-
-## Memory / File Size Guards
-
-Uploads and Google Drive downloads are capped at `MAX_FILE_SIZE` (1 GB by
-default, see `docs/js/constants.js`) to prevent the browser from running out of
-memory while parsing large media files.
+Open an issue at https://github.com/PossiblyPengu/META-GRABBER/issues.

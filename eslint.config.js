@@ -86,6 +86,6 @@ export default [
     },
   },
   {
-    ignores: ["node_modules/", "docs/coi-serviceworker.js"],
+    ignores: ["node_modules/"],
   },
 ];

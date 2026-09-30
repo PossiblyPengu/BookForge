@@ -16,7 +16,7 @@
  */
 
 import { allBooks, allFiles, allKv, putBook, putFile, kvSet } from "./db.js";
-import { exportBlob, toast } from "./util.js";
+import { exportBlob, toast, dropCoverUrl } from "./util.js";
 import { writeZip, readZip } from "./zip.js";
 
 const pct = (done, total) => (total ? Math.min(100, Math.floor((done / total) * 100)) : 100);
@@ -80,31 +80,50 @@ export const restoreBackup = async (file, onMsg = () => {}) => {
   const dataEntry = byName.get("data.json");
   if (!dataEntry) throw new Error("Not a Pageturner backup (missing data.json)");
   const data = JSON.parse(await (await dataEntry.blob()).text());
+  if (data.app !== "pageturner") throw new Error("That zip isn't a Pageturner backup.");
+  if (typeof data.v !== "number" || data.v > 1)
+    throw new Error("This backup was made by a newer version of Pageturner.");
   if (!Array.isArray(data.books)) throw new Error("Invalid backup format");
 
   const prefix = "files/";
   const fileEntries = entries.filter((e) => e.name.startsWith(prefix));
   const totalBytes = fileEntries.reduce((n, e) => n + e.size, 0) || 1;
   let doneBytes = 0;
+  const restored = new Set();
   for (const e of fileEntries) {
     const key = decodeURIComponent(e.name.slice(prefix.length));
     const meta = data.fileMeta?.[key] || {};
     onMsg(`Restoring files… ${pct(doneBytes, totalBytes)}%`);
-    // a stored entry is a slice of the backup file: wrapping it sets the type
-    // without copying it
-    const blob = new Blob([await e.blob()], { type: meta.type || "application/octet-stream" });
-    await putFile(key, blob, { name: meta.name, size: meta.size ?? blob.size });
+    try {
+      // a stored entry is a slice of the backup file: wrapping it sets the
+      // type without copying it
+      const blob = new Blob([await e.blob()], { type: meta.type || "application/octet-stream" });
+      await putFile(key, blob, { name: meta.name, size: meta.size ?? blob.size });
+      restored.add(key);
+    } catch (err) {
+      console.warn(`restore: skipping damaged file entry ${key}`, err);
+    }
     doneBytes += e.size;
   }
 
   onMsg("Restoring books…");
+  let restoredBooks = 0;
+  let skipped = 0;
   for (const rec of data.books) {
+    // a book whose payload didn't restore would open to a broken file —
+    // leave it out instead of writing a zombie record
+    const keys = rec.fileKeys || (rec.fileKey ? [rec.fileKey] : []);
+    if (keys.length && !keys.every((k) => restored.has(k))) { skipped++; continue; }
     const coverEntry = byName.get(`covers/${rec.id}`);
     const book = { ...rec };
     delete book.hasCover;
-    if (coverEntry) book.coverBlob = new Blob([await coverEntry.blob()]);
+    if (coverEntry) {
+      book.coverBlob = new Blob([await coverEntry.blob()]);
+      dropCoverUrl(rec.id); // an existing same-id book's cached URL is stale now
+    }
     await putBook(book);
+    restoredBooks++;
   }
   for (const [k, v] of Object.entries(data.kv || {})) await kvSet(k, v);
-  return data.books.length;
+  return { books: restoredBooks, skipped };
 };

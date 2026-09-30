@@ -4,7 +4,7 @@
  */
 
 import {
-  $, toast, openSheet, closeSheet, listSheet, dropCoverUrl, fmtBytes,
+  $, toast, openSheet, closeSheet, listSheet, dropCoverUrl, fmtBytes, fmtLength,
   fmtDuration, coverFor, fillCover,
 } from "./util.js";
 import { allBooks, getBook, putBook, deleteBook, kvGet, kvSet } from "./db.js";
@@ -325,7 +325,9 @@ const bulkMetadata = async () => {
       const cands = await searchMetadata(book.title, book.author).catch(() => []);
       const match = cands.find((c) => metaConfident(c, book));
       if (!match) { missed++; continue; }
-      const cur = (await getBook(book.id)) || book;
+      // deleted mid-lookup → leave it deleted
+      const cur = await getBook(book.id);
+      if (!cur) continue;
       if (!cur.coverBlob && match.cover)
         cur.coverBlob = (await fetchCoverBlob(match.cover)) || cur.coverBlob;
       if (match.author) cur.author = match.author;
@@ -371,7 +373,7 @@ export const isSelecting = () => selecting;
 // ---------------------------------------------------------------------------
 
 let importEl = null;
-const showImporting = (msg) => {
+const showImporting = (msg, ctrl = null) => {
   if (!importEl) {
     importEl = document.createElement("div");
     importEl.className = "import-progress";
@@ -379,15 +381,29 @@ const showImporting = (msg) => {
     document.body.appendChild(importEl);
   }
   importEl.querySelector("span").textContent = msg;
+  if (ctrl && !importEl.querySelector(".import-cancel")) {
+    const btn = document.createElement("button");
+    btn.className = "import-cancel";
+    btn.type = "button";
+    btn.textContent = "Cancel";
+    btn.addEventListener("click", () => ctrl.abort());
+    importEl.appendChild(btn);
+  }
 };
 const hideImporting = () => { importEl?.remove(); importEl = null; };
 
 export const doImport = async (fileList) => {
   if (!fileList?.length) return;
-  showImporting("Importing…");
+  const ctrl = new AbortController();
+  showImporting("Importing…", ctrl);
   try {
-    const created = await importFiles(fileList, showImporting);
-    if (created.length) {
+    const created = await importFiles(fileList, showImporting, ctrl.signal);
+    if (ctrl.signal.aborted) {
+      toast(created.length
+        ? `Import cancelled — ${created.length} item${created.length === 1 ? "" : "s"} kept`
+        : "Import cancelled");
+      if (created.length) await refreshLibrary();
+    } else if (created.length) {
       toast(created.length === 1 ? `Added "${created[0].title}"` : `Added ${created.length} items`);
       await refreshLibrary();
     }
@@ -443,13 +459,6 @@ export const checkSharedFiles = async () => {
 // ---------------------------------------------------------------------------
 
 let detailBook = null;
-
-/** "9h 32m" — an audiobook's length reads better in hours than h:mm:ss. */
-const fmtLength = (sec) => {
-  const h = Math.floor(sec / 3600);
-  const m = Math.round((sec % 3600) / 60);
-  return h ? `${h}h ${m}m` : `${m} min`;
-};
 
 /** "3 days ago", in the reader's own language. */
 const ago = (t) => {
@@ -518,6 +527,9 @@ export const openDetail = async (id) => {
 };
 
 const saveDetail = async (updates) => {
+  // a new coverBlob invalidates the cached object URL — drop it before the
+  // grid re-renders, or the card keeps showing the old image forever
+  if ("coverBlob" in updates) dropCoverUrl(detailBook.id);
   Object.assign(detailBook, updates);
   detailBook.needsMeta = !detailBook.title || !detailBook.author;
   await putBook(detailBook);
@@ -589,14 +601,14 @@ const runProgress = () => {
   const done = pct >= 100;
   const audio = b.kind === "audio";
   listSheet(pct ? `${pct}% ${audio ? "listened" : "read"}` : "Not started yet", [
-    !done && { title: audio ? "Mark as finished" : "Mark as finished", value: "finish" },
-    pct > 0 && { title: audio ? "Start from the beginning" : "Start from the beginning", value: "reset" },
+    !done && { title: audio ? "Mark as listened" : "Mark as finished", value: "finish" },
+    pct > 0 && { title: audio ? "Listen from the beginning" : "Start from the beginning", value: "reset" },
   ].filter(Boolean), async (v) => {
     if (v === "finish") {
       // fraction 1 drops it out of Continue; the position is left alone so
       // reopening still lands where they stopped
       await saveDetail({ progress: { ...(b.progress || {}), fraction: 1 } });
-      toast("Marked as finished");
+      toast(audio ? "Marked as listened" : "Marked as finished");
     } else if (v === "reset") {
       await saveDetail({ progress: { fraction: 0 }, lastOpenedAt: null });
       toast("Progress cleared");
@@ -661,8 +673,41 @@ export const wireImportUI = () => {
   });
   // Drag & drop anywhere (desktop)
   window.addEventListener("dragover", (e) => e.preventDefault());
-  window.addEventListener("drop", (e) => {
+  window.addEventListener("drop", async (e) => {
     e.preventDefault();
-    if (e.dataTransfer?.files?.length) doImport(e.dataTransfer.files);
+    // webkitGetAsEntry keeps folder structure — flat dataTransfer.files
+    // turns a dropped folder of audiobooks into one merged book. Items die
+    // when the event returns, so collect entries synchronously.
+    const entries = [...(e.dataTransfer?.items || [])]
+      .map((it) => it.webkitGetAsEntry?.())
+      .filter(Boolean);
+    if (!entries.length) {
+      if (e.dataTransfer?.files?.length) doImport(e.dataTransfer.files);
+      return;
+    }
+    const files = [];
+    for (const entry of entries)
+      files.push(...await filesFromEntry(entry).catch(() => []));
+    if (files.length) doImport(files);
   });
+};
+
+/** Recursively read a dropped FileSystemEntry, keeping the path in the name. */
+const filesFromEntry = async (entry, prefix = "") => {
+  if (entry.isFile) {
+    const file = await new Promise((res, rej) => entry.file(res, rej));
+    const rel = prefix ? `${prefix}${file.name}` : file.name;
+    return [new File([file], rel, { type: file.type, lastModified: file.lastModified })];
+  }
+  if (!entry.isDirectory) return [];
+  const reader = entry.createReader();
+  const out = [];
+  for (;;) {
+    // readEntries returns batches — loop until empty
+    const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+    if (!batch.length) break;
+    for (const child of batch)
+      out.push(...await filesFromEntry(child, `${prefix}${entry.name}/`));
+  }
+  return out;
 };

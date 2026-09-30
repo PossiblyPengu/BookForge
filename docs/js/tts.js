@@ -76,7 +76,7 @@ const player = {
     el.onerror = () => { if (this.item === item) onFail(); };
     el.src = this.url;
     el.playbackRate = settings.rate;
-    return el.play().catch(() => { if (this.item === item) onFail(); });
+    return el.play().then(() => true, () => { if (this.item === item) onFail(); return false; });
   },
   holds(item) { return !!this.el && this.item === item && !this.el.ended; },
   pause() { try { this.el?.pause(); } catch { /* noop */ } },
@@ -370,7 +370,7 @@ export const ttsController = {
         if (this._cur !== s || this._session !== session) return;
         if (!this.playing) { this._resumeAt = s; this._cur = null; return; }
         return player.play(s, blob, { onEnd: () => done(true), onFail: () => done(false) })
-          .then(() => { if (this._cur === s) this._startWordSync(s); });
+          .then((ok) => { if (ok && this._cur === s) this._startWordSync(s); });
       }, () => done(false));
     } else {
       this._status("Reading aloud");

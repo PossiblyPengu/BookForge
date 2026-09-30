@@ -28,6 +28,16 @@ Open the deployed site in **Safari** → Share → **Add to Home Screen**.
 > The app is fully self-hosted (vendored parser/TTS engines) and works offline.
 > Neural TTS voices download once (~60 MB per voice) and are cached for offline use.
 
+## Native iOS app
+
+`ios/` contains a native SwiftUI reader built on the Readium Swift toolkit
+(pinned to 3.11.0): Files/share-sheet import, EPUB/PDF reading, themes, and
+read-aloud via Apple's speech synthesizer that keeps playing on the lock
+screen. The Xcode project is generated, not committed (`cd ios && xcodegen`),
+and `.github/workflows/ios.yml` builds an unsigned `Pageturner.ipa` on every
+change — install it with AltStore/SideStore/Sideloadly. The PWA remains the
+primary install route; the native app tracks toward feature parity.
+
 ## Usage
 
 Serve the `docs/` directory over HTTP(S) — it is a plain static site:

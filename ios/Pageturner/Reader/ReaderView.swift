@@ -31,7 +31,7 @@ struct ReaderView: View {
             .animation(.default, value: model.showChrome)
             .task { await model.open() }
             .onChange(of: model.settings) { _ in model.applySettings() }
-            .onDisappear { model.stopReadAloud() }
+            .onDisappear { model.flushSave(); model.stopReadAloud() }
             .sheet(isPresented: $showContents) { contentsSheet }
             .sheet(isPresented: $showSettings) { settingsSheet }
             .alert("Pageturner", isPresented: Binding(

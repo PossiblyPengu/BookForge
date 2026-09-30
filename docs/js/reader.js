@@ -12,6 +12,7 @@
 
 import {
   $, debounce, openSheet, closeSheet, isSheetOpen, toast, coverUrl, onPageHidden,
+  cleanSearchExcerpt,
   copyText,
 } from "./util.js";
 import { getFile, putBook, kvGet, kvSet } from "./db.js";
@@ -138,7 +139,9 @@ const saveProgress = debounce(async () => {
   if (!p) return;
   activeBook.progress = p;
   activeBook.lastOpenedAt = Date.now();
-  await putBook(activeBook);
+  // quota/blocked errors mustn't surface as unhandled rejections — losing a
+  // progress write is survivable, a page-killing error mid-read is not
+  await putBook(activeBook).catch((err) => console.warn("progress save failed", err));
 }, 1200);
 
 let lastStatus = { chapter: "", page: "", left: "" };
@@ -226,12 +229,7 @@ const openFoliate = async (book, file) => {
           yield {
             label: (r.label || "").trim(),
             items: r.subitems.map((s) => ({
-              excerpt: {
-                // foliate cuts context at a fixed length, often mid-word
-                before: (s.excerpt?.pre || "").replace(/^…S*s+/, "…"),
-                match: s.excerpt?.match || "",
-                after: (s.excerpt?.post || "").replace(/s+S*…$/, "…"),
-              },
+              excerpt: cleanSearchExcerpt(s.excerpt || {}),
               target: { cfi: s.cfi },
             })),
           };

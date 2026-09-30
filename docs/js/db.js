@@ -24,8 +24,15 @@ const db = () => {
         if (!d.objectStoreNames.contains("kv"))
           d.createObjectStore("kv", { keyPath: "k" });
       };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const d = req.result;
+        // A schema upgrade in another tab closes this connection; without the
+        // close + reopen, every following write throws InvalidStateError
+        d.onversionchange = () => { d.close(); dbPromise = null; };
+        resolve(d);
+      };
       req.onerror = () => reject(req.error);
+      req.onblocked = () => console.warn("IndexedDB upgrade blocked by another open tab");
     });
   }
   return dbPromise;
@@ -88,6 +95,28 @@ export const getFile = async (key) => {
 export const allFiles = async () => {
   const d = await db();
   return reqToPromise(d.transaction("files").objectStore("files").getAll());
+};
+
+/**
+ * File records no book points at — interrupted restores and old delete bugs
+ * leave them behind, and on a phone's quota that's real storage gone.
+ */
+export const orphanedFiles = async () => {
+  const [books, files] = await Promise.all([allBooks(), allFiles()]);
+  const used = new Set();
+  for (const b of books)
+    for (const k of b.fileKeys || (b.fileKey ? [b.fileKey] : [])) used.add(k);
+  return files.filter((f) => !used.has(f.key));
+};
+
+export const deleteFiles = async (keys) => {
+  const d = await db();
+  const t = d.transaction("files", "readwrite");
+  for (const k of keys) t.objectStore("files").delete(k);
+  return new Promise((resolve, reject) => {
+    t.oncomplete = resolve;
+    t.onerror = () => reject(t.error);
+  });
 };
 
 // ---------- kv ----------

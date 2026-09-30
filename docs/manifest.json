@@ -47,6 +47,9 @@
         "application/vnd.comicbook-rar": [
           ".cbr"
         ],
+        "application/zip": [
+          ".zip"
+        ],
         "text/plain": [
           ".txt"
         ],
@@ -64,6 +67,9 @@
         ],
         "audio/mpeg": [
           ".mp3"
+        ],
+        "audio/aac": [
+          ".aac"
         ],
         "audio/flac": [
           ".flac"

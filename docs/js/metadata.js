@@ -1,7 +1,13 @@
 /**
  * metadata.js — book metadata lookup: Google Books + Open Library.
  * Returns normalized candidates the user can pick from.
+ *
+ * The only feature that contacts external services: it sends the book's
+ * title/author as a search query. Settings → Metadata can turn it off, which
+ * this module honours centrally so no caller needs to.
  */
+
+import { kvGet } from "./db.js";
 
 const GB_KEY = ""; // Google Books works keyless at low volume
 const UA_TIMEOUT = 12000;
@@ -70,10 +76,17 @@ const searchOpenLibrary = async (query) => {
   );
 };
 
+// Session query cache — the same book looked up twice (import → later manual
+// search) shouldn't cost two round trips. FIFO-capped; failures aren't kept.
+const queryCache = new Map();
+
 /** Search both sources; returns combined, roughly deduplicated candidates. */
 export const searchMetadata = async (title, author = "") => {
   const q = [title, author].filter(Boolean).join(" ").trim();
   if (!q) return [];
+  if (!(await kvGet("meta-online", true))) return [];
+  const key = q.toLowerCase();
+  if (queryCache.has(key)) return queryCache.get(key);
   const [gb, ol] = await Promise.all([
     searchGoogleBooks(q).catch(() => []),
     searchOpenLibrary(q).catch(() => []),
@@ -81,11 +94,13 @@ export const searchMetadata = async (title, author = "") => {
   const seen = new Set();
   const out = [];
   for (const c of [...gb, ...ol]) {
-    const key = `${norm(c.title)}|${norm(c.author)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const k = `${norm(c.title)}|${norm(c.author)}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
     out.push(c);
   }
+  if (queryCache.size >= 50) queryCache.delete(queryCache.keys().next().value);
+  queryCache.set(key, out);
   return out;
 };
 

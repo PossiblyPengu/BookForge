@@ -16,6 +16,7 @@
  */
 
 import { kvGet, kvSet } from "./db.js";
+import { isIOS } from "./util.js";
 
 const SETTINGS_KEY = "tts-settings";
 export const settings = {
@@ -37,10 +38,6 @@ export const loadSettings = () => (loaded ||= (async () => {
   if (settings.engine === "kokoro" && !kokoro.available()) settings.engine = "auto";
 })());
 export const saveSettings = () => kvSet(SETTINGS_KEY, { ...settings });
-
-export const isIOS = () =>
-  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 /** The engine "auto" stands for on this device. */
 export const autoEngine = () => (isIOS() ? "piper" : "web");

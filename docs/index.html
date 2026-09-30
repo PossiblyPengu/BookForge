@@ -192,6 +192,16 @@
             <p class="list-group-note" id="tts-engine-note">Neural voices sound more natural and keep reading with the screen locked. Choosing one downloads it once (about 60&nbsp;MB) and keeps it on this device, so it works offline and stays through app updates. Auto picks neural on iPhone and iPad.</p>
           </div>
           <div class="list-group">
+            <p class="list-group-label">Metadata</p>
+            <div class="list-card">
+              <button type="button" class="list-row list-row-btn" id="set-meta-online">
+                <span class="row-label"><span class="row-icon" style="--ic:#30d158"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg></span>Look up covers &amp; details online</span>
+                <span class="list-value" id="set-meta-online-val">On</span>
+              </button>
+            </div>
+            <p class="list-group-note">Metadata search sends a book's title and author to Google Books and Open Library; covers download from those sites. Turn this off for a fully offline app — automatic lookups stop and manual search is disabled. Everything else stays on-device.</p>
+          </div>
+          <div class="list-group">
             <p class="list-group-label">Library</p>
             <div class="list-card">
               <button type="button" class="list-row list-row-btn" id="backup-export">
@@ -233,9 +243,13 @@
                 <span class="row-label"><span class="row-icon" style="--ic:#bf5af2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg></span>Free up space</span>
                 <span class="list-value list-value-chevron" id="set-free-space-val">—</span>
               </button>
+              <button type="button" class="list-row list-row-btn" id="set-repair">
+                <span class="row-label"><span class="row-icon" style="--ic:#64d2ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.6 5.6L3 18v3h3l6.1-6.1a4 4 0 0 0 5.6-5.6L14 12l-2-2z"/></svg></span>Repair storage</span>
+                <span class="list-value list-value-chevron" id="set-repair-val">—</span>
+              </button>
             </div>
             <p class="list-group-note list-group-warn" id="set-storage-note" hidden></p>
-            <p class="list-group-note">Clears downloaded voices and engine files only; books, covers and reading positions stay. Anything needed again downloads again.</p>
+            <p class="list-group-note">Clears downloaded voices and engine files only; books, covers and reading positions stay. Repair removes file data no book points at — leftovers from interrupted restores and old bugs.</p>
           </div>
           <p class="settings-foot"><span>Pageturner</span> <span id="set-version">2.7.0</span></p>
         </div>

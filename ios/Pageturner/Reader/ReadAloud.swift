@@ -29,17 +29,27 @@ final class ReadAloud: NSObject, ObservableObject {
     private weak var navigator: VisualNavigator?
     private let synthesizer: PublicationSpeechSynthesizer
     private let speechRate: SpeechRate
+    /// The library record's values — the publication's own metadata can name
+    /// a different edition than the title the user edited.
+    private let displayTitle: String
+    private let displayAuthor: String
 
     @Published private var spokenUtterance: Locator?
     private let spokenWord = PassthroughSubject<Locator, Never>()
     private var isTurning = false
+    private var consecutiveFailures = 0
     private var subscriptions: Set<AnyCancellable> = []
+
+    /// Surfaces problems the caller should show (e.g. utterances keep failing).
+    var onError: ((String) -> Void)?
 
     static func canSpeak(_ publication: Publication) -> Bool {
         PublicationSpeechSynthesizer.canSpeak(publication: publication)
     }
 
-    init?(publication: Publication, navigator: VisualNavigator, settings: ReaderSettings) {
+    init?(publication: Publication, navigator: VisualNavigator, settings: ReaderSettings,
+          displayTitle: String, displayAuthor: String)
+    {
         let speechRate = SpeechRate()
         speechRate.multiplier = settings.speechRate
         guard let synthesizer = PublicationSpeechSynthesizer(
@@ -52,6 +62,8 @@ final class ReadAloud: NSObject, ObservableObject {
         self.navigator = navigator
         self.synthesizer = synthesizer
         self.speechRate = speechRate
+        self.displayTitle = displayTitle
+        self.displayAuthor = displayAuthor
         rate = settings.speechRate
         super.init()
         synthesizer.delegate = self
@@ -147,8 +159,8 @@ final class ReadAloud: NSObject, ObservableObject {
         }
 
         var info: [String: Any] = [
-            MPMediaItemPropertyTitle: publication.metadata.title ?? "Reading aloud",
-            MPMediaItemPropertyArtist: publication.metadata.authors.map(\.name).joined(separator: ", "),
+            MPMediaItemPropertyTitle: displayTitle,
+            MPMediaItemPropertyArtist: displayAuthor,
         ]
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         Task { @MainActor in
@@ -182,6 +194,7 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
         case let .playing(utterance, range: word):
             isActive = true
             isPlaying = true
+            consecutiveFailures = 0
             spokenUtterance = utterance.locator
             if let word { spokenWord.send(word) }
         case let .paused(utterance):
@@ -197,7 +210,15 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
         didFailWithError error: PublicationSpeechSynthesizer.Error
     ) {
         // A sentence the engine couldn't speak (e.g. no voice for its
-        // language). Carry on with the next one rather than stopping.
+        // language). Carry on — but if everything fails (a missing/broken
+        // voice), an unconditional next() silently burned through the whole
+        // book. Three in a row is enough to stop.
+        consecutiveFailures += 1
+        if consecutiveFailures >= 3 {
+            onError?("Read-aloud couldn't speak — the selected voice may not support this book's language.")
+            stop()
+            return
+        }
         synthesizer.next()
     }
 }

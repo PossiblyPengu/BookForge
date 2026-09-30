@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   debounce, findAllText, excerptAround, findText, fmtDuration, fmtBytes,
+  fmtLength, cleanSearchExcerpt,
 } from "../docs/js/util.js";
 
 describe("debounce", () => {
@@ -121,5 +122,30 @@ describe("formatters", () => {
     expect(fmtBytes(0)).toBe("0 B");
     expect(fmtBytes(1536)).toBe("1.5 KB");
     expect(fmtBytes(null)).toBe("—");
+  });
+
+  it("formats audiobook lengths in hours + minutes without rolling to 60m", () => {
+    expect(fmtLength(540)).toBe("9 min");
+    expect(fmtLength(3600)).toBe("1h 0m");
+    // the bug this guards: rounding the leftover minutes produced "1h 60m"
+    expect(fmtLength(7199)).toBe("2h 0m");
+    expect(fmtLength(34140)).toBe("9h 29m");
+  });
+});
+
+describe("cleanSearchExcerpt", () => {
+  it("drops the partial word after a leading ellipsis", () => {
+    const ex = cleanSearchExcerpt({ pre: "…ng the match", match: "fox", post: "quick" });
+    expect(ex.before).toBe("…the match");
+  });
+
+  it("drops the partial word before a trailing ellipsis", () => {
+    const ex = cleanSearchExcerpt({ pre: "the", match: "fox", post: "match beg…" });
+    expect(ex.after).toBe("match…");
+  });
+
+  it("leaves clean context and missing fields alone", () => {
+    expect(cleanSearchExcerpt({ match: "fox" })).toEqual({ before: "", match: "fox", after: "" });
+    expect(cleanSearchExcerpt({ pre: "once upon", post: "the end" }).before).toBe("once upon");
   });
 });

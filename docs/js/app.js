@@ -6,7 +6,7 @@ import {
   $, initSheets, toast, fmtBytes, fillCover, listSheet, closeSheet, isSheetOpen,
   isIOS, isStandalone,
 } from "./util.js";
-import { kvGet, kvSet, storageEstimate } from "./db.js";
+import { kvGet, kvSet, storageEstimate, orphanedFiles, deleteFiles } from "./db.js";
 import {
   initLibrary, refreshLibrary, wireImportUI, initDetail, initEditSheet,
   checkSharedFiles, wireFileHandler, initContinue, initSelect, isSelecting,
@@ -18,7 +18,7 @@ import { ttsController } from "./tts.js";
 import {
   pickVoice, voiceLabel, previewVoice, stopPreview, savedVoices, openSavedVoices, watchSavedVoices,
 } from "./tts-voices.js";
-import { currentVoice, kokoro } from "./tts-engines.js";
+import { currentVoice, kokoro, piper } from "./tts-engines.js";
 import { deliverBackup, restoreBackup } from "./backup.js";
 import { VERSION, BUILD } from "./version.js";
 
@@ -184,6 +184,9 @@ const reclaimableBytes = async () => {
 const reclaim = async () => {
   // a voice file pulled out from under a playing session would stall it
   ttsController.stop();
+  // and a live session would otherwise keep thinking its voice is ready
+  // while the cache it loaded from is gone — drop it before clearing
+  piper.reset();
   const names = ((await caches?.keys?.()) || []).filter(RECLAIMABLE_CACHES);
   await Promise.all(names.map((n) => caches.delete(n)));
   const root = await navigator.storage?.getDirectory?.().catch(() => null);
@@ -225,6 +228,34 @@ const initHelp = async () => {
       showSize();
     }, { note: "Books, covers and reading positions are not affected. A voice you use again downloads once more." });
   });
+
+  // Repair: file data in IndexedDB that no book references — interrupted
+  // restores and an old deleteBook bug both left these behind.
+  const repairVal = $("set-repair-val");
+  const countOrphans = async () => {
+    const orphans = await orphanedFiles().catch(() => []);
+    repairVal.textContent = orphans.length
+      ? fmtBytes(orphans.reduce((n, f) => n + (f.size || f.blob?.size || 0), 0))
+      : "Clean";
+    return orphans;
+  };
+  $("set-repair").addEventListener("click", async () => {
+    repairVal.textContent = "…";
+    const orphans = await countOrphans();
+    if (!orphans.length) return;
+    const bytes = fmtBytes(orphans.reduce((n, f) => n + (f.size || f.blob?.size || 0), 0));
+    listSheet(`Remove ${orphans.length} orphaned file${orphans.length === 1 ? "" : "s"} (${bytes})?`, [
+      { title: "Repair storage", value: true },
+    ], async (ok) => {
+      if (!ok) { repairVal.textContent = "—"; return; }
+      await deleteFiles(orphans.map((f) => f.key));
+      toast(`Repaired storage — freed ${bytes}`);
+      repairVal.textContent = "Clean";
+      await showStorageHealth();
+    }, { note: "These are file leftovers no book in your library points at. Books are not affected." });
+  });
+  // cheap enough to scan when Settings opens, like the cache size above
+  onSettingsShown = () => { showSize(); countOrphans().catch(() => {}); };
 };
 
 // ---------------------------------------------------------------------------
@@ -273,9 +304,14 @@ const initSettings = async () => {
   const s = ttsController.settings;
 
   const eng = $("set-tts-engine");
-  // the high-quality voice only keeps up on WebGPU — don't offer it elsewhere
+  // the high-quality voice only keeps up on WebGPU — don't offer it elsewhere,
+  // but say so rather than leaving the choice mysteriously absent
   const hq = eng.querySelector("[data-val=kokoro]");
   if (hq) hq.hidden = !kokoro.available();
+  if (!kokoro.available()) {
+    $("tts-engine-note").textContent +=
+      " The HQ engine isn't offered on this device: it needs WebGPU, and its ~330 MB model is more than iOS lets a page hold.";
+  }
   eng.querySelectorAll("button").forEach((b) => {
     b.classList.toggle("active", b.dataset.val === s.engine);
     b.addEventListener("click", async () => {
@@ -340,6 +376,17 @@ const initSettings = async () => {
   updateSaved();
   $("set-voices-saved").addEventListener("click", () => { stopPreview(); openSavedVoices(); });
 
+  // metadata lookups are the app's only outbound calls — this is the switch
+  const metaVal = $("set-meta-online-val");
+  const showMetaOnline = async () => {
+    metaVal.textContent = (await kvGet("meta-online", true)) ? "On" : "Off";
+  };
+  showMetaOnline();
+  $("set-meta-online").addEventListener("click", async () => {
+    await kvSet("meta-online", !(await kvGet("meta-online", true)));
+    showMetaOnline();
+  });
+
   // The build this copy of the app was released as, and — when they differ —
   // the one the service worker is still serving, so an installed app can be
   // checked against the latest deploy.
@@ -376,10 +423,11 @@ const initSettings = async () => {
       if (!ok) return;
       showRestoring("Restoring…");
       try {
-        const n = await restoreBackup(f, showRestoring);
+        const { books, skipped } = await restoreBackup(f, showRestoring);
         await refreshLibrary();
         await showStorageHealth();
-        toast(`Restored ${n} book${n === 1 ? "" : "s"}`);
+        toast(`Restored ${books} book${books === 1 ? "" : "s"}`
+          + (skipped ? ` · ${skipped} skipped (file missing from the backup)` : ""), { ms: 6000 });
       } catch (err) {
         console.error(err);
         toast(err.message || "Restore failed", { error: true, ms: 6000 });
@@ -500,28 +548,33 @@ const boot = async () => {
   document.documentElement.dataset.theme = "dark"; // flash of correct bg
   // ask the OS not to evict our IndexedDB library under storage pressure
   navigator.storage?.persist?.().catch(() => {});
-  initSheets();
-  await initLibrary(openBook);
-  initDetail();
-  initEditSheet();
-  initContinue();
-  initSelect();
-  wireImportUI();
-  await initTheme();
-  await initReader();
-  initPlayer();
-  await initSettings();
-  await initHelp();
-  initKeyboard();
-  await refreshLibrary();
-  await checkSharedFiles();
-  wireFileHandler();
+  // one bad init used to kill the whole boot — degrade, don't die
+  const step = async (name, fn) => {
+    try { await fn(); }
+    catch (err) { console.error(`init failed: ${name}`, err); }
+  };
+  await step("sheets", initSheets);
+  await step("library", () => initLibrary(openBook));
+  await step("detail", initDetail);
+  await step("edit", initEditSheet);
+  await step("continue", initContinue);
+  await step("select", initSelect);
+  await step("import", wireImportUI);
+  await step("theme", initTheme);
+  await step("reader", initReader);
+  await step("player", initPlayer);
+  await step("settings", initSettings);
+  await step("help", initHelp);
+  await step("keyboard", initKeyboard);
+  await step("refresh", refreshLibrary);
+  await step("shared files", checkSharedFiles);
+  await step("file handler", wireFileHandler);
 
   // "Continue Reading" shortcut → reopen the most recent book
   const params = new URLSearchParams(location.search);
   if (params.get("continue")) {
     history.replaceState(null, "", location.pathname);
-    const book = await resumeBook();
+    const book = await resumeBook().catch(() => null);
     if (book) openBook(book);
   }
 

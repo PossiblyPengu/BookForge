@@ -1,3 +1,10 @@
 /.claude
-/requirements.txt
 /node_modules
+
+# iOS — the Xcode project and build products are generated (xcodegen / CI),
+# not committed
+/ios/Pageturner.xcodeproj/
+/ios/build/
+/ios/.build/
+/ios/xcodebuild.log
+/ios/DerivedData/

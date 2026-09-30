@@ -26,6 +26,9 @@ final class ReaderModel: ObservableObject {
     private(set) var navigatorController: UIViewController?
     private var directionalAdapter: DirectionalNavigationAdapter?
     private var inputTokens: Set<InputObservableToken> = []
+    /// Every page turn used to re-encode and rewrite the whole catalogue
+    /// JSON — a disk write per page. Coalesced here and flushed on close.
+    private var saveTask: Task<Void, Never>?
 
     init(book: Book, library: LibraryStore) {
         self.book = book
@@ -118,9 +121,12 @@ final class ReaderModel: ObservableObject {
               let readAloud = ReadAloud(
                   publication: publication,
                   navigator: navigator,
-                  settings: settings
+                  settings: settings,
+                  displayTitle: book.title,
+                  displayAuthor: book.author
               )
         else { return }
+        readAloud.onError = { [weak self] message in self?.notice = message }
         self.readAloud = readAloud
         readAloud.start()
     }
@@ -134,6 +140,23 @@ final class ReaderModel: ObservableObject {
         let steps: [Double] = [0.75, 1, 1.25, 1.5, 1.75, 2]
         settings.speechRate = steps.first { $0 > settings.speechRate + 0.001 } ?? steps[0]
     }
+
+    /// Persist the position soon-ish rather than instantly, and immediately
+    /// when the reader is going away (called from ReaderView.onDisappear).
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled else { return }
+            library.update(book)
+        }
+    }
+
+    func flushSave() {
+        saveTask?.cancel()
+        saveTask = nil
+        library.update(book)
+    }
 }
 
 // MARK: - Navigator delegates
@@ -142,7 +165,7 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
         book.locatorJSON = try? locator.jsonString()
         book.progression = locator.locations.totalProgression
-        library.update(book)
+        scheduleSave()
     }
 
     func navigator(_ navigator: Navigator, presentError error: NavigatorError) {

@@ -22,6 +22,14 @@ export const fmtBytes = (n) => {
   return `${n.toFixed(i ? 1 : 0)} ${units[i]}`;
 };
 
+/** "9h 32m" — an audiobook's length reads better in hours than h:mm:ss. */
+export const fmtLength = (sec) => {
+  const totalMin = Math.round(sec / 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h ? `${h}h ${m}m` : `${m} min`;
+};
+
 /**
  * Trailing-edge debounce. The returned function carries `.flush()`, which
  * runs a pending call immediately — needed because iOS kills backgrounded web
@@ -567,6 +575,17 @@ export const excerptAround = (hay, start, end, pad = 40) => {
     after: after.replace(/\s+/g, " "),
   };
 };
+
+/**
+ * foliate cuts search context at a fixed length, often mid-word, marking the
+ * cut with "…" — drop the partial word next to each ellipsis so
+ * "…ng the match beg…" shows as "…the match…".
+ */
+export const cleanSearchExcerpt = ({ pre = "", match = "", post = "" } = {}) => ({
+  before: pre.replace(/^…\S*\s+/, "…"),
+  match,
+  after: post.replace(/\s+\S*…$/, "…"),
+});
 
 export const rangeForChunk = (el, chunkText, searchFrom = 0) => {
   const doc = el.ownerDocument;

@@ -44,7 +44,7 @@ const savePos = debounce(async () => {
   if (!b) return;
   b.progress = { fraction: player.duration ? position() / player.duration : 0, positionSec: position() };
   b.lastOpenedAt = Date.now();
-  await putBook(b);
+  await putBook(b).catch((err) => console.warn("position save failed", err));
 }, 2000);
 
 const position = () =>
@@ -115,6 +115,7 @@ const loadFile = async (i, offset = 0, autoplay = false) => {
 
 /** Seek to a global (book-wide) position in seconds. */
 const seekGlobal = async (t) => {
+  if (!player.urls.length || !player.fileStarts?.length) return;
   const starts = player.fileStarts;
   let i = 0;
   while (i < starts.length - 1 && starts[i + 1] <= t) i++;
@@ -161,7 +162,14 @@ export const openPlayer = async (book, { onClose, onUpdate } = {}) => {
   player.urls = [];
   for (const key of book.fileKeys || [book.fileKey]) {
     const blob = await getFile(key);
-    if (!blob) { toast("Audio file missing", { error: true }); return; }
+    if (!blob) {
+      // leave no half-open player behind — a set player.book with empty urls
+      // put a stale, unplayable title on the mini-player
+      player.book = null;
+      player.onUpdate();
+      toast("Audio file missing", { error: true });
+      return;
+    }
     player.urls.push(URL.createObjectURL(blob));
   }
 
@@ -217,7 +225,15 @@ export const closePlayer = async () => {
   player.urls = [];
   player.book = null;
   $("view-player").hidden = true;
-  navigator.mediaSession && (navigator.mediaSession.metadata = null);
+  if ("mediaSession" in navigator) {
+    // dead handlers used to stay live — a lock-screen "play" after close
+    // seeked an empty url list and errored on `audio.src = undefined`
+    navigator.mediaSession.metadata = null;
+    for (const a of ["play", "pause", "stop", "seekbackward", "seekforward", "previoustrack", "nexttrack", "seekto"]) {
+      try { navigator.mediaSession.setActionHandler(a, null); } catch { /* unsupported */ }
+    }
+    try { navigator.mediaSession.playbackState = "none"; } catch { /* noop */ }
+  }
   const cb = player.onClose;
   player.onClose = null;
   cb?.();

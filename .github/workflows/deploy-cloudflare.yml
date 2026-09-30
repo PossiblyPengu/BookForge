@@ -1,13 +1,19 @@
 name: Deploy to Cloudflare Pages
 
+# Deploys happen when CI goes green on main — never before. A commit that
+# fails lint/tests/version-check used to ship anyway because this ran on
+# every push in parallel with CI. Manual dispatch stays as an escape hatch.
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     permissions:
       contents: read
       deployments: write

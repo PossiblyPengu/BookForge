@@ -3,11 +3,18 @@
  *
  * Foliate's comic reader only understands zip containers, so CBR files
  * are extracted with the vendored unrar WASM and repacked with fflate.
+ * Everything happens in memory — archive + extracted pages + output zip —
+ * so very large CBRs get a warning before the work begins.
  */
 
+import { toast, fmtBytes } from "./util.js";
+
 const IMG_RE = /\.(jpe?g|png|gif|webp|avif|bmp)$/i;
+const BIG_CBR = 300 * 1024 * 1024;
 
 export const cbrToCbz = async (file) => {
+  if (file.size > BIG_CBR)
+    toast(`"${file.name}" is ${fmtBytes(file.size)} — converting it needs a lot of memory and may fail`, { ms: 7000 });
   const [{ createExtractorFromData }, { zipSync }] = await Promise.all([
     import("../vendor/unrar.mjs"),
     import("../vendor/fflate.mjs"),

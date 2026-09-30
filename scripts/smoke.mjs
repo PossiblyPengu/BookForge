@@ -840,13 +840,13 @@ const testFn = async (withPiper) => {
 
       await deleteBook(victim.id);
       const missing = !(await gb(victim.id));
-      const n = await restoreBackup(new File([blob], "backup.zip"));
+      const { books: restoredCount, skipped } = await restoreBackup(new File([blob], "backup.zip"));
       const back = await gb(victim.id);
       const restoredBytes = new Uint8Array(await (await getFile(back?.fileKey)).arrayBuffer());
       const same = restoredBytes.length === originalBytes.length &&
         restoredBytes.every((b, i) => b === originalBytes[i]);
-      log(missing && back?.title === victim.title && same && n === books.length,
-        `restore brings a deleted book back byte-for-byte (${restoredBytes.length} bytes, ${n} books)`);
+      log(missing && back?.title === victim.title && same && restoredCount === books.length && skipped === 0,
+        `restore brings a deleted book back byte-for-byte (${restoredBytes.length} bytes, ${restoredCount} books)`);
 
       // backups made before this change were deflated by fflate — they must
       // still restore
@@ -870,6 +870,24 @@ const testFn = async (withPiper) => {
       let msg = "";
       try { await restoreBackup(new File(["hello"], "notes.txt")); } catch (e) { msg = e.message; }
       log(/isn.t a Pageturner backup/.test(msg), `non-backup is refused plainly → ${JSON.stringify(msg)}`);
+
+      // a zip that IS a zip but not ours, and one from a future version
+      const { zipSync: z2, strToU8: s2 } = await import("./vendor/fflate.mjs");
+      const foreign = z2({ "data.json": s2(JSON.stringify({ app: "other", v: 1, books: [] })) });
+      try { await restoreBackup(new File([foreign], "x.zip")); msg = ""; } catch (e) { msg = e.message; }
+      log(/isn.t a Pageturner backup/.test(msg), `foreign zip refused → ${JSON.stringify(msg)}`);
+      const newer = z2({ "data.json": s2(JSON.stringify({ app: "pageturner", v: 99, books: [] })) });
+      try { await restoreBackup(new File([newer], "x.zip")); msg = ""; } catch (e) { msg = e.message; }
+      log(/newer version/.test(msg), `future-version backup refused → ${JSON.stringify(msg)}`);
+
+      // a backup missing the book's payload skips the book, not the restore
+      const missingFile = z2({ "data.json": s2(JSON.stringify({ app: "pageturner", v: 1,
+        books: [{ id: "ghost", kind: "text", format: "TXT", title: "Ghost", fileKey: "file:gone", fileName: "gone.txt" }],
+        kv: {}, fileMeta: {} })) });
+      const res = await restoreBackup(new File([missingFile], "x.zip"));
+      const ghost = await gb("ghost");
+      log(res.books === 0 && res.skipped === 1 && !ghost,
+        `book with missing payload is skipped → restored=${res.books} skipped=${res.skipped}`);
     }
 
     // optional: neural TTS — downloads ~60MB voice model on first run
