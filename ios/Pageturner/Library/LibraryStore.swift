@@ -3,6 +3,25 @@ import ReadiumShared
 import SwiftUI
 import UIKit
 
+struct Bookmark: Identifiable, Codable, Hashable {
+    let id: UUID
+    /// Chapter/excerpt shown in the list.
+    var title: String
+    /// Position, as a Readium `Locator` in JSON.
+    var locatorJSON: String
+    /// 0…1 through the whole book when saved.
+    var progression: Double?
+    var createdAt: Date
+
+    init(id: UUID = UUID(), title: String, locatorJSON: String, progression: Double?, createdAt: Date = Date()) {
+        self.id = id
+        self.title = title
+        self.locatorJSON = locatorJSON
+        self.progression = progression
+        self.createdAt = createdAt
+    }
+}
+
 struct Book: Identifiable, Codable, Hashable {
     let id: UUID
     var title: String
@@ -15,6 +34,24 @@ struct Book: Identifiable, Codable, Hashable {
     var locatorJSON: String?
     /// 0…1 through the whole book.
     var progression: Double?
+    var bookmarks: [Bookmark] = []
+}
+
+extension Book {
+    /// Older library.json files predate `bookmarks` — decode leniently so the
+    /// catalogue keeps loading instead of throwing on the missing key.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        author = try c.decode(String.self, forKey: .author)
+        fileName = try c.decode(String.self, forKey: .fileName)
+        addedAt = try c.decode(Date.self, forKey: .addedAt)
+        lastOpenedAt = try c.decodeIfPresent(Date.self, forKey: .lastOpenedAt)
+        locatorJSON = try c.decodeIfPresent(String.self, forKey: .locatorJSON)
+        progression = try c.decodeIfPresent(Double.self, forKey: .progression)
+        bookmarks = try c.decodeIfPresent([Bookmark].self, forKey: .bookmarks) ?? []
+    }
 }
 
 /// The library: book files in Documents/Books (visible in the Files app),
@@ -115,10 +152,38 @@ final class LibraryStore: ObservableObject {
         save()
     }
 
-    /// Most recently read first, then most recently added.
-    var sortedBooks: [Book] {
-        books.sorted {
-            ($0.lastOpenedAt ?? $0.addedAt) > ($1.lastOpenedAt ?? $1.addedAt)
+    enum SortOrder: String, CaseIterable, Identifiable {
+        case recent, added, title, author
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .recent: return "Recently Opened"
+            case .added: return "Recently Added"
+            case .title: return "Title"
+            case .author: return "Author"
+            }
+        }
+    }
+
+    /// Filtered + sorted view of the catalogue for the library screen.
+    func sortedBooks(order: SortOrder, query: String) -> [Book] {
+        var list = books
+        let q = query.trimmingCharacters(in: .whitespaces)
+        if !q.isEmpty {
+            list = list.filter {
+                $0.title.localizedCaseInsensitiveContains(q)
+                    || $0.author.localizedCaseInsensitiveContains(q)
+            }
+        }
+        switch order {
+        case .recent:
+            return list.sorted { ($0.lastOpenedAt ?? $0.addedAt) > ($1.lastOpenedAt ?? $1.addedAt) }
+        case .added:
+            return list.sorted { $0.addedAt > $1.addedAt }
+        case .title:
+            return list.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .author:
+            return list.sorted { $0.author.localizedCaseInsensitiveCompare($1.author) == .orderedAscending }
         }
     }
 

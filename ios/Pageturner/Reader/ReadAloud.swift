@@ -24,6 +24,8 @@ final class ReadAloud: NSObject, ObservableObject {
     @Published private(set) var isActive = false   // controls shown
     @Published private(set) var isPlaying = false
     @Published private(set) var rate: Double
+    /// Seconds left on the sleep timer, nil when unset.
+    @Published private(set) var sleepRemaining: TimeInterval?
 
     private let publication: Publication
     private weak var navigator: VisualNavigator?
@@ -39,6 +41,8 @@ final class ReadAloud: NSObject, ObservableObject {
     private var isTurning = false
     private var consecutiveFailures = 0
     private var subscriptions: Set<AnyCancellable> = []
+    private var sleepTimer: Timer?
+    private var sleepDeadline: Date?
 
     /// Surfaces problems the caller should show (e.g. utterances keep failing).
     var onError: ((String) -> Void)?
@@ -118,7 +122,37 @@ final class ReadAloud: NSObject, ObservableObject {
     func stop() {
         synthesizer.stop()
         isActive = false
+        setSleepTimer(minutes: nil)
         tearDownNowPlaying()
+    }
+
+    // MARK: - Sleep timer
+
+    /// Stop read-aloud after the given number of minutes; nil cancels.
+    func setSleepTimer(minutes: Int?) {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        guard let minutes, minutes > 0 else {
+            sleepDeadline = nil
+            sleepRemaining = nil
+            return
+        }
+        sleepDeadline = Date().addingTimeInterval(TimeInterval(minutes) * 60)
+        sleepRemaining = sleepDeadline?.timeIntervalSinceNow
+        // 15s ticks — the label shows whole minutes so precision doesn't matter
+        sleepTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tickSleepTimer() }
+        }
+    }
+
+    private func tickSleepTimer() {
+        guard let deadline = sleepDeadline else { return }
+        let left = deadline.timeIntervalSinceNow
+        if left <= 0 {
+            stop()   // stop() also clears the timer
+        } else {
+            sleepRemaining = left
+        }
     }
 
     /// Takes effect from the next sentence.

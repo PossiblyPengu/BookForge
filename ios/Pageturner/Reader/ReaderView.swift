@@ -7,6 +7,7 @@ struct ReaderView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showContents = false
     @State private var showSettings = false
+    @State private var showSearch = false
 
     init(book: Book, library: LibraryStore) {
         _model = StateObject(wrappedValue: ReaderModel(book: book, library: library))
@@ -34,6 +35,7 @@ struct ReaderView: View {
             .onDisappear { model.flushSave(); model.stopReadAloud() }
             .sheet(isPresented: $showContents) { contentsSheet }
             .sheet(isPresented: $showSettings) { settingsSheet }
+            .sheet(isPresented: $showSearch) { searchSheet }
             .alert("Pageturner", isPresented: Binding(
                 get: { model.notice != nil },
                 set: { if !$0 { model.notice = nil } }
@@ -97,6 +99,16 @@ struct ReaderView: View {
                         .frame(width: 32, height: 32)
                 }
             }
+            if model.isSearchable {
+                Button { showSearch = true } label: {
+                    Image(systemName: "magnifyingglass")
+                        .frame(width: 32, height: 32)
+                }
+            }
+            Button { model.toggleBookmark() } label: {
+                Image(systemName: model.isCurrentLocationBookmarked ? "bookmark.fill" : "bookmark")
+                    .frame(width: 32, height: 32)
+            }
             Button { showContents = true } label: {
                 Image(systemName: "list.bullet")
                     .frame(width: 32, height: 32)
@@ -115,15 +127,48 @@ struct ReaderView: View {
     private var contentsSheet: some View {
         NavigationStack {
             Group {
-                if model.toc.isEmpty {
+                if model.toc.isEmpty, model.book.bookmarks.isEmpty {
                     Text("No table of contents.")
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
-                        OutlineRows(links: model.toc, depth: 0) { link in
-                            showContents = false
-                            model.go(to: link)
+                        if !model.book.bookmarks.isEmpty {
+                            Section("Bookmarks") {
+                                ForEach(model.book.bookmarks.sorted { $0.createdAt > $1.createdAt }) { bm in
+                                    Button {
+                                        showContents = false
+                                        model.goToBookmark(bm)
+                                    } label: {
+                                        Label {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(bm.title).lineLimit(1)
+                                                if let p = bm.progression {
+                                                    Text("\(Int((p * 100).rounded()))% through")
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                        } icon: {
+                                            Image(systemName: "bookmark.fill")
+                                        }
+                                        .foregroundStyle(.primary)
+                                    }
+                                    .swipeActions {
+                                        Button(role: .destructive) { model.removeBookmark(bm) } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !model.toc.isEmpty {
+                            Section("Chapters") {
+                                OutlineRows(links: model.toc, depth: 0) { link in
+                                    showContents = false
+                                    model.go(to: link)
+                                }
+                            }
                         }
                     }
                     .listStyle(.plain)
@@ -134,6 +179,22 @@ struct ReaderView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { showContents = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var searchSheet: some View {
+        NavigationStack {
+            SearchResultsView(model: model) {
+                showSearch = false
+            }
+            .navigationTitle("Search")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showSearch = false }
                 }
             }
         }
@@ -187,7 +248,7 @@ private struct ReadAloudBar: View {
     let onStop: () -> Void
 
     var body: some View {
-        HStack(spacing: 30) {
+        HStack(spacing: 26) {
             Button { readAloud.previous() } label: {
                 Image(systemName: "backward.fill")
             }
@@ -201,8 +262,24 @@ private struct ReadAloudBar: View {
             Button(action: onRate) {
                 Text(String(format: "%.3g×", rate))
                     .font(.subheadline.monospacedDigit())
-                    .frame(minWidth: 44)
+                    .frame(minWidth: 40)
             }
+            Menu {
+                Button("Sleep: Off") { readAloud.setSleepTimer(minutes: nil) }
+                ForEach([5, 10, 15, 20, 30, 45, 60], id: \.self) { minutes in
+                    Button("\(minutes) min") { readAloud.setSleepTimer(minutes: minutes) }
+                }
+            } label: {
+                if let left = readAloud.sleepRemaining {
+                    // ceil — "5:00 left" shows 5m until it drops under 4:00
+                    Text("\(Int(left / 60) + 1)m")
+                        .font(.subheadline.monospacedDigit())
+                        .frame(minWidth: 30)
+                } else {
+                    Image(systemName: "moon")
+                }
+            }
+            .accessibilityLabel("Sleep timer")
             Button(action: onStop) {
                 Image(systemName: "xmark")
             }
@@ -210,5 +287,63 @@ private struct ReadAloudBar: View {
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
         .background(.regularMaterial)
+    }
+}
+
+private struct SearchResultsView: View {
+    @ObservedObject var model: ReaderModel
+    let onPick: () -> Void
+    @State private var query = ""
+    @State private var debounceTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search this book", text: $query)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .onSubmit { model.search(query) }
+                if model.searchInFlight { ProgressView() }
+            }
+            .padding(10)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+            .padding([.horizontal, .top])
+
+            List(Array(model.searchResults.enumerated()), id: \.offset) { i, locator in
+                Button {
+                    onPick()
+                    model.go(to: locator)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(locator.title ?? "Match \(i + 1)")
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                        if let highlight = locator.text.highlight, !highlight.isEmpty {
+                            Text("…\((locator.text.before ?? "").trimmingCharacters(in: .whitespaces)) \(highlight) \((locator.text.after ?? "").trimmingCharacters(in: .whitespaces))…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+                .foregroundStyle(.primary)
+            }
+            .listStyle(.plain)
+            .overlay {
+                if !model.searchInFlight, model.searchResults.isEmpty, !query.isEmpty {
+                    Text("No matches")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .onChange(of: query) { q in
+            debounceTask?.cancel()
+            debounceTask = Task {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard !Task.isCancelled else { return }
+                model.search(q)
+            }
+        }
     }
 }
