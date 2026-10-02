@@ -185,7 +185,6 @@ final class ReaderModel: ObservableObject {
             defer { searchInFlight = false }
             switch await publication.search(query: q) {
             case let .success(iterator):
-                defer { iterator.close() }
                 var found: [Locator] = []
                 // LocatorCollections stream in pages; cap so a common word in a
                 // huge book doesn't produce an unbounded list.
