@@ -21,105 +21,43 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if library.books.isEmpty {
-                    emptyState
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: columns, spacing: 24) {
-                            ForEach(library.sortedBooks(order: order, query: query)) { book in
-                                Button { openBook = book } label: {
-                                    BookCell(book: book, cover: library.cover(for: book))
-                                }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                    Button { detailBook = book } label: {
-                                        Label("Book Info", systemImage: "info.circle")
-                                    }
-                                    Button { editBook = book } label: {
-                                        Label("Edit Details", systemImage: "pencil")
-                                    }
-                                    Divider()
-                                    Button(role: .destructive) { library.delete(book) } label: {
-                                        Label("Remove from Library", systemImage: "trash")
-                                    }
-                                }
-                            }
-                        }
-                        .padding(18)
+            libraryContent
+                .navigationTitle("Library")
+                .toolbar { toolbar }
+                .fileImporter(
+                    isPresented: $showImporter,
+                    allowedContentTypes: [.epub, .pdf, .audio],
+                    allowsMultipleSelection: true
+                ) { result in
+                    if case let .success(urls) = result {
+                        Task { await library.importFiles(urls) }
                     }
-                    .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic))
                 }
-            }
-            .navigationTitle("Library")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Menu {
-                        Picker("Sort", selection: $sortOrder) {
-                            ForEach(LibraryStore.SortOrder.allCases) { o in
-                                Text(o.label).tag(o.rawValue)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
+                .fileImporter(
+                    isPresented: $showBackupImporter,
+                    allowedContentTypes: [.zip]
+                ) { result in
+                    if case let .success(urls) = result, let url = urls.first {
+                        restoreBackup(url)
                     }
-                    .accessibilityLabel("Sort books")
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button { exportBackup() } label: {
-                            Label("Export Library Backup", systemImage: "square.and.arrow.up")
-                        }
-                        Button { showBackupImporter = true } label: {
-                            Label("Restore Backup…", systemImage: "square.and.arrow.down")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .accessibilityLabel("Backup options")
+                .sheet(item: $shareItem) { ShareSheet(items: [$0.url]) }
+                .alert("Backup", isPresented: Binding(
+                    get: { backupMessage != nil },
+                    set: { if !$0 { backupMessage = nil } }
+                )) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(backupMessage ?? "")
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showImporter = true } label: {
-                        if library.importing { ProgressView() } else { Image(systemName: "plus") }
-                    }
-                    .disabled(library.importing)
-                    .accessibilityLabel("Add books")
+                .alert("Import problem", isPresented: Binding(
+                    get: { library.lastError != nil },
+                    set: { if !$0 { library.lastError = nil } }
+                )) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(library.lastError ?? "")
                 }
-            }
-            .fileImporter(
-                isPresented: $showImporter,
-                allowedContentTypes: [.epub, .pdf, .audio],
-                allowsMultipleSelection: true
-            ) { result in
-                if case let .success(urls) = result {
-                    Task { await library.importFiles(urls) }
-                }
-            }
-            .fileImporter(
-                isPresented: $showBackupImporter,
-                allowedContentTypes: [.zip]
-            ) { result in
-                if case let .success(urls) = result, let url = urls.first {
-                    restoreBackup(url)
-                }
-            }
-            .sheet(item: $shareItem) { ShareSheet(items: [$0.url]) }
-            .alert("Backup", isPresented: Binding(
-                get: { backupMessage != nil },
-                set: { if !$0 { backupMessage = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(backupMessage ?? "")
-            }
-            .alert("Import problem", isPresented: Binding(
-                get: { library.lastError != nil },
-                set: { if !$0 { library.lastError = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(library.lastError ?? "")
-            }
         }
         .fullScreenCover(item: $openBook) { book in
             if book.isAudio {
@@ -146,6 +84,81 @@ struct LibraryView: View {
                 library.update(updated)
                 editBook = nil
             }
+        }
+    }
+
+    @ViewBuilder
+    private var libraryContent: some View {
+        if library.books.isEmpty {
+            emptyState
+        } else {
+            libraryGrid
+        }
+    }
+
+    private var libraryGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 24) {
+                ForEach(library.sortedBooks(order: order, query: query)) { book in
+                    Button { openBook = book } label: {
+                        BookCell(book: book, cover: library.cover(for: book))
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { bookMenu(for: book) }
+                }
+            }
+            .padding(18)
+        }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic))
+    }
+
+    @ViewBuilder
+    private func bookMenu(for book: Book) -> some View {
+        Button { detailBook = book } label: {
+            Label("Book Info", systemImage: "info.circle")
+        }
+        Button { editBook = book } label: {
+            Label("Edit Details", systemImage: "pencil")
+        }
+        Divider()
+        Button(role: .destructive) { library.delete(book) } label: {
+            Label("Remove from Library", systemImage: "trash")
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            Menu {
+                Picker("Sort", selection: $sortOrder) {
+                    ForEach(LibraryStore.SortOrder.allCases) { o in
+                        Text(o.label).tag(o.rawValue)
+                    }
+                }
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+            }
+            .accessibilityLabel("Sort books")
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button { exportBackup() } label: {
+                    Label("Export Library Backup", systemImage: "square.and.arrow.up")
+                }
+                Button { showBackupImporter = true } label: {
+                    Label("Restore Backup…", systemImage: "square.and.arrow.down")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .accessibilityLabel("Backup options")
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button { showImporter = true } label: {
+                if library.importing { ProgressView() } else { Image(systemName: "plus") }
+            }
+            .disabled(library.importing)
+            .accessibilityLabel("Add books")
         }
     }
 
