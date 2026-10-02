@@ -241,9 +241,13 @@ private struct BookDetailSheet: View {
 private struct BookEditSheet: View {
     @State private var title: String
     @State private var author: String
+    @State private var searching = false
+    @State private var candidates: [MetadataCandidate]?
+    @State private var pickedCover: URL?
     private let original: Book
     private let onSave: (Book) -> Void
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var library: LibraryStore
 
     init(book: Book, onSave: @escaping (Book) -> Void) {
         _title = State(initialValue: book.title)
@@ -257,6 +261,48 @@ private struct BookEditSheet: View {
             Form {
                 TextField("Title", text: $title)
                 TextField("Author", text: $author)
+
+                Section("Lookup") {
+                    if searching {
+                        HStack {
+                            ProgressView()
+                            Text("Searching Google Books + Open Library…")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Button("Find Metadata Online") { lookup() }
+                    }
+                    if let candidates {
+                        if candidates.isEmpty {
+                            Text("No matches found.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(candidates) { c in
+                            Button { apply(c) } label: {
+                                HStack(spacing: 10) {
+                                    AsyncImage(url: c.coverURL) { image in
+                                        image.resizable().scaledToFill()
+                                    } placeholder: {
+                                        Image(systemName: "book.closed")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .frame(width: 34, height: 50)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(c.title).font(.subheadline.weight(.medium)).lineLimit(2)
+                                        Text(c.authors).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        Text([c.year, c.source].filter { !$0.isEmpty }.joined(separator: " · "))
+                                            .font(.caption2).foregroundStyle(.tertiary)
+                                    }
+                                    Spacer()
+                                }
+                            }
+                            .foregroundStyle(.primary)
+                        }
+                    }
+                }
             }
             .navigationTitle("Edit Details")
             .navigationBarTitleDisplayMode(.inline)
@@ -265,16 +311,39 @@ private struct BookEditSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        var book = original
-                        book.title = title.trimmingCharacters(in: .whitespaces)
-                        book.author = author.trimmingCharacters(in: .whitespaces)
-                        onSave(book)
-                    }
-                    .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Save") { save() }
+                        .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
+    }
+
+    private func lookup() {
+        searching = true
+        candidates = nil
+        Task {
+            let results = await MetadataLookup.search(title: title, author: author)
+            await MainActor.run {
+                candidates = results
+                searching = false
+            }
+        }
+    }
+
+    private func apply(_ candidate: MetadataCandidate) {
+        title = candidate.title
+        author = candidate.authors
+        pickedCover = candidate.coverURL
+    }
+
+    private func save() {
+        var book = original
+        book.title = title.trimmingCharacters(in: .whitespaces)
+        book.author = author.trimmingCharacters(in: .whitespaces)
+        onSave(book)
+        if let pickedCover {
+            Task { await MetadataLookup.applyCover(from: pickedCover, to: book, library: library) }
+        }
     }
 }

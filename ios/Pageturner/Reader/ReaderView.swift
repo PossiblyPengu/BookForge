@@ -127,12 +127,36 @@ struct ReaderView: View {
     private var contentsSheet: some View {
         NavigationStack {
             Group {
-                if model.toc.isEmpty, model.book.bookmarks.isEmpty {
+                if model.toc.isEmpty, model.book.bookmarks.isEmpty, model.book.highlights.isEmpty {
                     Text("No table of contents.")
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
+                        if !model.book.highlights.isEmpty {
+                            Section("Highlights") {
+                                ForEach(model.book.highlights.sorted { $0.createdAt > $1.createdAt }) { hl in
+                                    Button {
+                                        showContents = false
+                                        model.goToHighlight(hl)
+                                    } label: {
+                                        Label {
+                                            Text(hl.text.isEmpty ? "Highlight" : hl.text)
+                                                .lineLimit(2)
+                                                .foregroundStyle(.primary)
+                                        } icon: {
+                                            Image(systemName: "highlighter")
+                                                .foregroundStyle(.yellow)
+                                        }
+                                    }
+                                    .swipeActions {
+                                        Button(role: .destructive) { model.removeHighlight(hl) } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         if !model.book.bookmarks.isEmpty {
                             Section("Bookmarks") {
                                 ForEach(model.book.bookmarks.sorted { $0.createdAt > $1.createdAt }) { bm in

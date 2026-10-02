@@ -45,9 +45,26 @@ struct Book: Identifiable, Codable, Hashable {
     /// 0…1 through the whole book.
     var progression: Double?
     var bookmarks: [Bookmark] = []
+    var highlights: [Highlight] = []
 
     var ext: String { fileName.split(separator: ".").last.map(String.init)?.lowercased() ?? "" }
     var isAudio: Bool { Self.audioExtensions.contains(ext) }
+}
+
+struct Highlight: Identifiable, Codable, Hashable {
+    let id: UUID
+    /// Position + selected text, as a Readium `Locator` in JSON.
+    var locatorJSON: String
+    /// The selected text, shown in the list.
+    var text: String
+    var createdAt: Date
+
+    init(id: UUID = UUID(), locatorJSON: String, text: String, createdAt: Date = Date()) {
+        self.id = id
+        self.locatorJSON = locatorJSON
+        self.text = text
+        self.createdAt = createdAt
+    }
 }
 
 extension Book {
@@ -65,6 +82,7 @@ extension Book {
         audioPosition = try c.decodeIfPresent(TimeInterval.self, forKey: .audioPosition)
         progression = try c.decodeIfPresent(Double.self, forKey: .progression)
         bookmarks = try c.decodeIfPresent([Bookmark].self, forKey: .bookmarks) ?? []
+        highlights = try c.decodeIfPresent([Highlight].self, forKey: .highlights) ?? []
         fileNames = try c.decodeIfPresent([String].self, forKey: .fileNames) ?? [fileName]
     }
 }

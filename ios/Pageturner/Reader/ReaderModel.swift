@@ -48,10 +48,21 @@ final class ReaderModel: ObservableObject {
             let initial = book.locatorJSON.flatMap { try? Locator(jsonString: $0) }
 
             if publication.conforms(to: .epub) {
+                var config = EPUBNavigatorViewController.Configuration(
+                    preferences: settings.epubPreferences
+                )
+                // custom action on the selection menu — handled by
+                // ReaderContainerViewController in the responder chain
+                config.editingActions = EditingAction.defaultActions + [
+                    EditingAction(
+                        title: "Highlight",
+                        action: #selector(ReaderContainerViewController.highlightSelection)
+                    ),
+                ]
                 let nav = try EPUBNavigatorViewController(
                     publication: publication,
                     initialLocation: initial,
-                    config: .init(preferences: settings.epubPreferences)
+                    config: config
                 )
                 nav.delegate = self
                 install(navigator: nav, controller: nav)
@@ -84,7 +95,11 @@ final class ReaderModel: ObservableObject {
     /// toggles the chrome — same setup as the Readium Test App.
     private func install(navigator: any VisualNavigator, controller: UIViewController) {
         self.navigator = navigator
-        navigatorController = controller
+
+        // container puts our selection-action selectors in the responder chain
+        let container = ReaderContainerViewController(contentController: controller)
+        container.onHighlightSelection = { [weak self] in self?.highlightSelection() }
+        navigatorController = container
 
         let adapter = DirectionalNavigationAdapter(animatedTransition: true)
         adapter.bind(to: navigator)
@@ -94,6 +109,8 @@ final class ReaderModel: ObservableObject {
             self?.toggleChrome()
             return true
         }).store(in: &inputTokens)
+
+        applyHighlights()
     }
 
     func toggleChrome() {
@@ -203,10 +220,53 @@ final class ReaderModel: ObservableObject {
 
     func applySettings() {
         settings.save()
-        (navigatorController as? EPUBNavigatorViewController)?
+        (navigator as? EPUBNavigatorViewController)?
             .submitPreferences(settings.epubPreferences)
         readAloud?.setRate(settings.speechRate)
         readAloud?.setVoice(settings.voiceIdentifier)
+    }
+
+    // MARK: - Highlights
+
+    /// "Highlight" in the selection menu — stores the locator and repaints.
+    private func highlightSelection() {
+        guard let selectable = navigator as? SelectableNavigator,
+              let selection = selectable.currentSelection,
+              let json = try? selection.locator.jsonString()
+        else { return }
+        book.highlights.append(Highlight(
+            locatorJSON: json,
+            text: selection.locator.text.highlight ?? ""
+        ))
+        applyHighlights()
+        selectable.clearSelection()
+        flushSave()
+    }
+
+    func removeHighlight(_ highlight: Highlight) {
+        book.highlights.removeAll { $0.id == highlight.id }
+        applyHighlights()
+        flushSave()
+    }
+
+    func goToHighlight(_ highlight: Highlight) {
+        guard let locator = try? Locator(jsonString: highlight.locatorJSON) else { return }
+        go(to: locator)
+    }
+
+    /// Re-applies every saved highlight to the document (the decorations group
+    /// is replaced wholesale — same pattern as the read-aloud highlight).
+    private func applyHighlights() {
+        guard let decorable = navigator as? DecorableNavigator else { return }
+        let decorations: [Decoration] = book.highlights.compactMap { h in
+            guard let locator = try? Locator(jsonString: h.locatorJSON) else { return nil }
+            return Decoration(
+                id: "user-highlight-\(h.id.uuidString)",
+                locator: locator,
+                style: .highlight(tint: .systemYellow)
+            )
+        }
+        decorable.apply(decorations: decorations, in: "user-highlights")
     }
 
     // MARK: - Read aloud
