@@ -10,9 +10,9 @@ Exhaustive audit of the PWA (docs/), native iOS app (ios/), scripts, tests, CI, 
 | 1 | Web P0+P1 (W1–W8, R1–R11) | ✅ Done |
 | 2 | CI/deploy consolidation (H6, H7, H9) | ✅ Done |
 | 3 | Web features (F1–F8) | ✅ Done |
-| 4 | iOS-0 fixes (I1–I3) | ✅ Done (build pending) |
-| 5 | iOS parity (iOS-1…iOS-6) | ⏳ iOS-1/2 in progress |
-| 6 | Final pass | ⏳ Pending |
+| 4 | iOS-0 fixes (I1–I3) | ✅ Done |
+| 5 | iOS parity (iOS-1…iOS-6) | ✅ Done — search/sort/detail/edit, bookmarks, in-book search, sleep timer, AVPlayer audiobooks w/ lock screen, text highlights, online metadata lookup, portable zip backup (web↔iOS) |
+| 6 | Final pass | ⏳ Pending (last iOS build in flight; then verify + deploy) |
 
 ## Summary
 

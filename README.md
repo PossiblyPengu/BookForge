@@ -31,12 +31,17 @@ Open the deployed site in **Safari** → Share → **Add to Home Screen**.
 ## Native iOS app
 
 `ios/` contains a native SwiftUI reader built on the Readium Swift toolkit
-(pinned to 3.11.0): Files/share-sheet import, EPUB/PDF reading, themes, and
-read-aloud via Apple's speech synthesizer that keeps playing on the lock
-screen. The Xcode project is generated, not committed (`cd ios && xcodegen`),
-and `.github/workflows/ios.yml` builds an unsigned `Pageturner.ipa` on every
-change — install it with AltStore/SideStore/Sideloadly. The PWA remains the
-primary install route; the native app tracks toward feature parity.
+(pinned to 3.11.0): Files/share-sheet import, EPUB/PDF reading with
+themes/fonts, in-book search, bookmarks and text highlights, read-aloud via
+Apple's speech synthesizer (voice/rate control, sleep timer, lock-screen
+controls), an AVPlayer audiobook player with multi-track books and Now
+Playing integration, library search/sort, metadata editing with online
+lookup (Google Books + Open Library), and backup export/restore as a zip
+that the PWA can also read. The Xcode project is generated, not committed
+(`cd ios && xcodegen`), and `.github/workflows/ios.yml` builds an unsigned
+`Pageturner.ipa` on every change — install it with
+AltStore/SideStore/Sideloadly. The PWA remains the primary install route;
+the native app tracks toward feature parity.
 
 ## Usage
 

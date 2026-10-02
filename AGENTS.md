@@ -4,8 +4,14 @@
 
 `ios/` contains **Pageturner**, a native SwiftUI EPUB/PDF reader built on the
 Readium Swift toolkit (pinned to 3.11.0). Features: Files/share-sheet import,
-library grid, EPUB navigator with themes/fonts, PDF navigator, read-aloud via
-Apple's speech synthesizer that keeps playing with the screen locked.
+library grid with search/sort, EPUB navigator with themes/fonts, PDF
+navigator, in-book search, bookmarks and text highlights (Readium
+decorations + a custom EditingAction), read-aloud via Apple's speech
+synthesizer (voice/rate, sleep timer, lock-screen controls), an AVPlayer
+audiobook player for multi-track m4b/mp3/etc, metadata editing with online
+lookup, and zip backup export/restore compatible with the PWA's backup
+layout (`data.json` + `files/` + `covers/`; iOS books carry
+`platform: "ios"`, web records are mapped on restore).
 
 - There is no Mac on this machine — builds run on GitHub Actions macOS runners.
   `.github/workflows/ios.yml` installs XcodeGen, generates the project from
