@@ -1,6 +1,5 @@
 import Foundation
-import UIKit
-import ZIPFoundation
+import ReadiumZIPFoundation
 
 /// Export/restore the library as a single zip — same container layout as the
 /// PWA (`data.json` + `files/` + `covers/`), so a backup is portable. iOS
@@ -62,7 +61,7 @@ final class BackupStore {
         return try await Task.detached(priority: .userInitiated) {
             let fm = FileManager.default
             try? fm.removeItem(at: dest)
-            let archive = try Archive(url: dest, accessMode: .create)
+            let archive = try await Archive(url: dest, accessMode: .create)
 
             var fileMeta: [String: [String: Any]] = [:]
             var entries: [(name: String, url: URL)] = []
@@ -85,13 +84,13 @@ final class BackupStore {
                 "fileMeta": fileMeta,
             ]
             let indexData = try JSONSerialization.data(withJSONObject: index, options: .prettyPrinted)
-            try archive.addEntry(
+            try await archive.addEntry(
                 with: "data.json", type: .file,
                 uncompressedSize: Int64(indexData.count),
                 provider: { _, _ in indexData }
             )
             for (name, url) in entries + coverEntries {
-                try archive.addEntry(with: name, fileURL: url, compressionMethod: .none)
+                try await archive.addEntry(with: name, fileURL: url, compressionMethod: .none)
             }
             return dest
         }.value
@@ -112,7 +111,7 @@ final class BackupStore {
         // stage the archive off the main thread — failures can't orphan
         // copies because nothing lands in Books/ until a record maps cleanly
         let staged = try await Task.detached(priority: .userInitiated) {
-            try self.stage(url, into: tmp)
+            try await self.stage(url, into: tmp)
         }.value
 
         var restored = 0
@@ -141,14 +140,14 @@ final class BackupStore {
 
     /// Reads `data.json` and extracts every `files/`/`covers/` payload into
     /// `tmp`. Throws before touching anything if the archive isn't ours.
-    private nonisolated func stage(_ url: URL, into tmp: URL) throws -> Staged {
+    private nonisolated func stage(_ url: URL, into tmp: URL) async throws -> Staged {
         let fm = FileManager.default
-        guard let archive = try? Archive(url: url, accessMode: .read) else {
+        guard let archive = try? await Archive(url: url, accessMode: .read) else {
             throw BackupError.notAZip
         }
-        guard let indexEntry = archive["data.json"] else { throw BackupError.missingIndex }
+        guard let indexEntry = try? await archive.get("data.json") else { throw BackupError.missingIndex }
         var indexData = Data()
-        _ = try archive.extract(indexEntry, bufferSize: 64 * 1024) { indexData.append($0) }
+        _ = try await archive.extract(indexEntry, bufferSize: 64 * 1024) { indexData.append($0) }
         guard let index = try? JSONSerialization.jsonObject(with: indexData) as? [String: Any]
         else { throw BackupError.missingIndex }
         guard (index["app"] as? String) == "pageturner" else { throw BackupError.foreign }
@@ -160,17 +159,20 @@ final class BackupStore {
             fileMeta: index["fileMeta"] as? [String: [String: Any]] ?? [:],
             files: [:], covers: [:]
         )
-        for entry in archive where entry.type == .file {
+        for entry in try await archive.entries() where entry.type == .file {
             if entry.path.hasPrefix("files/") {
                 let name = entry.path.replacingOccurrences(of: "files/", with: "")
                 let decoded = name.removingPercentEncoding ?? name
+                // zip-slip: a crafted "../" entry must not escape the staging dir
+                guard !decoded.isEmpty, !decoded.contains("/"), !decoded.contains("..") else { continue }
                 let out = tmp.appendingPathComponent(decoded)
                 try? fm.removeItem(at: out)
-                if (try? archive.extract(entry, to: out)) != nil { staged.files[decoded] = out }
+                if (try? await archive.extract(entry, to: out)) != nil { staged.files[decoded] = out }
             } else if entry.path.hasPrefix("covers/") {
                 let name = entry.path.replacingOccurrences(of: "covers/", with: "")
+                guard !name.isEmpty, !name.contains("/"), !name.contains("..") else { continue }
                 let out = tmp.appendingPathComponent(name)
-                if (try? archive.extract(entry, to: out)) != nil { staged.covers[name] = out }
+                if (try? await archive.extract(entry, to: out)) != nil { staged.covers[name] = out }
             }
         }
         return staged

@@ -11,9 +11,11 @@ packages:
   Readium:
     url: https://github.com/readium/swift-toolkit.git
     exactVersion: 3.11.0
+  # Readium's own fork (module: ReadiumZIPFoundation) — already in the
+  # dependency graph through swift-toolkit, so the backup code reuses it.
   ZIPFoundation:
-    url: https://github.com/weichsel/ZIPFoundation.git
-    exactVersion: 0.9.20
+    url: https://github.com/readium/ZIPFoundation.git
+    exactVersion: 3.0.1
 targets:
   Pageturner:
     type: application
@@ -30,7 +32,7 @@ targets:
       - package: Readium
         product: ReadiumNavigator
       - package: ZIPFoundation
-        product: ZIPFoundation
+        product: ReadiumZIPFoundation
     info:
       path: Pageturner/Info.plist
       properties:
