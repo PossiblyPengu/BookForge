@@ -72,7 +72,7 @@ struct LibraryView: View {
             }
             .fileImporter(
                 isPresented: $showImporter,
-                allowedContentTypes: [.epub, .pdf],
+                allowedContentTypes: [.epub, .pdf, .audio],
                 allowsMultipleSelection: true
             ) { result in
                 if case let .success(urls) = result {
@@ -89,7 +89,11 @@ struct LibraryView: View {
             }
         }
         .fullScreenCover(item: $openBook) { book in
-            ReaderView(book: book, library: library)
+            if book.isAudio {
+                AudioPlayerView(book: book, library: library)
+            } else {
+                ReaderView(book: book, library: library)
+            }
         }
         .sheet(item: $detailBook) { book in
             BookDetailSheet(book: book, cover: library.cover(for: book)) {
@@ -118,7 +122,7 @@ struct LibraryView: View {
                 .font(.system(size: 52))
                 .foregroundStyle(.secondary)
             Text("No books yet").font(.title3.weight(.semibold))
-            Text("Add EPUB or PDF files from Files, or use “Open in Pageturner” from another app.")
+            Text("Add EPUB, PDF, or audiobook files from Files, or use “Open in Pageturner” from another app.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -214,7 +218,12 @@ private struct BookDetailSheet: View {
                     if let p = book.progression {
                         LabeledContent("Progress", value: "\(Int((p * 100).rounded()))%")
                     }
-                    LabeledContent("Bookmarks", value: "\(book.bookmarks.count)")
+                    if book.isAudio, book.fileNames.count > 1 {
+                        LabeledContent("Tracks", value: "\(book.fileNames.count)")
+                    }
+                    if !book.isAudio {
+                        LabeledContent("Bookmarks", value: "\(book.bookmarks.count)")
+                    }
                 }
                 Section {
                     Button("Open Book", action: onOpen)

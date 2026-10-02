@@ -188,7 +188,7 @@ final class ReaderModel: ObservableObject {
                 var found: [Locator] = []
                 // LocatorCollections stream in pages; cap so a common word in a
                 // huge book doesn't produce an unbounded list.
-                while let page = try? await iterator.next().get(), let page {
+                while let page = try? await iterator.next().get() {
                     if Task.isCancelled { return }
                     found.append(contentsOf: page.locators)
                     if found.count >= 200 { break }

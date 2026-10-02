@@ -60,6 +60,11 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - com.adobe.pdf
+          - CFBundleTypeName: Audiobook
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.audio
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.possiblypengu.pageturner
