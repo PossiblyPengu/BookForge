@@ -1,7 +1,7 @@
 {
   "name": "pageturner",
   "version": "2.7.0",
-  "build": 43,
+  "build": 44,
   "description": "Pageturner — offline-first PWA ebook reader and audiobook player with read-aloud TTS",
   "directories": {
     "doc": "docs"
@@ -21,7 +21,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PossiblyPengu/META-GRABBER.git"
+    "url": "git+https://github.com/PossiblyPengu/BookForge.git"
   },
   "keywords": [
     "ebook",
@@ -34,7 +34,7 @@
   "author": "",
   "license": "UNLICENSED",
   "bugs": {
-    "url": "https://github.com/PossiblyPengu/META-GRABBER/issues"
+    "url": "https://github.com/PossiblyPengu/BookForge/issues"
   },
   "homepage": "https://pageturner.pages.dev",
   "dependencies": {
