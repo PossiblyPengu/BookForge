@@ -87,11 +87,6 @@ extension Book {
     }
 }
 
-extension Book {
-    /// Older library.json files predate `bookmarks` — decode leniently so the
-    /// catalogue keeps loading instead of throwing on the missing key.
-}
-
 /// The library: book files in Documents/Books (visible in the Files app),
 /// covers and the catalogue in Application Support.
 @MainActor
@@ -263,6 +258,12 @@ final class LibraryStore: ObservableObject {
         for url in fileURLs(for: book) { try? fm.removeItem(at: url) }
         try? fm.removeItem(at: coverURL(for: book))
         books.removeAll { $0.id == book.id }
+        save()
+    }
+
+    /// Inserts a book brought back by backup restore (files already copied).
+    func addRestored(_ book: Book) {
+        books.insert(book, at: 0)
         save()
     }
 

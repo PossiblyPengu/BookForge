@@ -11,6 +11,9 @@ packages:
   Readium:
     url: https://github.com/readium/swift-toolkit.git
     exactVersion: 3.11.0
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    exactVersion: 0.9.20
 targets:
   Pageturner:
     type: application
@@ -26,6 +29,8 @@ targets:
         product: ReadiumStreamer
       - package: Readium
         product: ReadiumNavigator
+      - package: ZIPFoundation
+        product: ZIPFoundation
     info:
       path: Pageturner/Info.plist
       properties:

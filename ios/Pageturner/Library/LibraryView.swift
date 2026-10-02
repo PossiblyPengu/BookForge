@@ -4,6 +4,9 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
     @EnvironmentObject private var library: LibraryStore
     @State private var showImporter = false
+    @State private var showBackupImporter = false
+    @State private var shareItem: ShareItem?
+    @State private var backupMessage: String?
     @State private var openBook: Book?
     @State private var detailBook: Book?
     @State private var editBook: Book?
@@ -63,6 +66,19 @@ struct LibraryView: View {
                     .accessibilityLabel("Sort books")
                 }
                 ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button { exportBackup() } label: {
+                            Label("Export Library Backup", systemImage: "square.and.arrow.up")
+                        }
+                        Button { showBackupImporter = true } label: {
+                            Label("Restore Backup…", systemImage: "square.and.arrow.down")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("Backup options")
+                }
+                ToolbarItem(placement: .primaryAction) {
                     Button { showImporter = true } label: {
                         if library.importing { ProgressView() } else { Image(systemName: "plus") }
                     }
@@ -78,6 +94,23 @@ struct LibraryView: View {
                 if case let .success(urls) = result {
                     Task { await library.importFiles(urls) }
                 }
+            }
+            .fileImporter(
+                isPresented: $showBackupImporter,
+                allowedContentTypes: [.zip]
+            ) { result in
+                if case let .success(urls) = result, let url = urls.first {
+                    restoreBackup(url)
+                }
+            }
+            .sheet(item: $shareItem) { ShareSheet(items: [$0.url]) }
+            .alert("Backup", isPresented: Binding(
+                get: { backupMessage != nil },
+                set: { if !$0 { backupMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(backupMessage ?? "")
             }
             .alert("Import problem", isPresented: Binding(
                 get: { library.lastError != nil },
@@ -134,6 +167,46 @@ struct LibraryView: View {
             .padding(.top, 6)
         }
     }
+
+    private func exportBackup() {
+        backupMessage = nil
+        Task {
+            do {
+                let url = try await BackupStore(library: library).exportBackup()
+                shareItem = ShareItem(url: url)
+            } catch {
+                backupMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func restoreBackup(_ url: URL) {
+        backupMessage = nil
+        Task {
+            do {
+                let r = try await BackupStore(library: library).importBackup(url)
+                backupMessage = "Restored \(r.restored) book\(r.restored == 1 ? "" : "s")"
+                    + (r.skipped > 0 ? " · skipped \(r.skipped)" : "")
+            } catch {
+                backupMessage = error.localizedDescription
+            }
+        }
+    }
+}
+
+/// Wraps a URL so `.sheet(item:)` can present the share sheet.
+private struct ShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+/// `UIActivityViewController` for handing the backup zip to Files/AirDrop/etc.
+private struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
 
 private struct BookCell: View {
