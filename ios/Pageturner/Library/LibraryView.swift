@@ -37,7 +37,7 @@ struct LibraryView: View {
                     isPresented: $showBackupImporter,
                     allowedContentTypes: [.zip]
                 ) { result in
-                    if case let .success(urls) = result, let url = urls.first {
+                    if case let .success(url) = result {
                         restoreBackup(url)
                     }
                 }
