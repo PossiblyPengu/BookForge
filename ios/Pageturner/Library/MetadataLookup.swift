@@ -18,7 +18,9 @@ enum MetadataLookup {
     static func search(title: String, author: String) async -> [MetadataCandidate] {
         async let gb = googleBooks(title: title, author: author)
         async let ol = openLibrary(title: title, author: author)
-        return dedupe(await gb + await ol)
+        let g = await gb
+        let o = await ol
+        return dedupe(g + o)
     }
 
     private static func dedupe(_ candidates: [MetadataCandidate]) -> [MetadataCandidate] {
