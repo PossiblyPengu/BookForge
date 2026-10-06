@@ -36,6 +36,7 @@ const FOLIATE_KIND = "ebook";
 const readerSettings = {
   theme: "dark", flow: "paginated", fontSize: 100,
   font: "original", spacing: "normal", margin: "normal", align: "justify",
+  brightness: 1, tapTurn: "on",
 };
 const readerSettingsKey = "reader-settings";
 let settingsLoaded = false;
@@ -117,7 +118,11 @@ const applyStyles = () => {
   appThemeColor ??= themeMeta()?.getAttribute("content");
   themeMeta()?.setAttribute("content", t.bg); // iOS status bar matches the page
   $("font-size-val").textContent = s.fontSize + "%";
+  $("reader-dim").style.opacity = String(1 - (s.brightness ?? 1));
+  $("reader-brightness").value = Math.round((s.brightness ?? 1) * 100);
   if (view?.renderer) {
+    // the paginator animates page turns only while it carries this attribute
+    view.renderer.toggleAttribute("animated", !reducedMotion());
     view.renderer.setStyles?.(bookCss());
     view.renderer.setAttribute("flow", s.flow);
     view.renderer.setAttribute("gap", PAGE_GAP[s.margin] || PAGE_GAP.normal);
@@ -301,6 +306,7 @@ const openFoliate = async (book, file) => {
     markFlowText(doc);
     doc.addEventListener("click", (ev) => zoneTap(ev, doc));
     doc.addEventListener("keydown", readerKey);
+    wirePinch(doc);
     wireSelection(doc, index);
     // re-apply saved highlights whenever a section (re)loads
     for (const h of activeBook?.highlights || []) view.addAnnotation(h).catch(() => {});
@@ -487,17 +493,18 @@ const quoteOf = (text) => {
   return by ? `${text}\n\n— ${by}` : text;
 };
 
-// Touch screens turn pages by swiping (the paginator's own drag-and-snap);
-// a tap only shows or hides the controls. A mouse has no swipe, so there
-// the outer quarters of the page still turn it.
+// Touch screens turn pages by swiping (the paginator's own drag-and-snap)
+// and, when tapTurn is on, by tapping the outer quarters like a mouse does.
+// A tap anywhere else only shows or hides the controls.
 const touchScreen = () => globalThis.matchMedia?.("(pointer: coarse)").matches ?? false;
+const reducedMotion = () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 const zoneTap = (ev, doc) => {
   if (ev.target.closest?.("a")) return;
   const sel = doc.getSelection?.();
   if (sel && !sel.isCollapsed && sel.toString().trim()) return; // text selection in progress
   killChip();
-  if (!touchScreen() && view) {
+  if (view && readerSettings.flow === "paginated" && (!touchScreen() || readerSettings.tapTurn === "on")) {
     // clientX is relative to the section's iframe, which lays every page of
     // the chapter side by side (thousands of px wide). Measuring against its
     // innerWidth put nearly every tap in the wrong zone — a tap meant to
@@ -523,7 +530,34 @@ const turn = (dir) => {
   else if (activeRenderer?.turn) activeRenderer.turn(dir);
 };
 
-const toggleChrome = () => $("view-reader").classList.toggle("chrome-hidden");
+let chromeTimer = null;
+const toggleChrome = () => {
+  clearTimeout(chromeTimer);
+  $("view-reader").classList.toggle("chrome-hidden");
+};
+
+// Two-finger pinch steps the text size like the A−/A+ buttons. Foliate
+// sections are iframes, so this is wired per document as each loads.
+const wirePinch = (target, when = () => true) => {
+  let base = null;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  target.addEventListener("touchstart", (e) => { if (e.touches.length === 2 && when()) base = dist(e.touches); }, { passive: true });
+  target.addEventListener("touchmove", (e) => {
+    if (e.touches.length !== 2 || base == null) return;
+    e.preventDefault();
+    const r = dist(e.touches) / base;
+    if (r > 1.18) { stepFontSize(10); base = dist(e.touches); }
+    else if (r < 0.85) { stepFontSize(-10); base = dist(e.touches); }
+  }, { passive: false });
+  target.addEventListener("touchend", (e) => { if (e.touches.length < 2) base = null; });
+};
+
+let wakeLock = null;
+const keepAwake = async () => {
+  if (!activeBook || document.visibilityState !== "visible" || !navigator.wakeLock) return;
+  try { wakeLock = await navigator.wakeLock.request("screen"); } catch { /* denied / low battery */ }
+};
+const releaseAwake = () => { wakeLock?.release().catch(() => {}); wakeLock = null; };
 
 // ---------- keyboard ----------
 // Foliate renders each section in its own iframe and doesn't forward key
@@ -586,7 +620,8 @@ export const openReader = async (book, hooks = {}) => {
   $("reader-title").textContent = book.title;
   applyStyles(); // theme the chrome before the book appears
   $("view-reader").hidden = false;
-  $("view-reader").classList.remove("chrome-hidden");
+  // a reopen inside the close animation must win over it
+  $("view-reader").classList.remove("closing", "chrome-hidden");
   updateProgressUI(book.progress?.fraction || 0, "");
   $("tts-bar").hidden = true;
 
@@ -610,6 +645,14 @@ export const openReader = async (book, hooks = {}) => {
     stage.style.opacity = "";
     applyStyles();
     syncBookmarkBtn();
+    keepAwake();
+    // settle into the book: hide the bars once it's on screen, unless a
+    // sheet or the read-aloud bar is in the way
+    clearTimeout(chromeTimer);
+    chromeTimer = setTimeout(() => {
+      if (activeBook === book && !isSheetOpen() && $("tts-bar").hidden)
+        $("view-reader").classList.add("chrome-hidden");
+    }, 2500);
   } catch (err) {
     console.error(err);
     toast(err.message || "Couldn't open book", { error: true });
@@ -629,8 +672,14 @@ export const closeReader = async () => {
   activeRenderer = null;
   activeBook = null;
   view = null;
+  clearTimeout(chromeTimer);
+  releaseAwake();
   $("reader-stage").textContent = "";
-  $("view-reader").hidden = true;
+  const readerEl = $("view-reader");
+  readerEl.classList.add("closing");
+  await new Promise((r) => setTimeout(r, 200));
+  readerEl.hidden = true;
+  readerEl.classList.remove("closing");
   clearReaderTheme();
   const cb = onClose;
   onClose = () => {};
@@ -1001,8 +1050,17 @@ const initAppearance = () => {
   seg("reader-margin-seg", "margin");
   seg("reader-align-seg", "align");
   seg("reader-flow-seg", "flow");
+  seg("reader-tapturn-seg", "tapTurn");
   $("font-minus").addEventListener("click", () => stepFontSize(-10));
   $("font-plus").addEventListener("click", () => stepFontSize(10));
+  const dim = $("reader-brightness");
+  // applied straight to the overlay — applyStyles() would restyle every
+  // section on each slider tick
+  dim.addEventListener("input", () => {
+    readerSettings.brightness = +dim.value / 100;
+    $("reader-dim").style.opacity = String(1 - readerSettings.brightness);
+  });
+  dim.addEventListener("change", () => saveReaderSettings());
   for (const b of $("contents-tabs").querySelectorAll("button"))
     b.addEventListener("click", () => {
       contentsTab = b.dataset.val;
@@ -1045,6 +1103,12 @@ export const initReader = async () => {
   // sitting in a 1.2s debounce
   onPageHidden(() => saveProgress.flush());
   document.addEventListener("keydown", readerKey);
+  // iOS drops the wake lock when the page backgrounds — ask again on return
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") keepAwake();
+  });
+  // pinch resizes text on the text reader too; PDFs pan/zoom their own way
+  wirePinch($("reader-stage"), () => activeBook?.kind !== "pdf");
   $("reader-close").addEventListener("click", closeReader);
   $("reader-back").addEventListener("click", () => {
     const to = jumpBack;

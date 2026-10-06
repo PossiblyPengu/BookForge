@@ -1024,6 +1024,22 @@ input, textarea { font: inherit; color: inherit; }
   --separator: rgba(207, 203, 194, 0.1); --bar-bg: rgba(0, 0, 0, 0.9);
 }
 #view-reader { background: var(--bg); color: var(--text); }
+/* display:none→block restarts reader-in on every open; .closing plays the
+   reverse before closeReader flips hidden */
+#view-reader { animation: reader-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+#view-reader.closing { animation: reader-out 0.2s ease-in forwards; pointer-events: none; }
+@keyframes reader-in { from { opacity: 0; transform: scale(0.96); } }
+@keyframes reader-out { to { opacity: 0; transform: scale(0.96); } }
+.reader-stage { transition: opacity 0.3s ease; }
+.reader-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
 /* the sheets sit outside #view-reader, so they inherit the app's text colour
    and its light-mode segmented style unless told otherwise */
 :root[data-reader-theme] :is(.sheet, .sel-chip) { color: var(--text); }
@@ -1314,6 +1330,14 @@ input, textarea { font: inherit; color: inherit; }
   border-right: 0.5px solid var(--separator);
 }
 
+.ap-brightness {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 4px 14px;
+  color: var(--text-2);
+}
+.ap-brightness input { flex: 1; }
 .ap-themes, .ap-fonts {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -1773,5 +1797,6 @@ input, textarea { font: inherit; color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation-duration: 0.01s !important; }
+  #view-reader, #view-reader.closing { animation: none; }
 }
 .seg button[hidden] { display: none; }
