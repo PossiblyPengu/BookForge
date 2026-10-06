@@ -36,16 +36,23 @@ const asBlock = (v) => (typeof v === "string" ? { text: v } : v);
 // keepalive must be truly silent samples.
 const keepalive = {
   el: null,
+  want: false, // should be looping — anything else pausing it gets undone
   start() {
     if (!this.el) {
       this.el = new Audio();
       this.el.loop = true;
       this.el.preload = "auto";
+      // Locking the phone can pause it; if that sticks, the next sentence
+      // has no session to start in. Pick it back up.
+      this.el.addEventListener("pause", () => {
+        if (this.want) setTimeout(() => this.want && this.el.play().catch(() => {}), 500);
+      });
     }
-    this.el.src = silentWavUrl();
+    this.want = true;
+    if (!this.el.src) this.el.src = silentWavUrl();
     this.el.play().catch(() => {});
   },
-  stop() { try { this.el?.pause(); } catch { /* noop */ } },
+  stop() { this.want = false; try { this.el?.pause(); } catch { /* noop */ } },
 };
 
 // One persistent <audio> element for every generated clip. It's unlocked
@@ -178,7 +185,7 @@ export const ttsController = {
       Object.assign(this, {
         _session: session, _src: src, _ahead: [], _history: [], _cur: null,
         _resumeAt: null, _pausedClip: null, _moved: false,
-        _fails: 0, _empty: 0, _spoke: 0, _origin: r.bookmark?.() ?? null,
+        _fails: 0, _bgFails: 0, _empty: 0, _spoke: 0, _origin: r.bookmark?.() ?? null,
         eng: currentEngine(),
       });
       this._setPlaying(true);
@@ -343,7 +350,7 @@ export const ttsController = {
       this._stopWordSync();
       if (ok) {
         s.done = true;
-        this._fails = 0;
+        this._fails = this._bgFails = 0;
         this._cur = null;
         if (this.eng.kind === "speech") unmarkVoiceBroken(settings.voiceURI);
         return this._next(session);
@@ -352,6 +359,21 @@ export const ttsController = {
       // sentence, and if the engine keeps refusing, pause right here so the
       // next tap on play (a user gesture iOS will honour) picks it up.
       s.audio = null;
+      // Refused with the screen off / app in the background: locking the
+      // phone in the gap between two sentences parks the audio session, and
+      // the speak() that follows is dropped. The voice isn't dead and no
+      // tap can come while the screen is dark — so hold the session with
+      // the keepalive and keep knocking, for a while, instead of giving up.
+      if (globalThis.document?.visibilityState === "hidden") {
+        if (++this._bgFails > 200) { this._bgFails = 0; this.pause(); return; }
+        keepalive.start();
+        setTimeout(() => {
+          if (this._cur !== s || !this.playing || this._session !== session) return;
+          this._cur = null;
+          this._voice(s, session);
+        }, 1500);
+        return;
+      }
       if (++this._fails >= 3) {
         this._fails = 0;
         // A picked voice that refuses every sentence is dead on this
