@@ -5,7 +5,7 @@
 
 import {
   $, toast, openSheet, closeSheet, listSheet, dropCoverUrl, fmtBytes, fmtLength,
-  fmtDuration, coverFor, fillCover, shrinkCover, sleep,
+  fmtDuration, coverFor, coverUrl, fillCover, shrinkCover, sleep,
 } from "./util.js";
 import { allBooks, getBook, putBook, deleteBook, kvGet, kvSet } from "./db.js";
 import { importFiles } from "./importer.js";
@@ -17,6 +17,8 @@ export const initLibrary = async (openBook) => {
   onOpenBook = openBook;
   sortMode = (await kvGet("library-sort")) || "recent";
   filterMode = (await kvGet("library-filter")) || "all";
+  collections = await kvGet("collections", []);
+  collectionFilter = (await kvGet("library-collection")) || "all";
   for (const b of $("library-filter").querySelectorAll("button")) {
     b.addEventListener("click", async () => {
       filterMode = b.dataset.val;
@@ -34,6 +36,8 @@ let books = [];
 let query = "";
 let sortMode = "recent";
 let filterMode = "all"; // "all" | "books" | "audio"
+let collections = []; // shelf names, ordered
+let collectionFilter = "all"; // "all" or a shelf name
 
 // selection mode: ids ticked for a bulk action
 let selecting = false;
@@ -60,6 +64,8 @@ const mixedLibrary = () =>
 const applyView = () => {
   let list = books;
   if (mixedLibrary()) list = list.filter(FILTERS[filterMode] || FILTERS.all);
+  if (collectionFilter !== "all")
+    list = list.filter((b) => b.collections?.includes(collectionFilter));
   const q = query.trim().toLowerCase();
   if (q) list = list.filter((b) =>
     `${b.title || ""} ${b.author || ""}`.toLowerCase().includes(q));
@@ -234,6 +240,201 @@ const renderRecent = () => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Collections — named shelves a book can live on, filtered by chips
+// ---------------------------------------------------------------------------
+
+const renderChips = () => {
+  const wrap = $("coll-chips");
+  wrap.textContent = "";
+  wrap.hidden = !collections.length || selecting;
+  if (wrap.hidden) return;
+  for (const name of ["all", ...collections]) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "coll-chip" + (collectionFilter === name ? " active" : "");
+    chip.textContent = name === "all" ? "All" : name;
+    chip.addEventListener("click", async () => {
+      collectionFilter = name;
+      await kvSet("library-collection", name);
+      renderGrid();
+    });
+    wrap.appendChild(chip);
+  }
+};
+
+/**
+ * The shelves sheet, shared by the book-detail action and bulk select.
+ * `ids` is the set of books being shelved; a row shows a check when every
+ * target is already on it, and toggling adds to — or removes from — all.
+ */
+let collTargets = [];
+const renderCollSheet = () => {
+  const list = $("coll-list");
+  list.textContent = "";
+  if (!collections.length) {
+    const empty = document.createElement("p");
+    empty.className = "sheet-note";
+    empty.textContent = "No shelves yet — make one below.";
+    list.appendChild(empty);
+  }
+  for (const name of collections) {
+    const members = books.filter((b) => b.collections?.includes(name));
+    const allIn = collTargets.every((id) =>
+      books.find((b) => b.id === id)?.collections?.includes(name));
+    const row = document.createElement("div");
+    row.className = `list-row coll-row${allIn ? " coll-row-on" : ""}`;
+    const main = document.createElement("button");
+    main.type = "button";
+    main.className = "coll-main";
+    const label = document.createElement("span");
+    label.className = "row-label";
+    const check = document.createElement("span");
+    check.className = "coll-check";
+    check.textContent = "✓";
+    label.append(check, name);
+    const count = document.createElement("span");
+    count.className = "coll-count";
+    count.textContent = `${members.length}`;
+    main.append(label, count);
+    main.addEventListener("click", async () => {
+      const nowAll = collTargets.every((id) =>
+        books.find((b) => b.id === id)?.collections?.includes(name));
+      for (const id of collTargets) {
+        const b = books.find((x) => x.id === id);
+        if (!b) continue;
+        const set = new Set(b.collections || []);
+        if (nowAll) set.delete(name); else set.add(name);
+        b.collections = [...set];
+        await putBook(b);
+        if (detailBook?.id === id) detailBook = b;
+      }
+      await refreshLibrary();
+      renderCollSheet();
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "coll-del";
+    del.setAttribute("aria-label", `Remove shelf ${name}`);
+    del.textContent = "×";
+    del.addEventListener("click", () => {
+      listSheet(`Remove “${name}”?`, [{
+        title: "Remove shelf", sub: "Books stay in your library", value: "rm",
+      }], async () => {
+        collections = collections.filter((c) => c !== name);
+        if (collectionFilter === name) collectionFilter = "all";
+        await kvSet("collections", collections);
+        await kvSet("library-collection", collectionFilter);
+        for (const b of books.filter((x) => x.collections?.includes(name))) {
+          b.collections = b.collections.filter((c) => c !== name);
+          await putBook(b);
+        }
+        await refreshLibrary();
+        openCollections(collTargets);
+      });
+    });
+    row.append(main, del);
+    list.appendChild(row);
+  }
+};
+
+export const openCollections = (ids) => {
+  collTargets = ids;
+  $("coll-new-name").value = "";
+  renderCollSheet();
+  openSheet("sheet-collections");
+};
+
+const initCollections = () => {
+  const add = async () => {
+    const name = $("coll-new-name").value.trim();
+    if (!name) return;
+    if (!collections.includes(name)) {
+      collections.push(name);
+      await kvSet("collections", collections);
+    }
+    for (const id of collTargets) {
+      const b = books.find((x) => x.id === id);
+      if (!b) continue;
+      b.collections = [...new Set([...(b.collections || []), name])];
+      await putBook(b);
+    }
+    $("coll-new-name").value = "";
+    await refreshLibrary();
+    renderCollSheet();
+  };
+  $("coll-new-add").addEventListener("click", add);
+  $("coll-new-name").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") add();
+  });
+  $("detail-coll-btn").addEventListener("click", () =>
+    detailBook && openCollections([detailBook.id]));
+};
+
+// ---------------------------------------------------------------------------
+// Series — books from one series collapse into a stacked card
+// ---------------------------------------------------------------------------
+
+/**
+ * Fold runs of the same series into a single { series, members } entry,
+ * sitting where its first member sorted. Singles pass through untouched, and
+ * searching/selecting keeps books flat — you need the individual titles then.
+ */
+const groupSeries = (list) => {
+  if (query.trim() || selecting) return list;
+  const groups = new Map();
+  const out = [];
+  for (const b of list) {
+    const s = detectSeries(b.title || "");
+    const key = s?.series?.toLowerCase();
+    if (!key) { out.push(b); continue; }
+    let g = groups.get(key);
+    if (!g) { g = { series: s.series, author: b.author, members: [] }; groups.set(key, g); out.push(g); }
+    g.members.push(b);
+  }
+  return out.flatMap((x) =>
+    x.members ? (x.members.length > 1 ? [x] : x.members) : [x]);
+};
+
+const seriesCard = (group) => {
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "book-card series-card";
+  const cover = document.createElement("div");
+  cover.className = "book-cover";
+  cover.appendChild(coverFor(group.members[0], { lazy: true }));
+  const pill = document.createElement("span");
+  pill.className = "book-pill";
+  pill.textContent = `${group.members.length} books`;
+  cover.appendChild(pill);
+  card.appendChild(cover);
+  const t = document.createElement("div");
+  t.className = "book-card-title";
+  t.textContent = group.series;
+  card.appendChild(t);
+  const a = document.createElement("div");
+  a.className = "book-card-author";
+  a.textContent = group.author || "";
+  card.appendChild(a);
+  card.addEventListener("click", () => {
+    const ordered = [...group.members].sort((a2, b2) => {
+      const an = detectSeries(a2.title || "")?.bookNum ?? Infinity;
+      const bn = detectSeries(b2.title || "")?.bookNum ?? Infinity;
+      return an - bn;
+    });
+    listSheet(group.series, ordered.map((b) => ({
+      title: b.title,
+      sub: [
+        detectSeries(b.title || "")?.bookNum ? `Book ${detectSeries(b.title).bookNum}` : null,
+        `${Math.round((b.progress?.fraction || 0) * 100)}%`,
+      ].filter(Boolean).join(" · "),
+      thumb: coverUrl(b),
+      value: b.id,
+    })), (id) => openDetail(id));
+  });
+  return card;
+};
+
 const renderGrid = () => {
   const grid = $("library-grid");
   const empty = $("library-empty");
@@ -241,6 +442,7 @@ const renderGrid = () => {
   empty.hidden = books.length > 0;
   renderContinue();
   renderRecent();
+  renderChips();
   grid.classList.toggle("selecting", selecting);
 
   const view = applyView();
@@ -268,7 +470,9 @@ const renderGrid = () => {
     grid.appendChild(none);
   }
 
-  for (const book of view) {
+  for (const item of groupSeries(view)) {
+    if (item.members) { grid.appendChild(seriesCard(item)); continue; }
+    const book = item;
     const card = document.createElement("button");
     card.type = "button";
     card.className = "book-card" + (selected.has(book.id) ? " selected" : "");
@@ -448,6 +652,9 @@ export const initSelect = () => {
   $("select-done").addEventListener("click", () => setSelecting(false));
   $("select-delete").addEventListener("click", bulkDelete);
   $("select-meta").addEventListener("click", bulkMetadata);
+  $("select-coll").addEventListener("click", () => {
+    if (selected.size) openCollections([...selected]);
+  });
   $("select-all").addEventListener("click", () => {
     const all = visibleIds();
     if (all.every((id) => selected.has(id))) selected.clear();
@@ -743,6 +950,7 @@ export const initDetail = () => {
   $("detail-meta-btn").addEventListener("click", runMetaSearch);
   $("detail-edit-btn").addEventListener("click", runMetaEdit);
   $("detail-delete-btn").addEventListener("click", runDelete);
+  initCollections();
 };
 
 export const wireImportUI = () => {

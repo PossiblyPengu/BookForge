@@ -15,6 +15,7 @@ import {
 import { initReader, openReader } from "./reader.js";
 import { initPlayer, openPlayer, playerState, reopenPlayer, closePlayer } from "./player.js";
 import { ttsController } from "./tts.js";
+import { initStats } from "./stats.js";
 import {
   pickVoice, voiceLabel, previewVoice, stopPreview, savedVoices, openSavedVoices, watchSavedVoices,
 } from "./tts-voices.js";
@@ -633,6 +634,7 @@ const boot = async () => {
   // a BookMaster pair redirect lands back here with ?bm-link=<code> —
   // redeem it before settings init reads the link state for its row
   await step("bookmaster link", finishBookmasterLink);
+  await step("stats", initStats);
   await step("settings", initSettings);
   await step("help", initHelp);
   await step("keyboard", initKeyboard);

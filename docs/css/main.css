@@ -401,6 +401,137 @@ input, textarea { font: inherit; color: inherit; }
   box-shadow: var(--shadow-lift);
 }
 
+/* ---------- Collection chips ---------- */
+.coll-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 20px 10px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.coll-chips::-webkit-scrollbar { display: none; }
+.coll-chip {
+  flex: none;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  border: 0.5px solid transparent;
+}
+.coll-chip.active {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-raised));
+  color: var(--accent-ink);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.coll-new { display: flex; gap: 8px; margin-top: 12px; }
+.coll-new input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: var(--fill);
+  color: var(--text);
+  font-size: 15px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.coll-row { padding: 0; display: flex; align-items: stretch; }
+.coll-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 4px 13px 16px;
+  text-align: left;
+}
+.coll-main:active { opacity: 0.6; }
+.coll-del {
+  padding: 0 14px 0 6px;
+  color: var(--text-3);
+  font-size: 19px;
+  line-height: 1;
+}
+.coll-del:active { color: var(--danger); }
+.coll-check { width: 16px; color: var(--accent); font-weight: 700; visibility: hidden; }
+.coll-row-on .coll-check { visibility: visible; }
+.coll-count { margin-left: auto; color: var(--text-3); font-size: 13px; }
+
+/* ---------- Series stacks ---------- */
+/* offset "copies" behind the first cover read as a pile of books */
+.series-card .book-cover {
+  box-shadow: var(--shadow-card),
+    4px -4px 0 -1px var(--bg-raised),
+    8px -8px 0 -2px var(--fill-strong);
+  margin-right: 8px;
+}
+.series-card { margin-bottom: 8px; }
+
+/* ---------- Stats sheet ---------- */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.stat-tile {
+  background: var(--bg-raised);
+  border: 0.5px solid var(--separator);
+  border-radius: 14px;
+  padding: 12px 10px 10px;
+  text-align: center;
+}
+.stat-num {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+[data-theme="dark"] .stat-num, :root:not([data-theme]) .stat-num { color: var(--accent); }
+.stat-label { font-size: 11px; color: var(--text-3); font-weight: 500; }
+.stats-chart {
+  margin-top: 16px;
+  background: var(--bg-raised);
+  border: 0.5px solid var(--separator);
+  border-radius: 14px;
+  padding: 14px 12px 10px;
+}
+.stats-bars { display: flex; align-items: flex-end; gap: 6px; height: 72px; }
+.stats-bar { flex: 1; display: flex; align-items: flex-end; }
+.stats-bar i {
+  display: block;
+  width: 100%;
+  min-height: 3px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #f6ad4f, var(--accent-2));
+}
+.stats-bar.stats-today i { box-shadow: 0 0 10px rgba(240, 160, 64, 0.4); }
+.stats-days { display: flex; gap: 6px; margin-top: 6px; }
+.stats-days span { flex: 1; text-align: center; font-size: 10px; color: var(--text-3); }
+.stats-note { margin: 12px 2px 0; font-size: 12px; color: var(--text-3); }
+
+/* ---------- Define sheet ---------- */
+.define-word {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+}
+.define-phon { margin: 2px 0 14px; color: var(--text-3); font-size: 14px; }
+.define-list { display: flex; flex-direction: column; gap: 12px; }
+.define-item .define-pos {
+  font-family: var(--font-display);
+  font-style: italic;
+  color: var(--accent-ink);
+  font-size: 14px;
+}
+.define-item .define-text { font-size: 15px; line-height: 1.45; margin-top: 2px; }
+.define-item .define-ex { font-size: 13px; color: var(--text-3); margin-top: 3px; font-style: italic; }
+
 /* ---------- Horizontal shelves ---------- */
 .shelf { margin: 2px 0 6px; }
 .shelf-head {
@@ -1179,8 +1310,8 @@ input, textarea { font: inherit; color: inherit; }
 
 .book-actions {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
   padding-top: 4px;
 }
 .book-action {

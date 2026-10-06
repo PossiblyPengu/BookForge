@@ -13,6 +13,7 @@ import {
 import { getFile, putBook, kvGet, kvSet } from "./db.js";
 import { registerAudioOwner, claimAudio } from "./audio-focus.js";
 import { syncProgress, syncSession } from "./bookmaster.js";
+import { recordSession } from "./stats.js";
 
 const audio = new Audio();
 audio.preload = "auto";
@@ -76,12 +77,14 @@ const endBookmasterSession = () => {
   bmSessionStart = null;
   const fraction = currentFraction();
   if ((fraction - start.fraction) * 100 < 0.5) return;
-  syncSession(b, {
+  const session = {
     percentStart: start.fraction * 100,
     percentEnd: fraction * 100,
     minutes: (Date.now() - start.at) / 60000,
     at: Date.now(),
-  });
+  };
+  recordSession(b, session);
+  syncSession(b, session);
 };
 
 const position = () =>

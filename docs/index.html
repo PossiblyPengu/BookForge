@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' blob: data: https://covers.openlibrary.org https://books.google.com https://*.googleapis.com; font-src 'self' blob: data:; connect-src 'self' https://www.googleapis.com https://openlibrary.org https://covers.openlibrary.org https://books.google.com https://huggingface.co https://*.hf.co blob: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' blob:; base-uri 'self'; object-src 'none'; form-action 'self';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' blob: data: https://covers.openlibrary.org https://books.google.com https://*.googleapis.com; font-src 'self' blob: data:; connect-src 'self' https://www.googleapis.com https://openlibrary.org https://covers.openlibrary.org https://books.google.com https://huggingface.co https://*.hf.co https://api.dictionaryapi.dev blob: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' blob:; base-uri 'self'; object-src 'none'; form-action 'self';" />
     <title>Pageturner</title>
     <link rel="stylesheet" href="css/main.css" />
     <link rel="modulepreload" href="js/version.js" />
@@ -11,6 +11,7 @@
     <link rel="modulepreload" href="js/db.js" />
     <link rel="modulepreload" href="js/audio-focus.js" />
     <link rel="modulepreload" href="js/detect.js" />
+    <link rel="modulepreload" href="js/dict.js" />
     <link rel="modulepreload" href="js/book-parser.js" />
     <link rel="modulepreload" href="js/zip.js" />
     <link rel="modulepreload" href="js/tts-engines.js" />
@@ -21,6 +22,7 @@
     <link rel="modulepreload" href="js/reader-pdf.js" />
     <link rel="modulepreload" href="js/tts.js" />
     <link rel="modulepreload" href="js/backup.js" />
+    <link rel="modulepreload" href="js/stats.js" />
     <link rel="modulepreload" href="js/tts-voices.js" />
     <link rel="modulepreload" href="js/importer.js" />
     <link rel="modulepreload" href="js/player.js" />
@@ -109,6 +111,7 @@
           <div class="library-search" id="library-search-wrap">
             <input type="search" id="library-search" placeholder="Search library" autocomplete="off" />
           </div>
+          <div class="coll-chips" id="coll-chips" hidden></div>
           <button type="button" class="continue-card" id="continue-card" hidden>
             <span class="continue-cover" id="continue-cover"></span>
             <span class="continue-meta">
@@ -247,6 +250,10 @@
           <div class="list-group">
             <p class="list-group-label">Library</p>
             <div class="list-card">
+              <button type="button" class="list-row list-row-btn" id="set-stats">
+                <span class="row-label"><span class="row-icon" style="--ic:#ff6482"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></span>Reading stats</span>
+                <span class="list-value list-value-chevron"></span>
+              </button>
               <button type="button" class="list-row list-row-btn" id="backup-export">
                 <span class="row-label"><span class="row-icon" style="--ic:#0a84ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg></span>Back up library</span>
                 <span class="list-value list-value-chevron">.zip</span>
@@ -438,6 +445,7 @@
       <div class="select-bar" id="select-bar" hidden>
         <button type="button" class="select-bar-btn" id="select-all">Select all</button>
         <button type="button" class="select-bar-btn" id="select-meta">Find metadata</button>
+        <button type="button" class="select-bar-btn" id="select-coll">Shelves</button>
         <button type="button" class="select-bar-btn select-bar-danger" id="select-delete">Delete</button>
       </div>
 
@@ -512,11 +520,49 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             <span>Edit</span>
           </button>
+          <button type="button" class="book-action" id="detail-coll-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 17v-8l-8-4-8 4v8l8 4 8-4z"/><path d="M4 9l8 4 8-4"/></svg>
+            <span>Shelves</span>
+          </button>
           <button type="button" class="book-action book-action-danger" id="detail-delete-btn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
             <span>Delete</span>
           </button>
         </div>
+      </div>
+    </div>
+
+    <div class="sheet" id="sheet-collections" hidden role="dialog" aria-modal="true" aria-labelledby="coll-title">
+      <div class="sheet-grabber"></div>
+      <h3 class="sheet-title" id="coll-title">Shelves</h3>
+      <div class="sheet-body">
+        <div class="list-card" id="coll-list"></div>
+        <div class="coll-new">
+          <input type="text" id="coll-new-name" placeholder="New shelf" maxlength="40" autocomplete="off" />
+          <button type="button" class="btn btn-ghost" id="coll-new-add">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sheet" id="sheet-stats" hidden role="dialog" aria-modal="true" aria-labelledby="stats-title">
+      <div class="sheet-grabber"></div>
+      <h3 class="sheet-title" id="stats-title">Reading stats</h3>
+      <div class="sheet-body">
+        <div class="stats-grid" id="stats-grid"></div>
+        <div class="stats-chart">
+          <div class="stats-bars" id="stats-bars"></div>
+          <div class="stats-days" id="stats-days"></div>
+        </div>
+        <p class="stats-note" id="stats-note"></p>
+      </div>
+    </div>
+
+    <div class="sheet" id="sheet-define" hidden role="dialog" aria-modal="true" aria-labelledby="define-word">
+      <div class="sheet-grabber"></div>
+      <div class="sheet-body">
+        <h3 class="define-word" id="define-word"></h3>
+        <p class="define-phon" id="define-phon"></p>
+        <div class="define-list" id="define-list"></div>
       </div>
     </div>
 

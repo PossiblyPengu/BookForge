@@ -25,6 +25,8 @@ import { foliateTts } from "./tts-foliate.js";
 import { ttsController } from "./tts.js";
 import { pickTtsSleep, pickVoice } from "./tts-voices.js";
 import { syncProgress, syncSession } from "./bookmaster.js";
+import { recordSession } from "./stats.js";
+import { definable, define } from "./dict.js";
 
 let view = null;          // <foliate-view> instance (ebook kind)
 let activeBook = null;
@@ -163,12 +165,14 @@ const endBookmasterSession = () => {
   bmSessionStart = null;
   const fraction = currentFraction();
   if ((fraction - start.pct) * 100 < 0.5) return;
-  syncSession(activeBook, {
+  const session = {
     percentStart: start.pct * 100,
     percentEnd: fraction * 100,
     minutes: (Date.now() - start.at) / 60000,
     at: Date.now(),
-  });
+  };
+  recordSession(activeBook, session);
+  syncSession(activeBook, session);
 };
 
 // ---------- progress persistence ----------
@@ -503,6 +507,10 @@ const wireSelection = (doc, index) => {
           clear();
           toast(ok ? "Copied" : "Couldn’t copy", { error: !ok });
         },
+      },
+      definable(text) && {
+        label: "Define",
+        onTap: async () => { clear(); await define(text); },
       },
       navigator.share && {
         label: "Share",
