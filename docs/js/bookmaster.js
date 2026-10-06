@@ -3,7 +3,7 @@
  * tracker at bookmaster.pages.dev. Entirely opt-in — nothing leaves the
  * device until the user links an account in Settings.
  */
-import { kvGet, kvSet } from "./db.js";
+import { kvGet, kvSet, putBook } from "./db.js";
 import { toast } from "./util.js";
 
 const USER_KEY = "bm-user";
@@ -78,20 +78,39 @@ export const syncProgress = async (book, { force = false } = {}) => {
         title: book.title,
         author: book.author || "",
         isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
-        open_library_id: book.openLibraryId || book.identifiers?.open_library || undefined,
+        open_library_id: book.identifiers?.open_library || undefined,
+        // The shelf row BookMaster gave back last time; pinning beats every
+        // guess the other side could make about which book this file is.
+        user_book_id: book.bookmasterId || undefined,
         percent: pct,
         format: book.kind === "audio" ? "audio" : "ebook",
       }),
     });
-    if (res.status === 404) {
-      // BookMaster doesn't know this reader any more — the link is dead,
-      // so stop quietly failing on every page turn from here on
-      await kvSet(USER_KEY, null);
-      if (!brokeWarned) {
-        brokeWarned = true;
-        toast("BookMaster link broke — relink in Settings", { error: true });
+    if (res.ok) {
+      // BookMaster answers with the shelf row it wrote — remember its id so
+      // the next push pins to it rather than trusting the title again.
+      const { userBook } = await res.json().catch(() => ({}));
+      if (userBook?.id && userBook.id !== book.bookmasterId) {
+        book.bookmasterId = userBook.id;
+        await putBook(book).catch(() => {});
       }
-    } else if (!res.ok) {
+    } else if (res.status === 404) {
+      const data = await res.json().catch(() => null);
+      if (data?.error === "Unknown reader") {
+        // BookMaster doesn't know this reader any more — the link is dead,
+        // so stop quietly failing on every page turn from here on
+        await kvSet(USER_KEY, null);
+        if (!brokeWarned) {
+          brokeWarned = true;
+          toast("BookMaster link broke — relink in Settings", { error: true });
+        }
+      } else if (book.bookmasterId) {
+        // The pinned shelf row is gone — drop the pin so the next push
+        // re-resolves by ISBN and title and pins the row it gets back.
+        delete book.bookmasterId;
+        await putBook(book).catch(() => {});
+      }
+    } else {
       console.warn("BookMaster sync failed", res.status);
     }
   } catch (err) {

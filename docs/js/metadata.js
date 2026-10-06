@@ -72,7 +72,11 @@ const searchOpenLibrary = async (query) => {
       desc: "",
       cover: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null,
       source: "Open Library",
-      identifiers: { isbn13: d.isbn?.find((i) => i.length === 13) },
+      identifiers: {
+        isbn13: d.isbn?.find((i) => i.length === 13),
+        // The /works/ key is the id BookMaster keeps on its catalogue rows.
+        open_library: typeof d.key === "string" ? d.key.replace(/^\/works\//, "") : undefined,
+      },
     })
   );
 };
