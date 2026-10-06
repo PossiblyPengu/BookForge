@@ -4,7 +4,7 @@
 
 import {
   $, initSheets, toast, fmtBytes, fillCover, listSheet, closeSheet, isSheetOpen,
-  isIOS, isStandalone,
+  isIOS, isStandalone, confirmSheet,
 } from "./util.js";
 import { kvGet, kvSet, storageEstimate, orphanedFiles, deleteFiles } from "./db.js";
 import {
@@ -20,6 +20,9 @@ import {
 } from "./tts-voices.js";
 import { currentVoice, kokoro, piper } from "./tts-engines.js";
 import { deliverBackup, restoreBackup } from "./backup.js";
+import {
+  bookmasterLink, bookmasterUnlink, bookmasterUser, finishBookmasterLink,
+} from "./bookmaster.js";
 import { VERSION, BUILD } from "./version.js";
 
 // ---------------------------------------------------------------------------
@@ -401,6 +404,23 @@ const initSettings = async () => {
     showMetaOnline();
   });
 
+  // BookMaster progress sync — Off hands off to BookMaster's pair flow;
+  // linked shows the account and asks before unlinking
+  const bmVal = $("set-bookmaster-val");
+  const showBookmaster = async () => {
+    const u = await bookmasterUser();
+    bmVal.textContent = u?.username ? `Linked as ${u.display_name || u.username}` : "Off";
+  };
+  showBookmaster();
+  $("set-bookmaster").addEventListener("click", async () => {
+    if (!(await bookmasterUser())?.username) { bookmasterLink(); return; }
+    confirmSheet("Unlink BookMaster?", "Unlink", async () => {
+      await bookmasterUnlink();
+      showBookmaster();
+      toast("BookMaster unlinked");
+    });
+  });
+
   // The build this copy of the app was released as, and — when they differ —
   // the one the service worker is still serving, so an installed app can be
   // checked against the latest deploy.
@@ -577,6 +597,9 @@ const boot = async () => {
   await step("theme", initTheme);
   await step("reader", initReader);
   await step("player", initPlayer);
+  // a BookMaster pair redirect lands back here with ?bm-link=<code> —
+  // redeem it before settings init reads the link state for its row
+  await step("bookmaster link", finishBookmasterLink);
   await step("settings", initSettings);
   await step("help", initHelp);
   await step("keyboard", initKeyboard);

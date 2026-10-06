@@ -24,6 +24,7 @@ import { FootnoteHandler } from "../vendor/foliate/footnotes.js";
 import { foliateTts } from "./tts-foliate.js";
 import { ttsController } from "./tts.js";
 import { pickTtsSleep, pickVoice } from "./tts-voices.js";
+import { syncProgress } from "./bookmaster.js";
 
 let view = null;          // <foliate-view> instance (ebook kind)
 let activeBook = null;
@@ -154,6 +155,7 @@ const saveProgress = debounce(async () => {
   // quota/blocked errors mustn't surface as unhandled rejections — losing a
   // progress write is survivable, a page-killing error mid-read is not
   await putBook(activeBook).catch((err) => console.warn("progress save failed", err));
+  syncProgress(activeBook);
 }, 1200);
 
 let lastStatus = { chapter: "", page: "", left: "" };
@@ -668,6 +670,8 @@ export const closeReader = async () => {
   clearJumpBack();
   const p = activeRenderer?.getProgress?.();
   if (activeBook && p) { activeBook.progress = p; await putBook(activeBook); }
+  // closing is a forced push — the throttle may have swallowed the last turns
+  if (activeBook) syncProgress(activeBook, { force: true });
   if (activeRenderer?.destroy) activeRenderer.destroy();
   activeRenderer = null;
   activeBook = null;

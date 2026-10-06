@@ -12,6 +12,7 @@ import {
 } from "./util.js";
 import { getFile, putBook, kvGet, kvSet } from "./db.js";
 import { registerAudioOwner, claimAudio } from "./audio-focus.js";
+import { syncProgress } from "./bookmaster.js";
 
 const audio = new Audio();
 audio.preload = "auto";
@@ -45,6 +46,7 @@ const savePos = debounce(async () => {
   b.progress = { fraction: player.duration ? position() / player.duration : 0, positionSec: position() };
   b.lastOpenedAt = Date.now();
   await putBook(b).catch((err) => console.warn("position save failed", err));
+  syncProgress(b);
 }, 2000);
 
 const position = () =>
@@ -221,6 +223,8 @@ export const closePlayer = async () => {
   // the position you stopped at was lost.
   savePos();
   savePos.flush();
+  // closing is a forced push — capture the book before player.book clears
+  syncProgress(player.book, { force: true });
   player.urls.forEach((u) => URL.revokeObjectURL(u));
   player.urls = [];
   player.book = null;
@@ -359,7 +363,8 @@ export const initPlayer = () => {
 
   audio.addEventListener("timeupdate", () => { updateUI(); savePos(); checkSleep(); });
   audio.addEventListener("play", () => { claimAudio("audiobook"); updateUI(); });
-  audio.addEventListener("pause", updateUI);
+  // a pause is a natural checkpoint — force a push past the throttle
+  audio.addEventListener("pause", () => { updateUI(); syncProgress(player.book, { force: true }); });
   audio.addEventListener("ratechange", updatePositionState);
   // A decode failure or an evicted blob used to just go quiet mid-book.
   audio.addEventListener("error", () => {

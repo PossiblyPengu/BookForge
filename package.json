@@ -1,7 +1,7 @@
 {
   "name": "pageturner",
   "version": "2.7.0",
-  "build": 49,
+  "build": 50,
   "description": "Pageturner — offline-first PWA ebook reader and audiobook player with read-aloud TTS",
   "directories": {
     "doc": "docs"
@@ -10,8 +10,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint docs/js/ docs/sw.js tests/ scripts/",
-    "lint:fix": "eslint docs/js/ docs/sw.js tests/ scripts/ --fix",
+    "lint": "eslint docs/js/ docs/sw.js docs/functions/ tests/ scripts/",
+    "lint:fix": "eslint docs/js/ docs/sw.js docs/functions/ tests/ scripts/ --fix",
     "icons": "node scripts/generate-icons.js",
     "vendor": "node scripts/build-vendor.js",
     "smoke": "node scripts/smoke.mjs",

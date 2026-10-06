@@ -1,6 +1,6 @@
 
-const CACHE_NAME = 'pageturner-cache-v49';
-const RUNTIME_CACHE = 'pageturner-runtime-v49';
+const CACHE_NAME = 'pageturner-cache-v50';
+const RUNTIME_CACHE = 'pageturner-runtime-v50';
 // Engine binaries (ONNX runtime, espeak data, model weights): ~30 MB that
 // rarely changes. Kept across app updates rather than re-downloaded with every
 // build, and re-checked with a cheap conditional request when a new version
@@ -21,6 +21,7 @@ const APP_SHELL = [
   './js/audio-focus.js',
   './js/backup.js',
   './js/book-parser.js',
+  './js/bookmaster.js',
   './js/cbr.js',
   './js/db.js',
   './js/detect.js',
@@ -149,6 +150,9 @@ self.addEventListener('message', (event) => {
 
 // Web Share Target — receive shared files and redirect to the app
 self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  // Pages Functions (BookMaster sync) — never the share target, never cached
+  if (url.pathname.startsWith('/api/')) return;
   if (event.request.method === 'POST' && event.request.url.startsWith(self.location.origin)) {
     event.respondWith(
       (async () => {
