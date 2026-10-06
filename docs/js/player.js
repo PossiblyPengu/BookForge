@@ -233,6 +233,7 @@ export const openPlayer = async (book, { onClose, onUpdate } = {}) => {
   $("player-title").textContent = book.title;
   $("player-author").textContent = book.author || "";
   fillCover($("player-cover"), book);
+  fillCover($("player-art"), book); // blurred into an ambient backdrop
   // the screen takes a wash of the cover's colour, like a record sleeve
   $("view-player").style.removeProperty("--tint");
   coverTint(book).then((c) => { if (c && player.book === book) $("view-player").style.setProperty("--tint", c); });

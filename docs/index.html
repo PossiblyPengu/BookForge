@@ -121,6 +121,12 @@
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             </span>
           </button>
+          <section class="shelf" id="recent-shelf" hidden>
+            <div class="shelf-head">
+              <h2 class="shelf-title">Recently added</h2>
+            </div>
+            <div class="shelf-row" id="recent-row"></div>
+          </section>
           <div class="library-head" id="library-head" hidden>
             <span class="library-count" id="library-count"></span>
             <div class="seg seg-sm" id="library-filter" role="group" aria-label="Show" hidden>
@@ -368,6 +374,7 @@
 
       <!-- ================= PLAYER ================= -->
       <section class="view view-overlay" id="view-player" hidden>
+        <div class="player-art" id="player-art" aria-hidden="true"></div>
         <header class="nav-bar">
           <div class="nav-bar-inner">
             <button type="button" class="nav-btn" id="player-close" aria-label="Close player">

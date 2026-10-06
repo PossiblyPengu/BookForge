@@ -198,12 +198,49 @@ export const initContinue = () => {
   });
 };
 
+// ---------------------------------------------------------------------------
+// "Recently added" shelf — a horizontal row of the freshest arrivals
+// ---------------------------------------------------------------------------
+
+const renderRecent = () => {
+  const shelf = $("recent-shelf");
+  const row = $("recent-row");
+  row.textContent = "";
+  // the shelf is browsable furniture — it hides while searching/selecting,
+  // and a tiny library doesn't need a second way to see the same books
+  const recent = (query.trim() || selecting || books.length < 5)
+    ? []
+    : [...books].sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)).slice(0, 12);
+  shelf.hidden = !recent.length;
+
+  for (const book of recent) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "shelf-book";
+    const cover = document.createElement("div");
+    cover.className = "book-cover";
+    cover.appendChild(coverFor(book, { lazy: true }));
+    item.appendChild(cover);
+    const t = document.createElement("div");
+    t.className = "shelf-book-title";
+    t.textContent = book.title;
+    item.appendChild(t);
+    const a = document.createElement("div");
+    a.className = "shelf-book-author";
+    a.textContent = book.author || "Unknown author";
+    item.appendChild(a);
+    item.addEventListener("click", () => openDetail(book.id));
+    row.appendChild(item);
+  }
+};
+
 const renderGrid = () => {
   const grid = $("library-grid");
   const empty = $("library-empty");
   grid.textContent = "";
   empty.hidden = books.length > 0;
   renderContinue();
+  renderRecent();
   grid.classList.toggle("selecting", selecting);
 
   const view = applyView();
