@@ -199,6 +199,8 @@ const updateProgressUI = (fraction, label, status = null) => {
   if (sliderPreview == null) {
     $("reader-slider").value = Math.round((fraction || 0) * 1000);
     $("reader-pct").textContent = status?.page ? `${status.page} · ${pct}` : pct;
+    // the hairline eases between positions, so a page turn reads as motion
+    $("reader-line-fill").style.width = `${((fraction || 0) * 100).toFixed(2)}%`;
   }
   $("reader-loc-label").textContent = label || "";
   lastStatus = status || { chapter: "", page: label || "", left: pct };
@@ -1168,6 +1170,7 @@ export const initReader = async () => {
   slider.addEventListener("input", () => {
     sliderPreview = slider.value / 1000;
     $("reader-pct").textContent = `${Math.round(sliderPreview * 100)}%`;
+    $("reader-line-fill").style.width = `${(sliderPreview * 100).toFixed(2)}%`;
   });
   slider.addEventListener("change", () => {
     const frac = sliderPreview ?? slider.value / 1000;

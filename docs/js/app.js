@@ -508,11 +508,32 @@ const hideRestoring = () => { restoringEl?.remove(); restoringEl = null; };
 // ---------------------------------------------------------------------------
 
 const VIEWS = { library: "view-library", settings: "view-settings" };
+// where each tab was scrolled to — leaving and returning keeps your place
+const viewScroll = new Map();
+let currentView = null;
+
 const showView = (name) => {
   if (name !== "settings") stopPreview();
   document.querySelectorAll(".tab-item").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === name));
+
+  // read the outgoing view's scroll before hiding it — display:none reads 0
+  if (currentView && currentView !== name && VIEWS[currentView]) {
+    const body = $(VIEWS[currentView]).querySelector(".view-body");
+    if (body) viewScroll.set(currentView, body.scrollTop);
+  }
   for (const [k, id] of Object.entries(VIEWS)) $(id).hidden = k !== name;
+
+  const incoming = $(VIEWS[name]);
+  if (incoming) {
+    const body = incoming.querySelector(".view-body");
+    if (body && viewScroll.has(name)) body.scrollTop = viewScroll.get(name);
+    // .view-enter stays on once set — display:none→flex replays the enter
+    // animation on later arrivals, so the first paint (no previous view,
+    // nothing to crossfade from) is the only one that mustn't animate
+    if (currentView && currentView !== name) incoming.classList.add("view-enter");
+  }
+  currentView = name;
   if (name === "settings") onSettingsShown();
 };
 

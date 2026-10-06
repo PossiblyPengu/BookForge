@@ -268,7 +268,15 @@ export const closePlayer = async () => {
   player.urls.forEach((u) => URL.revokeObjectURL(u));
   player.urls = [];
   player.book = null;
-  $("view-player").hidden = true;
+  // sheet-style exit, same as the reader: .closing plays the slide-down
+  // before hidden lands (display:none !important would cancel the animation)
+  const playerEl = $("view-player");
+  playerEl.classList.add("closing");
+  await new Promise((r) => setTimeout(r, 200));
+  // a tap on the mini-player during the slide reopened it — don't hide that
+  if (player.book) { playerEl.classList.remove("closing"); return; }
+  playerEl.hidden = true;
+  playerEl.classList.remove("closing");
   if ("mediaSession" in navigator) {
     // dead handlers used to stay live — a lock-screen "play" after close
     // seeked an empty url list and errored on `audio.src = undefined`

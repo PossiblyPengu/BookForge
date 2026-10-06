@@ -66,9 +66,41 @@ const applyView = () => {
   return [...list].sort(SORTS[sortMode]?.cmp || SORTS.recent.cmp);
 };
 
+// The cold-boot IndexedDB read can take a beat: stand the grid in with
+// skeleton cards until the first real render replaces them — or 600ms,
+// whichever is first, so an empty (or slow) library isn't left staring at
+// placeholders. The welcome block stays hidden meanwhile; stacking it under
+// skeletons looked like a glitch, and renderGrid restores it if empty.
+let booted = false;
+let skelTimer = null;
+
+const showSkeletons = () => {
+  $("library-empty").hidden = true;
+  const grid = $("library-grid");
+  grid.textContent = "";
+  for (let i = 0; i < 6; i++) {
+    const card = document.createElement("div");
+    card.className = "skel-card";
+    card.setAttribute("aria-hidden", "true");
+    card.innerHTML =
+      '<div class="skel-cover"></div><div class="skel-line"></div><div class="skel-line short"></div>';
+    grid.appendChild(card);
+  }
+  skelTimer = setTimeout(() => { grid.textContent = ""; }, 600);
+};
+
 export const refreshLibrary = async () => {
-  books = await allBooks();
-  renderGrid();
+  if (!booted) showSkeletons();
+  try {
+    books = await allBooks();
+    renderGrid();
+  } finally {
+    booted = true;
+    clearTimeout(skelTimer);
+    // a failed read never gets a render — drop the placeholders anyway
+    if (!books.length) $("library-grid").querySelectorAll(".skel-card")
+      .forEach((c) => c.remove());
+  }
 };
 
 /**

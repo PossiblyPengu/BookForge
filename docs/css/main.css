@@ -216,6 +216,13 @@ input, textarea { font: inherit; color: inherit; }
   min-height: 0;
 }
 .view[hidden] { display: none; }
+/* Tab switches crossfade with a slight rise. The class is left on the view —
+   display:none→flex restarts the animation on every later arrival, so the
+   first paint (added only once a view switch actually happened) stays instant. */
+.view-enter { animation: view-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
 .view-body {
   flex: 1;
   overflow-y: auto;
@@ -264,8 +271,13 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--text-3);
   font-size: 10px;
   font-weight: 500;
+  transition: color 0.2s ease, opacity 0.12s ease-out;
 }
 .tab-item.active { color: var(--accent-ink); }
+.tab-item:active { opacity: 0.6; }
+/* a little spring on the icon when a tab becomes active */
+.tab-item.active svg { animation: tab-pop 0.28s cubic-bezier(0.3, 1.45, 0.6, 1); }
+@keyframes tab-pop { from { transform: scale(0.92); } }
 
 /* ---------- Library ---------- */
 .library-search { padding: 2px 16px 10px; }
@@ -346,7 +358,7 @@ input, textarea { font: inherit; color: inherit; }
   background: var(--fill);
   overflow: hidden;
 }
-.continue-bar i { display: block; height: 100%; background: var(--accent); }
+.continue-bar i { display: block; height: 100%; background: var(--accent); transition: width 0.2s ease; }
 .continue-go {
   flex-shrink: 0;
   display: flex;
@@ -379,6 +391,25 @@ input, textarea { font: inherit; color: inherit; }
 }
 /* leave room for the selection action bar above the tab bar */
 .library-grid.selecting { padding-bottom: 72px; }
+
+/* Cold-boot placeholders: six of these stand in for the grid while the
+   first IndexedDB read is in flight, then the real render replaces them. */
+.skel-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.skel-cover, .skel-line {
+  background-color: var(--fill);
+  background-image: linear-gradient(100deg,
+    transparent 20%, var(--fill-strong) 50%, transparent 80%);
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: skel-shimmer 1.2s ease-in-out infinite;
+}
+.skel-cover { aspect-ratio: 2 / 3; border-radius: 8px; }
+.skel-line { height: 10px; border-radius: 5px; width: 92%; }
+.skel-line.short { width: 55%; }
+@keyframes skel-shimmer {
+  from { background-position: 160% 0; }
+  to { background-position: -60% 0; }
+}
 
 /* ---------- Selection mode ---------- */
 .book-tick {
@@ -434,6 +465,10 @@ input, textarea { font: inherit; color: inherit; }
   position: relative;
   container-type: inline-size;
 }
+/* Cover art fades in once decoded (data-loaded is set on `load` in util.js);
+   until then the holder's --fill backdrop shows, as it always has. */
+.cover-img { opacity: 0; transition: opacity 0.2s ease-out; }
+.cover-img[data-loaded] { opacity: 1; }
 .gen-cover {
   position: absolute;
   inset: 0;
@@ -645,6 +680,18 @@ input, textarea { font: inherit; color: inherit; }
 .btn-danger { background: var(--fill); color: var(--danger); }
 .btn[disabled] { opacity: 0.45; pointer-events: none; }
 
+/* ---------- Press feedback ---------- */
+/* iOS-style scale-down on touch — card/row/button-level elements only, so
+   nothing that would break layout (sheets, bars) transforms. */
+.book-card, .continue-card, .list-row-btn, .btn {
+  transition: transform 0.12s ease-out, background-color 0.12s ease-out;
+}
+.book-card:active, .continue-card:active, .list-row-btn:active, .btn:active {
+  transform: scale(0.97);
+}
+/* toolbar-level buttons dim instead — a squashed icon reads as a glitch */
+.reader-bottom button:active { opacity: 0.6; }
+
 /* ---------- Grouped lists (settings) ---------- */
 .list-group { margin: 20px 16px 0; }
 .list-group-label {
@@ -788,8 +835,18 @@ input, textarea { font: inherit; color: inherit; }
   z-index: 90;
   opacity: 1;
   transition: opacity 0.25s;
+  animation: overlay-in 0.22s ease-out;
 }
+@keyframes overlay-in { from { opacity: 0; } }
 .sheet-overlay[hidden] { display: none; }
+/* closing keeps the element painted after its `hidden` flip (this must
+   outrank the global [hidden] rule) so the fade can actually be seen */
+.sheet-overlay.closing {
+  display: block !important;
+  animation: none; /* don't let a still-running overlay-in fight the fade */
+  opacity: 0;
+  pointer-events: none;
+}
 .sheet {
   position: fixed;
   left: 0; right: 0; bottom: calc(-1 * var(--chin));
@@ -802,7 +859,18 @@ input, textarea { font: inherit; color: inherit; }
   -webkit-overflow-scrolling: touch;
   box-shadow: 0 -8px 40px rgba(0,0,0,0.5);
   transition: transform 0.25s ease;
+  /* display:none→block restarts this on every open — iOS sheet slide-up */
+  animation: sheet-in 0.28s cubic-bezier(0.32, 0.72, 0, 1);
 }
+@keyframes sheet-in { from { transform: translateY(100%); } }
+/* `hidden` flips synchronously in closeSheet (state queries see the sheet as
+   gone at once), and .closing keeps it on screen long enough to slide away */
+.sheet.closing {
+  display: block !important;
+  animation: sheet-out 0.24s ease-in forwards;
+  pointer-events: none;
+}
+@keyframes sheet-out { to { transform: translateY(112%); } }
 .sheet-grabber { touch-action: none; cursor: grab; }
 .sheet[hidden] { display: none; }
 .sheet-grabber {
@@ -957,7 +1025,7 @@ input, textarea { font: inherit; color: inherit; }
 
 .book-progress-block { display: flex; flex-direction: column; gap: 6px; }
 .bp-bar { height: 4px; border-radius: 2px; background: var(--fill-strong); overflow: hidden; }
-.bp-bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; }
+.bp-bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width 0.2s ease; }
 .bp-meta { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--text-2); }
 .bp-meta span:first-child { color: var(--text); font-weight: 600; }
 
@@ -1187,6 +1255,23 @@ input, textarea { font: inherit; color: inherit; }
 #view-reader.chrome-hidden .reader-status { opacity: 1; }
 
 /* progress row: scrubber above, where-you-are below */
+/* hairline of progress along the bar's top edge — animates between page
+   turns so the jump reads as motion rather than a teleport */
+.reader-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+}
+.reader-line i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
 .reader-progress {
   display: flex;
   flex-direction: column;
@@ -1608,7 +1693,12 @@ input, textarea { font: inherit; color: inherit; }
     radial-gradient(140% 65% at 50% -8%,
       color-mix(in srgb, var(--tint, transparent) 62%, transparent) 0%, transparent 72%),
     var(--bg);
+  /* rises like a now-playing sheet; display:none→flex replays the animation */
+  animation: player-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+#view-player.closing { animation: player-out 0.2s ease-in forwards; pointer-events: none; }
+@keyframes player-in { from { opacity: 0.4; transform: translateY(7%); } }
+@keyframes player-out { to { opacity: 0; transform: translateY(10%); } }
 #view-player .nav-bar { background: transparent; border-bottom-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .nav-btn-spacer { width: 38px; flex-shrink: 0; }
 .player-body {
@@ -1739,7 +1829,9 @@ input, textarea { font: inherit; color: inherit; }
   height: 2px;
   background: var(--fill);
 }
-.mini-progress i { display: block; height: 100%; width: 0; background: var(--accent); }
+/* updated on every timeupdate — a linear drift keeps the fill gliding
+   between ticks instead of stepping */
+.mini-progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s linear; }
 .mini-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .mini-title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini-sub { font-size: 11.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1761,6 +1853,16 @@ input, textarea { font: inherit; color: inherit; }
   font-size: 14px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
   max-width: 88vw;
+  animation: toast-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.toast.toast-out { animation: toast-out 0.2s ease-in forwards; }
+/* NB: the toast's resting transform is translateX(-50%) — both keyframes
+   carry it so the slide doesn't lose the centering */
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+}
+@keyframes toast-out {
+  to { opacity: 0; transform: translate(-50%, 10px); }
 }
 .toast-err { color: var(--danger); }
 .toast-msg { min-width: 0; }
@@ -1807,6 +1909,7 @@ input, textarea { font: inherit; color: inherit; }
   background: var(--bg-raised);
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
   font-size: 14px;
+  animation: toast-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .spinner {
   width: 16px; height: 16px;

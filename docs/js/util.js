@@ -167,6 +167,19 @@ export const coverTint = async (book) => {
   }
 };
 
+/**
+ * Cover art fades in once decoded (`.cover-img` + `data-loaded` in main.css);
+ * the holder's placeholder colour stays behind it meanwhile. `complete`
+ * covers the still-cached case where `load` fired before we could listen —
+ * and a failed blob/remote URL just stays at the backdrop rather than
+ * showing a broken glyph.
+ */
+const fadeOnLoad = (img) => {
+  img.classList.add("cover-img");
+  if (img.complete && img.naturalWidth) { img.dataset.loaded = "1"; return; }
+  img.addEventListener("load", () => { img.dataset.loaded = "1"; }, { once: true });
+};
+
 /** The book's own cover if it has one, else a generated one. */
 export const coverFor = (book, { lazy = false } = {}) => {
   const url = coverUrl(book);
@@ -176,6 +189,7 @@ export const coverFor = (book, { lazy = false } = {}) => {
   img.alt = "";
   img.decoding = "async";
   if (lazy) img.loading = "lazy";
+  fadeOnLoad(img);
   return img;
 };
 
@@ -233,6 +247,7 @@ export const progressPill = (msg) => {
 
 // ---------- toast ----------
 let toastTimer;
+let toastOutTimer;
 export const toast = (msg, { error = false, ms = 3200 } = {}) => {
   // :not(.toast-sticky) keeps the "new version available" prompt alive — it
   // waits on a tap, and any passing toast used to wipe it
@@ -243,7 +258,12 @@ export const toast = (msg, { error = false, ms = 3200 } = {}) => {
   el.textContent = msg;
   document.body.appendChild(el);
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.remove(), ms);
+  clearTimeout(toastOutTimer);
+  toastTimer = setTimeout(() => {
+    // slide back down instead of vanishing mid-sentence
+    el.classList.add("toast-out");
+    toastOutTimer = setTimeout(() => el.remove(), 240);
+  }, ms);
 };
 
 // ---------- sheets ----------
@@ -258,12 +278,25 @@ const FOCUSABLE =
 const focusablesIn = (el) =>
   [...el.querySelectorAll(FOCUSABLE)].filter((n) => !n.hidden && n.offsetParent !== null);
 
+// A closing sheet flips `hidden` at once — it IS closed, and state queries
+// plus AT see it gone — while .closing keeps it painted long enough to slide
+// away (the class carries a display override that outranks [hidden]).
+const CLOSE_MS = 300;
+const closingTimers = new WeakMap();
+let overlayTimer = null;
+
 export const openSheet = (id, onClose = null) => {
   const previous = focusBeforeSheet || document.activeElement;
   closeSheet();
   focusBeforeSheet = previous;
   openSheetEl = $(id);
   onSheetClose = onClose;
+  // a reopen inside the close animation must win over it — and the overlay
+  // stays up rather than dipping out and back between sheets
+  clearTimeout(closingTimers.get(openSheetEl));
+  clearTimeout(overlayTimer);
+  openSheetEl.classList.remove("closing");
+  overlay().classList.remove("closing");
   overlay().hidden = false;
   openSheetEl.hidden = false;
   // Move focus into the dialog, but onto the container rather than the first
@@ -275,8 +308,19 @@ export const openSheet = (id, onClose = null) => {
 };
 
 export const closeSheet = () => {
-  if (openSheetEl) openSheetEl.hidden = true;
-  overlay().hidden = true;
+  const sheet = openSheetEl;
+  if (sheet) {
+    sheet.classList.add("closing");
+    sheet.hidden = true;
+    clearTimeout(closingTimers.get(sheet));
+    closingTimers.set(sheet, setTimeout(
+      () => sheet.classList.remove("closing"), CLOSE_MS));
+  }
+  const ov = overlay();
+  ov.classList.add("closing");
+  ov.hidden = true;
+  clearTimeout(overlayTimer);
+  overlayTimer = setTimeout(() => ov.classList.remove("closing"), CLOSE_MS);
   const cb = onSheetClose;
   const restore = focusBeforeSheet;
   openSheetEl = null;
@@ -385,6 +429,8 @@ export const listSheet = (title, items, onPick, { search = false, note = "", onC
         img.className = "sheet-list-thumb";
         img.src = item.thumb;
         img.alt = "";
+        // remote covers arrive over the network — fade rather than pop
+        fadeOnLoad(img);
         btn.appendChild(img);
       } else {
         const ph = document.createElement("div");
