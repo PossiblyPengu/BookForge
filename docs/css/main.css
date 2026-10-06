@@ -1,25 +1,33 @@
 /* ==================================================================
-   Pageturner — iOS-style PWA design system
+   Pageturner — warm library design system (iOS-style layout, bookish palette)
    ================================================================== */
 
 :root {
   --accent: #f0a040;
-  --accent-press: #d98a2b;
+  --accent-press: #d9822b;
+  --accent-2: #e08a36;
   --danger: #ff453a;
   --accent-ink: var(--accent);
+  --on-accent: #241a0e; /* ink on the amber accent */
 
-  --bg: #111110;
-  --bg-grouped: #000000;
-  --bg-raised: #1c1c1e;
-  --bg-card: #1c1c1e;
-  --bg-sheet: #242426;
-  --fill: rgba(240, 237, 230, 0.10);
-  --fill-strong: rgba(240, 237, 230, 0.18);
-  --text: #f0ede6;
-  --text-2: rgba(240, 237, 230, 0.6);
-  --text-3: rgba(240, 237, 230, 0.38);
-  --separator: rgba(240, 237, 230, 0.12);
-  --bar-bg: rgba(17, 17, 16, 0.82);
+  --bg: #171411;
+  --bg-grouped: #100d0b;
+  --bg-raised: #231e19;
+  --bg-card: #231e19;
+  --bg-sheet: #292219;
+  --fill: rgba(242, 232, 214, 0.09);
+  --fill-strong: rgba(242, 232, 214, 0.16);
+  --text: #f2ede3;
+  --text-2: rgba(242, 237, 227, 0.62);
+  --text-3: rgba(242, 237, 227, 0.38);
+  --separator: rgba(242, 237, 227, 0.11);
+  --bar-bg: rgba(23, 20, 17, 0.82);
+
+  --shadow-card: 0 5px 16px rgba(0, 0, 0, 0.42);
+  --shadow-lift: 0 2px 8px rgba(0, 0, 0, 0.35);
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Iowan Old Style", "New York", "Palatino Linotype", Georgia, serif;
 
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -34,20 +42,23 @@
 [data-theme="light"] {
   /* the bright amber reads ~2:1 on these backgrounds — text and icons use a
      deeper amber (4.5:1+); fills keep the bright one, under dark text */
-  --accent-ink: #9e580a;
+  --accent-ink: #a05a0e;
   --danger: #d70015;
-  --bg: #f2f2f0;
-  --bg-grouped: #f2f2f0;
-  --bg-raised: #ffffff;
-  --bg-card: #ffffff;
-  --bg-sheet: #ffffff;
-  --fill: rgba(20, 20, 20, 0.07);
-  --fill-strong: rgba(20, 20, 20, 0.14);
-  --text: #1c1c1a;
-  --text-2: rgba(28, 28, 26, 0.6);
-  --text-3: rgba(28, 28, 26, 0.38);
-  --separator: rgba(28, 28, 26, 0.12);
-  --bar-bg: rgba(242, 242, 240, 0.82);
+  --bg: #f6f1e8;
+  --bg-grouped: #f6f1e8;
+  --bg-raised: #fffdf9;
+  --bg-card: #fffdf9;
+  --bg-sheet: #fffdf9;
+  --fill: rgba(90, 66, 30, 0.07);
+  --fill-strong: rgba(90, 66, 30, 0.14);
+  --text: #2a231a;
+  --text-2: rgba(42, 35, 26, 0.62);
+  --text-3: rgba(42, 35, 26, 0.38);
+  --separator: rgba(70, 52, 28, 0.12);
+  --bar-bg: rgba(246, 241, 232, 0.84);
+
+  --shadow-card: 0 4px 14px rgba(60, 40, 10, 0.14);
+  --shadow-lift: 0 2px 8px rgba(60, 40, 10, 0.12);
 }
 
 /* True black for OLED: lit pixels cost power, black ones are off. Surfaces
@@ -56,15 +67,15 @@
 [data-theme="black"] {
   --bg: #000000;
   --bg-grouped: #000000;
-  --bg-raised: #161616;
-  --bg-card: #0e0e0e;
-  --bg-sheet: #121212;
-  --fill: rgba(240, 237, 230, 0.08);
-  --fill-strong: rgba(240, 237, 230, 0.16);
-  --text: #e6e2da;
-  --text-2: rgba(230, 226, 218, 0.6);
-  --text-3: rgba(230, 226, 218, 0.38);
-  --separator: rgba(240, 237, 230, 0.16);
+  --bg-raised: #161210;
+  --bg-card: #0f0c0a;
+  --bg-sheet: #141110;
+  --fill: rgba(242, 232, 214, 0.08);
+  --fill-strong: rgba(242, 232, 214, 0.16);
+  --text: #ece7da;
+  --text-2: rgba(236, 231, 218, 0.6);
+  --text-3: rgba(236, 231, 218, 0.38);
+  --separator: rgba(242, 232, 214, 0.15);
   --bar-bg: rgba(0, 0, 0, 0.88);
 }
 
@@ -94,7 +105,7 @@ html, body {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-ui);
   background: var(--bg);
   color: var(--text);
   font-size: 16px;
@@ -102,6 +113,13 @@ body {
   touch-action: manipulation;
   -webkit-user-select: none;
   user-select: none;
+}
+/* a faint warm glow pooled at the top of the espresso dark — a lamp over the
+   shelves. Paper and OLED stay flat: it would wash the former and burn power
+   on the latter. data-theme="dark" is set before first paint (app.js). */
+:root:not([data-theme="light"]):not([data-theme="black"]) body {
+  background-image: radial-gradient(120% 50% at 50% 0%, rgba(240, 160, 64, 0.035), transparent 60%);
+  background-repeat: no-repeat;
 }
 
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
@@ -162,8 +180,9 @@ input, textarea { font: inherit; color: inherit; }
 .nav-title {
   flex: 1;
   margin: 0;
+  font-family: var(--font-display);
   font-size: 26px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
@@ -194,6 +213,7 @@ input, textarea { font: inherit; color: inherit; }
   align-items: stretch;
   max-width: 92vw;
   background: var(--bg-sheet);
+  border: 0.5px solid var(--separator);
   border-radius: 999px;
   overflow: hidden;
   box-shadow: 0 4px 16px rgba(0,0,0,0.45);
@@ -302,9 +322,10 @@ input, textarea { font: inherit; color: inherit; }
   width: calc(100% - 32px);
   margin: 0 16px 14px;
   padding: 10px;
-  border-radius: 14px;
-  background: var(--bg-card);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  border-radius: 16px;
+  background: var(--bg-raised);
+  border: 0.5px solid var(--separator);
+  box-shadow: var(--shadow-lift);
   text-align: left;
 }
 .continue-card:active { background: var(--fill); }
@@ -315,10 +336,11 @@ input, textarea { font: inherit; color: inherit; }
   justify-content: center;
   width: 44px;
   height: 66px;
-  border-radius: 5px;
+  border-radius: 10px;
   overflow: hidden;
   background: var(--fill);
   color: var(--text-3);
+  box-shadow: var(--shadow-card);
 }
 .continue-cover img { width: 100%; height: 100%; object-fit: cover; }
 .continue-cover .cover-glyph { width: 24px; height: 24px; }
@@ -337,6 +359,7 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--accent-ink);
 }
 .continue-title {
+  font-family: var(--font-display);
   font-size: 15px;
   font-weight: 600;
   overflow: hidden;
@@ -368,7 +391,7 @@ input, textarea { font: inherit; color: inherit; }
   height: 38px;
   border-radius: 50%;
   background: var(--accent);
-  color: #1a1a18;
+  color: var(--on-accent);
 }
 
 .library-head {
@@ -403,7 +426,7 @@ input, textarea { font: inherit; color: inherit; }
   background-repeat: no-repeat;
   animation: skel-shimmer 1.2s ease-in-out infinite;
 }
-.skel-cover { aspect-ratio: 2 / 3; border-radius: 8px; }
+.skel-cover { aspect-ratio: 2 / 3; border-radius: 10px; }
 .skel-line { height: 10px; border-radius: 5px; width: 92%; }
 .skel-line.short { width: 55%; }
 @keyframes skel-shimmer {
@@ -426,8 +449,8 @@ input, textarea { font: inherit; color: inherit; }
   box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
 .library-grid.selecting .book-card:not(.selected) .book-cover > :first-child { opacity: 0.72; }
-.book-card.selected .book-tick { background: var(--accent); border-color: var(--accent); color: #16130e; }
-.book-card.selected .book-cover { box-shadow: 0 0 0 3px var(--accent), 0 2px 10px rgba(0,0,0,0.35); }
+.book-card.selected .book-tick { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.book-card.selected .book-cover { box-shadow: 0 0 0 3px var(--accent), var(--shadow-card); }
 .select-bar {
   position: fixed;
   left: 0; right: 0;
@@ -486,7 +509,7 @@ input, textarea { font: inherit; color: inherit; }
     /* soft light from the top left, like cloth under a lamp */
     radial-gradient(130% 90% at 25% 12%, rgba(255,255,255,0.11), rgba(0,0,0,0) 60%),
     var(--cloth);
-  font-family: "Iowan Old Style", "New York", "Palatino Linotype", Georgia, serif;
+  font-family: var(--font-display);
   overflow: hidden;
 }
 .gen-cover-title {
@@ -542,13 +565,23 @@ input, textarea { font: inherit; color: inherit; }
 .book-cover {
   position: relative;
   aspect-ratio: 2 / 3;
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
   background: var(--fill);
   display: grid;
   place-items: center;
   color: var(--text-3);
-  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  box-shadow: var(--shadow-card), inset 0 0 0 0.5px var(--separator);
+}
+/* the cover image paints above the element's own inset hairline, so the
+   edge line lives on an overlay that follows the same rounded box */
+.book-cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 0.5px var(--separator);
+  pointer-events: none;
 }
 .book-cover img {
   width: 100%; height: 100%;
@@ -564,7 +597,7 @@ input, textarea { font: inherit; color: inherit; }
   font-weight: 700;
   letter-spacing: 0.04em;
   background: rgba(0,0,0,0.65);
-  color: #f0ede6;
+  color: #f2ede3;
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
 }
@@ -577,13 +610,13 @@ input, textarea { font: inherit; color: inherit; }
   padding: 2px 7px;
   border-radius: 6px;
   background: var(--accent);
-  color: #16130e;
+  color: var(--on-accent);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-.book-pill-done { background: rgba(0,0,0,0.62); color: #f0ede6; text-transform: none; letter-spacing: 0; }
+.book-pill-done { background: rgba(0,0,0,0.62); color: #f2ede3; text-transform: none; letter-spacing: 0; }
 .book-card-author-missing { font-style: italic; }
 .book-progress {
   position: absolute;
@@ -621,7 +654,7 @@ input, textarea { font: inherit; color: inherit; }
   text-align: center;
   color: var(--text-3);
 }
-.empty-title { font-size: 19px; font-weight: 600; color: var(--text); margin: 8px 0 0; }
+.empty-title { font-family: var(--font-display); font-size: 19px; font-weight: 600; color: var(--text); margin: 8px 0 0; }
 .empty-sub { font-size: 14px; margin: 0 0 12px; max-width: 320px; }
 
 /* first run: the empty library is the welcome screen */
@@ -635,7 +668,7 @@ input, textarea { font: inherit; color: inherit; }
 }
 .welcome-title {
   margin: 0 0 6px;
-  font-family: "Iowan Old Style", "New York", "Palatino Linotype", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 28px;
   font-weight: 600;
   color: var(--text);
@@ -673,7 +706,11 @@ input, textarea { font: inherit; color: inherit; }
   font-weight: 600;
   min-height: 44px;
 }
-.btn-primary { background: var(--accent); color: #16130e; }
+.btn-primary {
+  background: linear-gradient(180deg, #f6ad4f 0%, var(--accent-2) 100%);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-lift);
+}
 .btn-primary:active { background: var(--accent-press); }
 .btn-ghost { background: var(--fill); color: var(--accent-ink); }
 .btn-ghost:active { background: var(--fill-strong); }
@@ -696,10 +733,11 @@ input, textarea { font: inherit; color: inherit; }
 .list-group { margin: 20px 16px 0; }
 .list-group-label {
   margin: 0 0 6px 12px;
+  font-family: var(--font-display);
   font-size: 12px;
   font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   color: var(--text-3);
 }
 .list-group-note {
@@ -718,7 +756,7 @@ input, textarea { font: inherit; color: inherit; }
 #set-tts-engine button { padding-left: 10px; padding-right: 10px; }
 .list-card {
   background: var(--bg-card);
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
 }
 .list-row {
@@ -794,12 +832,12 @@ input, textarea { font: inherit; color: inherit; }
 .seg {
   display: inline-flex;
   background: var(--fill);
-  border-radius: 9px;
+  border-radius: 10px;
   padding: 2px;
 }
 .seg button {
   padding: 5px 12px;
-  border-radius: 7px;
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-2);
@@ -807,9 +845,9 @@ input, textarea { font: inherit; color: inherit; }
 .seg button.active {
   background: var(--bg-raised);
   color: var(--text);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 0 0 0.5px var(--separator);
 }
-[data-theme="light"] .seg button.active { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+[data-theme="light"] .seg button.active { box-shadow: 0 1px 3px rgba(0,0,0,0.12), inset 0 0 0 0.5px var(--separator); }
 
 /* ---------- Stepper ---------- */
 .stepper {
@@ -882,6 +920,7 @@ input, textarea { font: inherit; color: inherit; }
 .sheet-body { padding: 8px 16px 4px; }
 .sheet-title {
   margin: 6px 16px 10px;
+  font-family: var(--font-display);
   font-size: 17px;
   font-weight: 600;
   text-align: center;
@@ -995,7 +1034,7 @@ input, textarea { font: inherit; color: inherit; }
 .book-detail-head { display: flex; gap: 16px; align-items: flex-end; }
 .book-detail-cover {
   width: 104px; height: 156px;
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--fill);
   overflow: hidden;
   display: grid; place-items: center;
@@ -1007,7 +1046,7 @@ input, textarea { font: inherit; color: inherit; }
 .book-detail-meta { min-width: 0; padding-bottom: 2px; }
 .book-detail-meta h2 {
   margin: 0 0 4px;
-  font-family: "Iowan Old Style", "New York", "Palatino Linotype", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 600;
   line-height: 1.2;
@@ -1147,7 +1186,7 @@ input, textarea { font: inherit; color: inherit; }
 :root[data-reader-theme] :is(.sheet, .sel-chip) { color: var(--text); }
 :root[data-reader-theme] :is(#view-reader, .sheet) .seg button.active {
   background: var(--bg-raised);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), inset 0 0 0 0.5px var(--separator);
 }
 
 .reader-stage {
@@ -1392,7 +1431,7 @@ input, textarea { font: inherit; color: inherit; }
   margin: 0 2px;
   border-radius: 50%;
   background: var(--accent);
-  color: #1d1406;
+  color: var(--on-accent);
 }
 .tts-play:active { background: var(--accent-press); }
 .tts-status {
@@ -1554,6 +1593,7 @@ input, textarea { font: inherit; color: inherit; }
   padding: 8px 15px;
   border-radius: 999px;
   background: var(--bg-sheet);
+  border: 0.5px solid var(--separator);
   color: var(--accent-ink);
   font-size: 14px;
   font-weight: 600;
@@ -1724,7 +1764,7 @@ input, textarea { font: inherit; color: inherit; }
 .player-cover img { width: 100%; height: 100%; object-fit: cover; }
 .player-title {
   margin: 0 0 4px;
-  font-family: "Iowan Old Style", "New York", "Palatino Linotype", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 23px;
   font-weight: 600;
   line-height: 1.2;
@@ -1812,7 +1852,7 @@ input, textarea { font: inherit; color: inherit; }
   padding: 8px 10px;
   border-radius: 12px;
   background: var(--bg-raised);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.45);
+  box-shadow: var(--shadow-card), inset 0 0.5px 0 var(--separator);
 }
 .mini-cover {
   width: 38px; height: 38px;
@@ -1849,6 +1889,7 @@ input, textarea { font: inherit; color: inherit; }
   padding: 12px 18px;
   border-radius: 12px;
   background: var(--bg-raised);
+  border: 0.5px solid var(--separator);
   color: var(--text);
   font-size: 14px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
@@ -1891,7 +1932,7 @@ input, textarea { font: inherit; color: inherit; }
   font-size: 13px;
   font-weight: 600;
   background: var(--accent);
-  color: #1a1a18;
+  color: var(--on-accent);
 }
 
 /* ---------- Import progress ---------- */
@@ -1907,6 +1948,7 @@ input, textarea { font: inherit; color: inherit; }
   padding: 10px 16px;
   border-radius: 12px;
   background: var(--bg-raised);
+  border: 0.5px solid var(--separator);
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
   font-size: 14px;
   animation: toast-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);

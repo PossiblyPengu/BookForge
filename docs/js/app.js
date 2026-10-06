@@ -36,7 +36,7 @@ const applyTheme = (mode) => {
   const theme = !dark ? "light" : oledOn ? "black" : "dark";
   document.documentElement.dataset.theme = theme;
   document.querySelector('meta[name="theme-color"]')
-    ?.setAttribute("content", { light: "#f2f2f0", dark: "#111110", black: "#000000" }[theme]);
+    ?.setAttribute("content", { light: "#f6f1e8", dark: "#171411", black: "#000000" }[theme]);
   window.dispatchEvent(new Event("app-theme-change"));
 };
 
