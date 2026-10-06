@@ -47,6 +47,24 @@
   --bar-bg: rgba(242, 242, 240, 0.82);
 }
 
+/* True black for OLED: lit pixels cost power, black ones are off. Surfaces
+   sit at the darkest greys that still read as layers; separators are a
+   touch stronger since there's no tonal step from the background. */
+[data-theme="black"] {
+  --bg: #000000;
+  --bg-grouped: #000000;
+  --bg-raised: #161616;
+  --bg-card: #0e0e0e;
+  --bg-sheet: #121212;
+  --fill: rgba(240, 237, 230, 0.08);
+  --fill-strong: rgba(240, 237, 230, 0.16);
+  --text: #e6e2da;
+  --text-2: rgba(230, 226, 218, 0.6);
+  --text-3: rgba(230, 226, 218, 0.38);
+  --separator: rgba(240, 237, 230, 0.16);
+  --bar-bg: rgba(0, 0, 0, 0.88);
+}
+
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
 /* The hidden attribute must always win. Any class that sets display (flex,

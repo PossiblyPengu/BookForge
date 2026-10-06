@@ -23,7 +23,7 @@ import { Overlayer } from "../vendor/foliate/overlayer.js";
 import { FootnoteHandler } from "../vendor/foliate/footnotes.js";
 import { foliateTts } from "./tts-foliate.js";
 import { ttsController } from "./tts.js";
-import { pickTtsSleep } from "./tts-voices.js";
+import { pickTtsSleep, pickVoice } from "./tts-voices.js";
 
 let view = null;          // <foliate-view> instance (ebook kind)
 let activeBook = null;
@@ -79,9 +79,16 @@ const markFlowText = (doc) => {
   }
 };
 
+// The stored theme stays "dark" in the appearance sheet; the OLED setting
+// only decides which palette it renders as.
+const themeKey = () =>
+  readerSettings.theme === "dark" && document.documentElement.dataset.theme === "black"
+    ? "black"
+    : (readerSettings.theme in THEMES ? readerSettings.theme : "dark");
+
 const bookCss = () => {
   const s = readerSettings;
-  const t = THEMES[s.theme] || THEMES.dark;
+  const t = THEMES[themeKey()] || THEMES.dark;
   const css = [
     // --theme-bg-color is what the paginator paints around the columns;
     // without it the frame kept the colour the section loaded with
@@ -105,8 +112,8 @@ let appThemeColor = null; // restored when the reader closes
 
 const applyStyles = () => {
   const s = readerSettings;
-  const t = THEMES[s.theme] || THEMES.dark;
-  document.documentElement.dataset.readerTheme = s.theme in THEMES ? s.theme : "dark";
+  const t = THEMES[themeKey()] || THEMES.dark;
+  document.documentElement.dataset.readerTheme = themeKey();
   appThemeColor ??= themeMeta()?.getAttribute("content");
   themeMeta()?.setAttribute("content", t.bg); // iOS status bar matches the page
   $("font-size-val").textContent = s.fontSize + "%";
@@ -1085,6 +1092,7 @@ export const initReader = async () => {
   $("tts-play").addEventListener("click", playTts);
   $("tts-prev").addEventListener("click", () => ttsController.skip(-1));
   $("tts-next").addEventListener("click", () => ttsController.skip(1));
+  $("tts-voice").addEventListener("click", pickVoice);
   $("tts-sleep").addEventListener("click", pickTtsSleep);
   $("tts-rate").addEventListener("click", cycleRate);
   $("tts-stop").addEventListener("click", () => {
@@ -1097,4 +1105,6 @@ export const initReader = async () => {
       : '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
     $("tts-play").setAttribute("aria-label", playing ? "Pause" : "Play");
   };
+  // the app theme changed under an open book — OLED swaps Night for true black
+  window.addEventListener("app-theme-change", () => { if (activeBook) applyStyles(); });
 };

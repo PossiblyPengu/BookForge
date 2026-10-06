@@ -486,6 +486,42 @@ export const ttsController = {
     }, this.eng.kind === "speech" ? 60 : 0);
   },
 
+  /**
+   * Voice or engine changed in settings while reading. Drop everything
+   * synthesised with the old voice and re-voice the current sentence.
+   */
+  async revoice() {
+    const session = this._session;
+    if (!session) return;
+    const c = this._cur ?? this._pausedClip ?? this._resumeAt;
+    this._cur = null;
+    this._pausedClip = null;
+    this._stopWordSync();
+    this._fails = 0;
+    web.stop();
+    player.stop();
+    this.eng = currentEngine();
+    for (const s of [...this._ahead, ...this._history]) s.audio = null;
+    if (c) c.audio = null;
+    if (this.eng.kind === "audio" && !this.eng.ready()) {
+      this._status("Loading voice…");
+      try { await this.eng.ensure((p) => this._downloadProgress(p)); }
+      catch (err) {
+        console.warn("neural voice failed to load, using device voice", err);
+        toast("Neural voice couldn't load — using device voice", { error: true });
+        this.eng = web;
+      }
+      if (this._session !== session) return;
+    }
+    if (!this.playing) { this._resumeAt = c; return; }
+    for (const s of this._ahead) this._prepare(s);
+    // Chrome drops a speak() issued in the same tick as cancel()
+    setTimeout(() => {
+      if (this._session !== session || this._cur) return;
+      if (c) this._voice(c, session); else this._next(session);
+    }, 60);
+  },
+
   /** Change speed. Audio clips speed up mid-sentence; Web Speech from the next one. */
   setRate(rate) {
     settings.rate = rate;

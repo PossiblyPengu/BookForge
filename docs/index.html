@@ -152,7 +152,12 @@
                   <button type="button" data-val="dark">Dark</button>
                 </div>
               </div>
+              <button type="button" class="list-row list-row-btn" id="set-oled">
+                <span class="row-label"><span class="row-icon" style="--ic:#1c1c1e"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg></span>True black (OLED)</span>
+                <span class="list-value" id="set-oled-val">Off</span>
+              </button>
             </div>
+            <p class="list-group-note">Pure black backgrounds switch OLED pixels off, which saves battery on iPhone. Applies when the app is dark; the reader's Night theme becomes true black too.</p>
           </div>
           <div class="list-group">
             <p class="list-group-label">Read Aloud</p>
@@ -307,6 +312,9 @@
             </button>
             <span class="tts-status" id="tts-status">Read aloud</span>
             <button type="button" class="tts-chip" id="tts-rate" aria-label="Reading speed">1×</button>
+            <button type="button" class="nav-btn" id="tts-voice" aria-label="Voice">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg>
+            </button>
             <button type="button" class="nav-btn" id="tts-sleep" aria-label="Sleep timer">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
             </button>

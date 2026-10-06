@@ -308,6 +308,7 @@ export const pickVoice = async () => {
     // first read-aloud — and keep it
     if (engineId() === "piper" && !(await piperStored()).has(val)) await saveVoice(val);
     else toast("Voice updated");
+    ttsController.revoice();
     onSavedChange();
   }, { search: true, note, onClose: () => { stopPreview(); onSavedChange(); } });
 };

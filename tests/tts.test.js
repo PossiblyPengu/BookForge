@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { extractBlocks } from "../docs/js/util.js";
-import { chunk } from "../docs/js/tts.js";
+import { chunk, ttsController } from "../docs/js/tts.js";
+import { web } from "../docs/js/tts-engines.js";
 
 // ---------------------------------------------------------------------------
 // Minimal DOM stand-in. vitest runs in node here, and extractBlocks only
@@ -152,5 +153,35 @@ describe("chunk — sentence boundaries", () => {
     const out = chunk(`${a}, ${b}; ${b}.`, 240);
     expect(out[0].endsWith(",") || out[0].endsWith(";")).toBe(true);
     for (const c of out) expect(c.length).toBeLessThanOrEqual(240);
+  });
+});
+
+describe("ttsController.revoice", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    ttsController.stop();
+  });
+
+  it("re-voices the current sentence instead of advancing", async () => {
+    vi.useFakeTimers();
+    // no DOM here — the status line writes into #tts-status
+    vi.spyOn(ttsController, "_status").mockImplementation(() => {});
+    const stop = vi.spyOn(web, "stop").mockImplementation(() => {});
+    const speak = vi.spyOn(web, "speak").mockImplementation(() => {});
+    const session = {};
+    const cur = { text: "Same sentence.", i: 0, block: {} };
+    const next = { text: "Next one.", i: 1, block: {} };
+    Object.assign(ttsController, {
+      _session: session, playing: true, _src: null,
+      _cur: cur, _ahead: [next], _history: [cur], _fails: 2,
+    });
+    await ttsController.revoice();
+    expect(stop).toHaveBeenCalled();
+    expect(ttsController._cur).toBeNull();
+    expect(ttsController._fails).toBe(0);
+    vi.advanceTimersByTime(80);
+    expect(speak).toHaveBeenCalledWith("Same sentence.", expect.any(Function), expect.any(Function));
+    expect(ttsController._cur).toBe(cur); // the same sentence again, not _ahead's
   });
 });

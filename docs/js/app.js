@@ -26,15 +26,19 @@ import { VERSION, BUILD } from "./version.js";
 // Theme
 // ---------------------------------------------------------------------------
 
+let oledOn = false;
 const applyTheme = (mode) => {
   const dark = mode === "dark" ||
     (mode === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  const theme = !dark ? "light" : oledOn ? "black" : "dark";
+  document.documentElement.dataset.theme = theme;
   document.querySelector('meta[name="theme-color"]')
-    ?.setAttribute("content", dark ? "#111110" : "#f2f2f0");
+    ?.setAttribute("content", { light: "#f2f2f0", dark: "#111110", black: "#000000" }[theme]);
+  window.dispatchEvent(new Event("app-theme-change"));
 };
 
 const initTheme = async () => {
+  oledOn = await kvGet("app-oled", false);
   const mode = await kvGet("app-theme", "auto");
   applyTheme(mode);
   window.matchMedia("(prefers-color-scheme: dark)")
@@ -48,6 +52,16 @@ const initTheme = async () => {
       await kvSet("app-theme", b.dataset.val);
       applyTheme(b.dataset.val);
     });
+  });
+
+  const oledVal = $("set-oled-val");
+  const showOled = () => { oledVal.textContent = oledOn ? "On" : "Off"; };
+  showOled();
+  $("set-oled").addEventListener("click", async () => {
+    oledOn = !oledOn;
+    await kvSet("app-oled", oledOn);
+    showOled();
+    applyTheme(await kvGet("app-theme", "auto"));
   });
 };
 
