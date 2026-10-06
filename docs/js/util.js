@@ -174,9 +174,35 @@ export const coverFor = (book, { lazy = false } = {}) => {
   const img = document.createElement("img");
   img.src = url;
   img.alt = "";
+  img.decoding = "async";
   if (lazy) img.loading = "lazy";
   return img;
 };
+
+/**
+ * Covers come out of EPUBs at print size — megabytes that every grid card
+ * decodes in full. Cap them at 900px tall (plenty for the detail sheet and
+ * player) as JPEG. Returns the original when it's already small or the
+ * platform can't resize.
+ */
+export const shrinkCover = async (blob) => {
+  if (!blob || blob.size < 150_000 || !globalThis.createImageBitmap || !globalThis.document) return blob;
+  try {
+    const bmp = await globalThis.createImageBitmap(blob);
+    const { width, height } = bmp;
+    if (height <= 900 && width <= 900) { bmp.close?.(); return blob; }
+    const scale = 900 / Math.max(width, height);
+    const c = document.createElement("canvas");
+    c.width = Math.round(width * scale);
+    c.height = Math.round(height * scale);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close?.();
+    const out = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.86));
+    return out && out.size < blob.size ? out : blob;
+  } catch { return blob; }
+};
+
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Replace `el`'s contents with the book's cover. */
 export const fillCover = (el, book, opts) => {

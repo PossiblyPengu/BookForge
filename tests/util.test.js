@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   debounce, findAllText, excerptAround, findText, fmtDuration, fmtBytes,
-  fmtLength, cleanSearchExcerpt,
+  fmtLength, cleanSearchExcerpt, shrinkCover,
 } from "../docs/js/util.js";
 
 describe("debounce", () => {
@@ -147,5 +147,18 @@ describe("cleanSearchExcerpt", () => {
   it("leaves clean context and missing fields alone", () => {
     expect(cleanSearchExcerpt({ match: "fox" })).toEqual({ before: "", match: "fox", after: "" });
     expect(cleanSearchExcerpt({ pre: "once upon", post: "the end" }).before).toBe("once upon");
+  });
+});
+
+describe("shrinkCover", () => {
+  it("returns the same blob where createImageBitmap doesn't exist (node)", async () => {
+    const blob = new Blob([new Uint8Array(200_000)], { type: "image/png" });
+    expect(await shrinkCover(blob)).toBe(blob);
+  });
+
+  it("returns small blobs untouched", async () => {
+    const blob = new Blob([new Uint8Array(10_000)], { type: "image/png" });
+    expect(await shrinkCover(blob)).toBe(blob);
+    expect(await shrinkCover(null)).toBe(null);
   });
 });

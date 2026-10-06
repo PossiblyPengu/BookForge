@@ -890,6 +890,24 @@ const testFn = async (withPiper) => {
         `book with missing payload is skipped → restored=${res.books} skipped=${res.skipped}`);
     }
 
+    // covers cap at 900px tall — a noise PNG (uncompressible, >150KB) must shrink
+    {
+      const { shrinkCover } = await import("./js/util.js");
+      const c = document.createElement("canvas");
+      c.width = 1800; c.height = 2400;
+      const g = c.getContext("2d");
+      const img = g.createImageData(1800, 2400);
+      for (let i = 0; i < img.data.length; i++) img.data[i] = Math.floor(Math.random() * 256);
+      g.putImageData(img, 0, 0);
+      const src = await new Promise((r) => c.toBlob(r, "image/png"));
+      const out = await shrinkCover(src);
+      const bmp = await globalThis.createImageBitmap(out);
+      const h = bmp.height, w = bmp.width;
+      bmp.close?.();
+      log(h <= 900 && h > 0 && out.type === "image/jpeg",
+        `shrinkCover caps a 1800x2400 PNG → ${w}x${h} ${out.type} ${out.size}b`);
+    }
+
     // optional: neural TTS — downloads ~60MB voice model on first run
     if (withPiper) {
       const mod = await import("./vendor/piper/piper-tts-web.js");

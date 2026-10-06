@@ -26,6 +26,9 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --tabbar-h: calc(49px + var(--safe-bottom));
+  /* iOS 26 standalone: viewport shorter than the screen — js/viewport.js
+     measures the strip and bottom bars grow into it */
+  --chin: 0px;
 }
 
 [data-theme="light"] {
@@ -73,6 +76,7 @@
    empty library. Per-element [hidden] rules below are now redundant. */
 [hidden] { display: none !important; }
 
+html { background: var(--bg); } /* any uncovered strip (the chin) is the app colour */
 html, body {
   margin: 0;
   height: 100%;
@@ -210,14 +214,23 @@ input, textarea { font: inherit; color: inherit; }
   background: var(--bg);
   z-index: 50;
 }
+/* the overlay ends at the (short) viewport — paint the chin in its colour */
+.view-overlay::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 100%;
+  height: var(--chin);
+  background: inherit;
+  pointer-events: none;
+}
 
 /* ---------- Tab bar ---------- */
 .tab-bar {
   position: fixed;
-  left: 0; right: 0; bottom: 0;
+  left: 0; right: 0; bottom: calc(-1 * var(--chin));
   display: flex;
-  height: var(--tabbar-h);
-  padding-bottom: var(--safe-bottom);
+  height: calc(var(--tabbar-h) + var(--chin));
+  padding-bottom: calc(var(--safe-bottom) + var(--chin));
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
   background: var(--bar-bg);
@@ -469,7 +482,13 @@ input, textarea { font: inherit; color: inherit; }
   .gen-cover-mono { display: block; }
 }
 
-.book-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.book-card {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  /* cards below the fold skip layout/paint entirely; ~220px is one card's
+     height (110px column × 1.5 cover + text rows) so scroll size stays right */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
+}
 .book-cover {
   position: relative;
   aspect-ratio: 2 / 3;
@@ -758,12 +777,12 @@ input, textarea { font: inherit; color: inherit; }
 .sheet-overlay[hidden] { display: none; }
 .sheet {
   position: fixed;
-  left: 0; right: 0; bottom: 0;
+  left: 0; right: 0; bottom: calc(-1 * var(--chin));
   max-height: 82dvh;
   background: var(--bg-sheet);
   border-radius: 14px 14px 0 0;
   z-index: 95;
-  padding-bottom: calc(var(--safe-bottom) + 12px);
+  padding-bottom: calc(var(--safe-bottom) + 12px + var(--chin));
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   box-shadow: 0 -8px 40px rgba(0,0,0,0.5);
@@ -1088,8 +1107,8 @@ input, textarea { font: inherit; color: inherit; }
   border-bottom: 0.5px solid var(--separator);
 }
 #view-reader .reader-bottom {
-  bottom: 0;
-  padding-bottom: var(--safe-bottom);
+  bottom: calc(-1 * var(--chin));
+  padding-bottom: calc(var(--safe-bottom) + var(--chin));
   border-top: 0.5px solid var(--separator);
 }
 #view-reader.chrome-hidden .reader-bar { transform: translateY(-110%); opacity: 0; pointer-events: none; }
@@ -1582,7 +1601,7 @@ input, textarea { font: inherit; color: inherit; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 12px 28px calc(var(--safe-bottom) + 20px);
+  padding: 12px 28px calc(var(--safe-bottom) + var(--chin) + 20px);
   overflow-y: auto;
 }
 .player-cover {

@@ -9,7 +9,7 @@
 
 import { detectFormat, AUDIO_EXTS, TEXT_EXTS, FOLIATE_EXTS } from "./detect.js";
 import { putBook, putFile, getBook } from "./db.js";
-import { uid, toast, dropCoverUrl } from "./util.js";
+import { uid, toast, dropCoverUrl, shrinkCover } from "./util.js";
 import { inferBook, extractSortKey } from "./book-parser.js";
 import { searchMetadata, fetchCoverBlob, metaConfident } from "./metadata.js";
 import { cbrToCbz } from "./cbr.js";
@@ -38,7 +38,7 @@ const parseEbook = async (file, format) => {
   const book = await makeBook(file); // throws UnsupportedTypeError on failure
   const m = book.metadata || {};
   let coverBlob = null;
-  try { coverBlob = (await book.getCover?.()) || null; } catch { /* no cover */ }
+  try { coverBlob = await shrinkCover((await book.getCover?.()) || null); } catch { /* no cover */ }
   return {
     title: str(m.title),
     author: str(m.author),
@@ -64,7 +64,8 @@ const parsePdf = async (file) => {
   try {
     const page = await doc.getPage(1);
     const viewport = page.getViewport({ scale: 1 });
-    const scale = 320 / viewport.width;
+    // ~card width, but never taller than the 900px cover cap
+    const scale = Math.min(320 / viewport.width, 900 / viewport.height);
     const vp = page.getViewport({ scale });
     const canvas = document.createElement("canvas");
     canvas.width = vp.width;
@@ -112,7 +113,7 @@ const parseAudioFile = async (file) => {
       .map((ch) => ({ title: ch.title || null, start: ch.startTime ?? ch.start ?? null }))
       .filter((ch) => ch.start != null)
       .sort((a, b) => a.start - b.start),
-    coverBlob: pic ? new Blob([pic.data], { type: pic.format || "image/jpeg" }) : null,
+    coverBlob: pic ? await shrinkCover(new Blob([pic.data], { type: pic.format || "image/jpeg" })) : null,
   };
 };
 

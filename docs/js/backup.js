@@ -16,7 +16,7 @@
  */
 
 import { allBooks, allFiles, allKv, putBook, putFile, kvSet } from "./db.js";
-import { exportBlob, toast, dropCoverUrl } from "./util.js";
+import { exportBlob, toast, dropCoverUrl, shrinkCover } from "./util.js";
 import { writeZip, readZip } from "./zip.js";
 
 const pct = (done, total) => (total ? Math.min(100, Math.floor((done / total) * 100)) : 100);
@@ -118,7 +118,7 @@ export const restoreBackup = async (file, onMsg = () => {}) => {
     const book = { ...rec };
     delete book.hasCover;
     if (coverEntry) {
-      book.coverBlob = new Blob([await coverEntry.blob()]);
+      book.coverBlob = await shrinkCover(new Blob([await coverEntry.blob()]));
       dropCoverUrl(rec.id); // an existing same-id book's cached URL is stale now
     }
     await putBook(book);

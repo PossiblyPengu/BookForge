@@ -5,7 +5,7 @@
 
 import {
   $, toast, openSheet, closeSheet, listSheet, dropCoverUrl, fmtBytes, fmtLength,
-  fmtDuration, coverFor, fillCover,
+  fmtDuration, coverFor, fillCover, shrinkCover, sleep,
 } from "./util.js";
 import { allBooks, getBook, putBook, deleteBook, kvGet, kvSet } from "./db.js";
 import { importFiles } from "./importer.js";
@@ -69,6 +69,30 @@ const applyView = () => {
 export const refreshLibrary = async () => {
   books = await allBooks();
   renderGrid();
+};
+
+/**
+ * One-time pass for libraries built before covers were capped at import:
+ * shrink anything print-sized in place, off the boot path. The flag flips
+ * even when nothing needed it so the scan never runs twice.
+ */
+export const shrinkOversizedCovers = async () => {
+  if (await kvGet("covers-shrunk", false)) return;
+  let changed = false;
+  for (const b of books.filter((x) => x.coverBlob?.size > 300_000)) {
+    // deleted mid-pass → leave it deleted (same guard as the metadata flow)
+    const cur = await getBook(b.id);
+    if (!cur || !cur.coverBlob) continue;
+    const shrunk = await shrinkCover(cur.coverBlob);
+    if (shrunk === cur.coverBlob) continue;
+    cur.coverBlob = shrunk;
+    await putBook(cur);
+    dropCoverUrl(cur.id);
+    changed = true;
+    await sleep(30);
+  }
+  if (changed) await refreshLibrary();
+  await kvSet("covers-shrunk", true);
 };
 
 export const pickSort = () =>

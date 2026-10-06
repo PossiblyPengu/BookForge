@@ -10,7 +10,7 @@ import { kvGet, kvSet, storageEstimate, orphanedFiles, deleteFiles } from "./db.
 import {
   initLibrary, refreshLibrary, wireImportUI, initDetail, initEditSheet,
   checkSharedFiles, wireFileHandler, initContinue, initSelect, isSelecting,
-  resumeBook,
+  resumeBook, shrinkOversizedCovers,
 } from "./library.js";
 import { initReader, openReader } from "./reader.js";
 import { initPlayer, openPlayer, playerState, reopenPlayer, closePlayer } from "./player.js";
@@ -606,6 +606,11 @@ const boot = async () => {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") updateMini();
   });
+
+  // older libraries can hold print-size covers — shrink them once, off-path
+  setTimeout(() => {
+    shrinkOversizedCovers().catch((err) => console.warn("cover shrink pass failed", err));
+  }, 2000);
 };
 
 boot().catch((err) => {

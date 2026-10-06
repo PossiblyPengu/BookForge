@@ -8,6 +8,7 @@
  */
 
 import { kvGet } from "./db.js";
+import { shrinkCover } from "./util.js";
 
 const GB_KEY = ""; // Google Books works keyless at low volume
 const UA_TIMEOUT = 12000;
@@ -111,7 +112,7 @@ export const fetchCoverBlob = async (url) => {
     const res = await fetch(url);
     if (!res.ok) return null;
     const blob = await res.blob();
-    return blob.size > 500 && blob.type.startsWith("image/") ? blob : null;
+    return blob.size > 500 && blob.type.startsWith("image/") ? shrinkCover(blob) : null;
   } catch {
     return null;
   }

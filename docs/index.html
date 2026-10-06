@@ -6,6 +6,27 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' blob: data: https://covers.openlibrary.org https://books.google.com https://*.googleapis.com; font-src 'self' blob: data:; connect-src 'self' https://www.googleapis.com https://openlibrary.org https://covers.openlibrary.org https://books.google.com https://huggingface.co https://*.hf.co blob: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' blob:; base-uri 'self'; object-src 'none'; form-action 'self';" />
     <title>Pageturner</title>
     <link rel="stylesheet" href="css/main.css" />
+    <link rel="modulepreload" href="js/version.js" />
+    <link rel="modulepreload" href="js/util.js" />
+    <link rel="modulepreload" href="js/db.js" />
+    <link rel="modulepreload" href="js/audio-focus.js" />
+    <link rel="modulepreload" href="js/detect.js" />
+    <link rel="modulepreload" href="js/book-parser.js" />
+    <link rel="modulepreload" href="js/zip.js" />
+    <link rel="modulepreload" href="js/tts-engines.js" />
+    <link rel="modulepreload" href="js/metadata.js" />
+    <link rel="modulepreload" href="js/cbr.js" />
+    <link rel="modulepreload" href="js/tts-foliate.js" />
+    <link rel="modulepreload" href="js/reader-text.js" />
+    <link rel="modulepreload" href="js/reader-pdf.js" />
+    <link rel="modulepreload" href="js/tts.js" />
+    <link rel="modulepreload" href="js/backup.js" />
+    <link rel="modulepreload" href="js/tts-voices.js" />
+    <link rel="modulepreload" href="js/importer.js" />
+    <link rel="modulepreload" href="js/player.js" />
+    <link rel="modulepreload" href="js/reader.js" />
+    <link rel="modulepreload" href="js/library.js" />
+    <link rel="modulepreload" href="js/app.js" />
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
@@ -59,6 +80,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="format-detection" content="telephone=no" />
+    <script src="js/viewport.js"></script>
     <script src="js/sw-register.js"></script>
   </head>
   <body>
