@@ -4,4 +4,4 @@
  */
 
 export const VERSION = "2.7.0";
-export const BUILD = 51;
+export const BUILD = 52;

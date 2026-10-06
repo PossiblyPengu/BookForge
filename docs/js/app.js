@@ -433,6 +433,18 @@ const initSettings = async () => {
       $("set-version").textContent = `${VERSION} (build ${served} → ${BUILD})`;
   }).catch(() => {});
 
+  // Layout diagnostics for the iOS standalone viewport bug — only shown when
+  // it could matter, so we can see what the device measured.
+  if (navigator.standalone || window.matchMedia("(display-mode: standalone)").matches) {
+    const el = $("set-version");
+    const show = () => {
+      const base = el.textContent.replace(/ · ih.*$/, "");
+      el.textContent = `${base} · ih ${window.innerHeight} sh ${window.screen.height} chin ${getComputedStyle(document.documentElement).getPropertyValue("--chin").trim()}`;
+    };
+    show();
+    setTimeout(show, 1600);
+  }
+
   await showStorageHealth();
 
   // library backup / restore
