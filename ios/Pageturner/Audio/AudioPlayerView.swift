@@ -54,10 +54,28 @@ struct AudioPlayerView: View {
                     .lineLimit(1)
             }
             if player.trackCount > 1 {
-                Text("Track \(player.trackIndex + 1) of \(player.trackCount)")
+                Menu {
+                    ForEach(Array(player.trackNames.enumerated()), id: \.offset) { i, name in
+                        Button { player.goToTrack(i) } label: {
+                            HStack {
+                                Text(name).lineLimit(1)
+                                if i == player.trackIndex {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(player.trackNames[safe: player.trackIndex]
+                            ?? "Track \(player.trackIndex + 1) of \(player.trackCount)")
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2)
+                    }
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 2)
+                }
             }
 
             Spacer()
@@ -149,5 +167,11 @@ struct AudioPlayerView: View {
         return h > 0
             ? String(format: "%d:%02d:%02d", h, m, r)
             : String(format: "%d:%02d", m, r)
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

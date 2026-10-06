@@ -36,6 +36,9 @@ struct Book: Identifiable, Codable, Hashable {
     var fileName: String
     /// All tracks, in play order. Equals `[fileName]` for single-file books.
     var fileNames: [String] = []
+    /// Original track display names (audiobooks import as `<id>-<n>.<ext>`,
+    /// so the source basenames are kept here for the chapter picker).
+    var trackTitles: [String] = []
     var addedAt: Date
     var lastOpenedAt: Date?
     /// Reading position, as a Readium `Locator` in JSON.
@@ -76,14 +79,21 @@ extension Book {
         title = try c.decode(String.self, forKey: .title)
         author = try c.decode(String.self, forKey: .author)
         fileName = try c.decode(String.self, forKey: .fileName)
-        addedAt = try c.decode(Date.self, forKey: .addedAt)
-        lastOpenedAt = try c.decodeIfPresent(Date.self, forKey: .lastOpenedAt)
+        // backups interoperate with the web build, which stores ms-since-1970
+        // — seconds now ≈ 1.7e9, ms ≈ 1.7e12, so 1e11 cleanly separates them
+        func date(_ key: CodingKeys) -> Date? {
+            guard let raw = try? c.decodeIfPresent(Double.self, forKey: key) else { return nil }
+            return Date(timeIntervalSince1970: raw > 1e11 ? raw / 1000 : raw)
+        }
+        addedAt = date(.addedAt) ?? Date()
+        lastOpenedAt = date(.lastOpenedAt)
         locatorJSON = try c.decodeIfPresent(String.self, forKey: .locatorJSON)
         audioPosition = try c.decodeIfPresent(TimeInterval.self, forKey: .audioPosition)
         progression = try c.decodeIfPresent(Double.self, forKey: .progression)
         bookmarks = try c.decodeIfPresent([Bookmark].self, forKey: .bookmarks) ?? []
         highlights = try c.decodeIfPresent([Highlight].self, forKey: .highlights) ?? []
         fileNames = try c.decodeIfPresent([String].self, forKey: .fileNames) ?? [fileName]
+        trackTitles = try c.decodeIfPresent([String].self, forKey: .trackTitles) ?? []
     }
 }
 
@@ -128,8 +138,9 @@ final class LibraryStore: ObservableObject {
 
     // MARK: - Import
 
-    /// Audio files in one batch are treated as one audiobook (natural-sorted
-    /// so "ch2" comes before "ch10"); ebooks import one per file.
+    /// Audio files from one folder become one audiobook (natural-sorted so
+    /// "ch2" comes before "ch10"); different folders become separate books.
+    /// Ebooks import one per file.
     func importFiles(_ urls: [URL]) async {
         importing = true
         defer { importing = false }
@@ -144,9 +155,12 @@ final class LibraryStore: ObservableObject {
                 }
             }
         }
-        if !audio.isEmpty {
-            do { try await importAudiobook(audio) } catch {
-                failures.append("\(audio.count) audio files: \(error.localizedDescription)")
+        // group audio by containing folder — a multi-album selection must
+        // not collapse into one book
+        let groups = Dictionary(grouping: audio) { $0.deletingLastPathComponent().path }
+        for dir in groups.keys.sorted() {
+            do { try await importAudiobook(groups[dir] ?? []) } catch {
+                failures.append("\(groups[dir]?.count ?? 0) audio files: \(error.localizedDescription)")
             }
         }
         if !failures.isEmpty { lastError = failures.joined(separator: "\n") }
@@ -183,20 +197,24 @@ final class LibraryStore: ObservableObject {
             fileNames: fileNames,
             addedAt: Date()
         )
-        // Embedded metadata beats the filename; the shared-directory name
-        // beats the first track's name when everything came from one folder.
+        book.trackTitles = sorted.map { $0.deletingPathExtension().lastPathComponent }
+        // Title priority: album metadata → shared folder name → track title →
+        // filename. Track-1 title is often a chapter name ("Chapter 1"), which
+        // is worse than the folder the files came from.
         let asset = AVURLAsset(url: fileURL(for: book))
         let metadata = (try? await asset.load(.metadata)) ?? []
         func meta(_ key: AVMetadataKey) -> AVMetadataItem? {
             metadata.first { $0.commonKey == key }
         }
-        if let name = meta(.commonKeyTitle)?.stringValue, !name.isEmpty {
+        let dirs = Set(sorted.map { $0.deletingLastPathComponent().path })
+        let dir = sorted[0].deletingLastPathComponent().lastPathComponent
+        let dirTitle = dirs.count == 1 && !dir.isEmpty && dir != "Inbox" && dir != "Documents" ? dir : nil
+        if let album = meta(.commonKeyAlbumName)?.stringValue, !album.isEmpty {
+            book.title = album
+        } else if let dirTitle {
+            book.title = dirTitle
+        } else if let name = meta(.commonKeyTitle)?.stringValue, !name.isEmpty {
             book.title = name
-        } else {
-            let dirs = Set(sorted.map { $0.deletingLastPathComponent().path })
-            let dir = sorted[0].deletingLastPathComponent().lastPathComponent
-            // "Inbox" is where share-sheet saves land — a useless title
-            if dirs.count == 1, !dir.isEmpty, dir != "Inbox", dir != "Documents" { book.title = dir }
         }
         if let name = meta(.commonKeyArtist)?.stringValue {
             book.author = name

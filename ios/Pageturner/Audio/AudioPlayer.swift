@@ -11,8 +11,11 @@ final class AudioPlayer: ObservableObject {
     @Published private(set) var position: TimeInterval = 0   // seconds from book start
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var trackIndex = 0
-    @Published var rate: Float = 1.0 {
-        didSet { if isPlaying { player?.rate = rate } }
+    @Published var rate: Float {
+        didSet {
+            if isPlaying { player?.rate = rate }
+            UserDefaults.standard.set(Double(rate), forKey: "audioPlaybackRate")
+        }
     }
     /// Seconds left on the sleep timer, nil when unset.
     @Published private(set) var sleepRemaining: TimeInterval?
@@ -35,6 +38,8 @@ final class AudioPlayer: ObservableObject {
         self.book = book
         self.library = library
         urls = library.fileURLs(for: book)
+        let saved = UserDefaults.standard.double(forKey: "audioPlaybackRate")
+        rate = saved > 0 ? Float(saved) : 1.0
     }
 
     var trackCount: Int { urls.count }
@@ -93,7 +98,7 @@ final class AudioPlayer: ObservableObject {
             return
         }
         load(track: next)
-        if isPlaying { player?.play() }
+        if isPlaying { resumePlayback() }
     }
 
     // MARK: - Controls
@@ -102,12 +107,17 @@ final class AudioPlayer: ObservableObject {
 
     func play() {
         guard player != nil else { return }
-        player?.play()
-        player?.rate = rate
+        resumePlayback()
         isPlaying = true
         startTimeObserver()
         MPNowPlayingInfoCenter.default().playbackState = .playing
         updateNowPlaying()
+    }
+
+    /// `play()` resets rate to `defaultRate` — reapply the user's speed.
+    private func resumePlayback() {
+        player?.play()
+        player?.rate = rate
     }
 
     func pause() {
@@ -135,27 +145,34 @@ final class AudioPlayer: ObservableObject {
         player?.seek(to: CMTime(seconds: local, preferredTimescale: 600),
                      toleranceBefore: .zero, toleranceAfter: .zero)
         position = t
-        if resume { player?.play() }
+        if resume { resumePlayback() }
         updateNowPlaying()
     }
 
     func nextTrack() {
-        if trackIndex + 1 < urls.count {
-            let wasPlaying = isPlaying
-            load(track: trackIndex + 1)
-            if wasPlaying { player?.play() }
-        }
+        goToTrack(trackIndex + 1)
     }
 
     func previousTrack() {
         // restart the track unless we're already at its head
         if position - trackOffsets[trackIndex] > 3 {
             seek(to: trackOffsets[trackIndex], resume: isPlaying)
-        } else if trackIndex > 0 {
-            let wasPlaying = isPlaying
-            load(track: trackIndex - 1)
-            if wasPlaying { player?.play() }
+        } else {
+            goToTrack(trackIndex - 1)
         }
+    }
+
+    /// Jump to a track (chapter picker / next / previous).
+    func goToTrack(_ index: Int) {
+        guard urls.indices.contains(index), index != trackIndex else { return }
+        let wasPlaying = isPlaying
+        load(track: index)
+        if wasPlaying { resumePlayback() }
+    }
+
+    var trackNames: [String] {
+        if book.trackTitles.count == urls.count { return book.trackTitles }
+        return urls.map { $0.deletingPathExtension().lastPathComponent }
     }
 
     // MARK: - Sleep timer

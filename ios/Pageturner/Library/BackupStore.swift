@@ -1,5 +1,6 @@
 import Foundation
 import ReadiumZIPFoundation
+import UniformTypeIdentifiers
 
 /// Export/restore the library as a single zip — same container layout as the
 /// PWA (`data.json` + `files/` + `covers/`), so a backup is portable. iOS
@@ -46,12 +47,29 @@ final class BackupStore {
             library.fileURLs(for: b).map { ($0.lastPathComponent, $0) }
         }
         let covers: [(name: String, url: URL)] = books.map {
-            ($0.id.uuidString + ".jpg", library.coverURL(for: $0))
+            ($0.id.uuidString, library.coverURL(for: $0))
         }
         let bookData = books.compactMap { b -> [String: Any]? in
             guard let d = try? JSONEncoder().encode(b),
-                  let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
+                  var o = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
             else { return nil }
+            // Web-compatible fields so this backup also restores into the
+            // PWA: fileKeys point at the files/ entries, dates become ms,
+            // progress is the {fraction, positionSec} shape the web uses.
+            let names = b.fileNames.isEmpty ? [b.fileName] : b.fileNames
+            o["kind"] = b.isAudio ? "audio" : "book"
+            o["format"] = b.ext.uppercased()
+            o["fileKey"] = b.fileName
+            o["fileKeys"] = names
+            o["hasCover"] = fm.fileExists(atPath: library.coverURL(for: b).path)
+            o["addedAt"] = Int(b.addedAt.timeIntervalSince1970 * 1000)
+            if let lo = b.lastOpenedAt {
+                o["lastOpenedAt"] = Int(lo.timeIntervalSince1970 * 1000)
+            }
+            o["progress"] = [
+                "fraction": b.progression ?? 0,
+                "positionSec": b.audioPosition ?? 0,
+            ]
             return o
         }
         let stamp = ISO8601DateFormatter.string(
@@ -68,7 +86,8 @@ final class BackupStore {
             var coverEntries: [(name: String, url: URL)] = []
             for f in files where fm.fileExists(atPath: f.url.path) {
                 let size = (try? f.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                fileMeta[f.name] = ["name": f.name, "size": size]
+                let mime = UTType(filenameExtension: f.url.pathExtension)?.preferredMIMEType ?? ""
+                fileMeta[f.name] = ["name": f.name, "size": size, "type": mime]
                 entries.append(("files/\(f.name)", f.url))
             }
             for c in covers where fm.fileExists(atPath: c.url.path) {
@@ -192,7 +211,9 @@ final class BackupStore {
             guard let src = staged.files[name] else { throw BackupError.missingPayload }
             try fm.copyItem(at: src, to: booksDir.appendingPathComponent(name))
         }
-        if let cover = staged.covers[book.id.uuidString + ".jpg"] {
+        if let cover = staged.covers[book.id.uuidString]
+            ?? staged.covers[book.id.uuidString + ".jpg"]
+        {
             try? fm.copyItem(at: cover, to: library.coverURL(for: book))
         }
         library.addRestored(book)
@@ -227,7 +248,17 @@ final class BackupStore {
             fileNames: fileNames,
             addedAt: Date()
         )
-        book.progression = rec["progress"] as? Double ?? rec["progression"] as? Double
+        // web stores progress as {fraction, positionSec}; accept a bare
+        // number too in case an older export wrote one
+        if let p = rec["progress"] as? [String: Any] {
+            book.progression = p["fraction"] as? Double
+            book.audioPosition = p["positionSec"] as? Double
+        } else {
+            book.progression = rec["progress"] as? Double
+        }
+        if book.progression == nil {
+            book.progression = rec["progression"] as? Double
+        }
         if let coverID = rec["id"] as? String,
            let cover = staged.covers[coverID] ?? staged.covers[coverID + ".jpg"]
         {
