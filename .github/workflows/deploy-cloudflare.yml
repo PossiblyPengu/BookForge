@@ -27,8 +27,18 @@ jobs:
       - name: Install Wrangler
         run: npm install -g wrangler
 
+      # Secrets can't sit in `if`, so they come through env: no token means a
+      # skipped deploy (we ship with wrangler locally) rather than a red run.
       - name: Deploy to Cloudflare Pages
+        if: env.CLOUDFLARE_API_TOKEN != ''
         run: wrangler pages deploy docs --project-name=pageturner
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Note the skipped deploy
+        if: env.CLOUDFLARE_API_TOKEN == ''
+        run: |
+          echo "CLOUDFLARE_API_TOKEN isn't set — deploy manually: wrangler pages deploy docs --project-name=pageturner" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
