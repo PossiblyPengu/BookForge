@@ -34,6 +34,9 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --tabbar-h: calc(49px + var(--safe-bottom));
+  /* floating pill bar: how much room its top edge takes from the screen
+     bottom — views, toasts and the mini-player clear this, not --tabbar-h */
+  --tab-clearance: calc(var(--safe-bottom) + var(--chin) + 10px + 62px);
   /* iOS 26 standalone: viewport shorter than the screen — js/viewport.js
      measures the strip and bottom bars grow into it */
   --chin: 0px;
@@ -118,7 +121,7 @@ body {
    shelves. Paper and OLED stay flat: it would wash the former and burn power
    on the latter. data-theme="dark" is set before first paint (app.js). */
 :root:not([data-theme="light"]):not([data-theme="black"]) body {
-  background-image: radial-gradient(120% 50% at 50% 0%, rgba(240, 160, 64, 0.035), transparent 60%);
+  background-image: radial-gradient(120% 50% at 50% 0%, rgba(240, 160, 64, 0.05), transparent 60%);
   background-repeat: no-repeat;
 }
 
@@ -247,7 +250,7 @@ input, textarea { font: inherit; color: inherit; }
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: calc(var(--tabbar-h) + 16px);
+  padding-bottom: calc(var(--tab-clearance) + 16px);
 }
 
 .view-overlay {
@@ -269,16 +272,18 @@ input, textarea { font: inherit; color: inherit; }
 /* ---------- Tab bar ---------- */
 .tab-bar {
   position: fixed;
-  left: 0; right: 0; bottom: calc(-1 * var(--chin));
+  left: calc(14px + var(--safe-left));
+  right: calc(14px + var(--safe-right));
+  bottom: calc(var(--safe-bottom) + var(--chin) + 10px);
   display: flex;
-  height: calc(var(--tabbar-h) + var(--chin));
-  padding-bottom: calc(var(--safe-bottom) + var(--chin));
-  padding-left: var(--safe-left);
-  padding-right: var(--safe-right);
+  height: 62px;
+  padding: 0;
   background: var(--bar-bg);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
   backdrop-filter: blur(20px) saturate(1.4);
-  border-top: 0.5px solid var(--separator);
+  border: 0.5px solid var(--separator);
+  border-radius: 22px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 0.5px 0 rgba(255, 255, 255, 0.05);
   z-index: 40;
 }
 .tab-item {
@@ -294,6 +299,7 @@ input, textarea { font: inherit; color: inherit; }
   transition: color 0.2s ease, opacity 0.12s ease-out;
 }
 .tab-item.active { color: var(--accent-ink); }
+.tab-item.active svg { filter: drop-shadow(0 0 7px rgba(240, 160, 64, 0.5)); }
 .tab-item:active { opacity: 0.6; }
 /* a little spring on the icon when a tab becomes active */
 .tab-item.active svg { animation: tab-pop 0.28s cubic-bezier(0.3, 1.45, 0.6, 1); }
@@ -334,8 +340,8 @@ input, textarea { font: inherit; color: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 66px;
+  width: 52px;
+  height: 78px;
   border-radius: 10px;
   overflow: hidden;
   background: var(--fill);
@@ -360,7 +366,7 @@ input, textarea { font: inherit; color: inherit; }
 }
 .continue-title {
   font-family: var(--font-display);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -387,11 +393,12 @@ input, textarea { font: inherit; color: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  background: var(--accent);
+  background: linear-gradient(180deg, #f6ad4f 0%, var(--accent-2) 100%);
   color: var(--on-accent);
+  box-shadow: var(--shadow-lift);
 }
 
 .library-head {
@@ -454,7 +461,7 @@ input, textarea { font: inherit; color: inherit; }
 .select-bar {
   position: fixed;
   left: 0; right: 0;
-  bottom: var(--tabbar-h);
+  bottom: var(--tab-clearance);
   /* above the mini-player (45), which is lifted clear of it below */
   z-index: 46;
   display: flex;
@@ -468,7 +475,7 @@ input, textarea { font: inherit; color: inherit; }
 .select-bar[hidden] { display: none; }
 /* audio keeps playing while books are being ticked — lift the mini-player
    clear of the action bar rather than letting them overlap */
-#app.selecting .mini-player { bottom: calc(var(--tabbar-h) + 60px); }
+#app.selecting .mini-player { bottom: calc(var(--tab-clearance) + 60px); }
 .select-bar-btn {
   flex: 1;
   padding: 9px 6px;
@@ -573,6 +580,18 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--text-3);
   box-shadow: var(--shadow-card), inset 0 0 0 0.5px var(--separator);
 }
+/* a bound-book spine: the left edge darkens and catches a sliver of light,
+   so covers read as objects rather than tiles */
+.book-cover::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 12px;
+  background: linear-gradient(90deg,
+    rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0.14) 55%, transparent 100%);
+  z-index: 1;
+  pointer-events: none;
+}
 /* the cover image paints above the element's own inset hairline, so the
    edge line lives on an overlay that follows the same rounded box */
 .book-cover::after {
@@ -580,8 +599,9 @@ input, textarea { font: inherit; color: inherit; }
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  box-shadow: inset 0 0 0 0.5px var(--separator);
+  box-shadow: inset 0 0 0 0.5px var(--separator), inset 1px 0 0 rgba(255, 255, 255, 0.10);
   pointer-events: none;
+  z-index: 2;
 }
 .book-cover img {
   width: 100%; height: 100%;
@@ -663,7 +683,7 @@ input, textarea { font: inherit; color: inherit; }
 .welcome-icon {
   width: 76px; height: 76px;
   border-radius: 18px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 48px rgba(240, 160, 64, 0.25);
   margin-bottom: 20px;
 }
 .welcome-title {
@@ -1843,7 +1863,7 @@ input, textarea { font: inherit; color: inherit; }
 .mini-player {
   position: fixed;
   left: 8px; right: 8px;
-  bottom: calc(var(--tabbar-h) + 6px);
+  bottom: calc(var(--tab-clearance) + 6px);
   z-index: 45;
   transition: bottom 0.2s ease;
   display: flex;
@@ -1879,7 +1899,7 @@ input, textarea { font: inherit; color: inherit; }
 /* ---------- Toast ---------- */
 .toast {
   position: fixed;
-  bottom: calc(var(--tabbar-h) + 18px);
+  bottom: calc(var(--tab-clearance) + 18px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 200;
@@ -1919,7 +1939,7 @@ input, textarea { font: inherit; color: inherit; }
 .toast-action:active { background: var(--fill); }
 
 /* the update prompt outlives a tap, so keep it clear of the tab bar */
-.toast-update { bottom: calc(var(--tabbar-h) + 18px); }
+.toast-update { bottom: calc(var(--tab-clearance) + 18px); }
 
 #offline-indicator {
   position: fixed;
