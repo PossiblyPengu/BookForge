@@ -46,6 +46,9 @@ final class ReadAloud: NSObject, ObservableObject {
 
     /// Surfaces problems the caller should show (e.g. utterances keep failing).
     var onError: ((String) -> Void)?
+    /// Called when a chosen voice proved unusable and was dropped for the
+    /// automatic one — the caller should clear its persisted voice setting.
+    var onVoiceFallback: (() -> Void)?
 
     static func canSpeak(_ publication: Publication) -> Bool {
         PublicationSpeechSynthesizer.canSpeak(publication: publication)
@@ -246,9 +249,19 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
         // A sentence the engine couldn't speak (e.g. no voice for its
         // language). Carry on — but if everything fails (a missing/broken
         // voice), an unconditional next() silently burned through the whole
-        // book. Three in a row is enough to stop.
+        // book. Three in a row is enough — but before giving up, drop a
+        // chosen voice for the automatic one: iOS lists premium voices that
+        // were never downloaded, and they fail silently. Retrying the same
+        // utterance with the default voice fixes that whole class.
         consecutiveFailures += 1
         if consecutiveFailures >= 3 {
+            if synthesizer.config.voiceIdentifier != nil {
+                synthesizer.config.voiceIdentifier = nil
+                consecutiveFailures = 0
+                onVoiceFallback?()
+                synthesizer.start(from: utterance.locator)
+                return
+            }
             onError?("Read-aloud couldn't speak — the selected voice may not support this book's language.")
             stop()
             return

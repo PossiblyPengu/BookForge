@@ -20,6 +20,7 @@ import { $, toast, chunk } from "./util.js";
 import { registerAudioOwner, claimAudio } from "./audio-focus.js";
 import {
   settings, loadSettings, saveSettings, currentEngine, silentWavUrl, web,
+  markVoiceBroken, unmarkVoiceBroken,
 } from "./tts-engines.js";
 
 export { chunk };
@@ -344,6 +345,7 @@ export const ttsController = {
         s.done = true;
         this._fails = 0;
         this._cur = null;
+        if (this.eng.kind === "speech") unmarkVoiceBroken(settings.voiceURI);
         return this._next(session);
       }
       // Not heard. Never move past words that weren't spoken: retry this
@@ -352,6 +354,24 @@ export const ttsController = {
       s.audio = null;
       if (++this._fails >= 3) {
         this._fails = 0;
+        // A picked voice that refuses every sentence is dead on this
+        // device — iOS lists "premium" voices that were never downloaded,
+        // and speak() with them ends instantly, silently. Retrying can't
+        // help; fall back to the system default and keep going.
+        if (this.eng.kind === "speech" && settings.voiceURI) {
+          const dead = settings.voiceURI;
+          markVoiceBroken(dead);
+          const name = speechSynthesis.getVoices().find((v) => v.voiceURI === dead)?.name;
+          settings.voiceURI = "";
+          saveSettings();
+          toast(
+            `${name ? `“${name}”` : "That voice"} can't play on this device — switched to the default voice`,
+            { error: true, ms: 6000 },
+          );
+          this._cur = null;
+          this._voice(s, session); // same sentence, default voice
+          return;
+        }
         this.pause();
         toast("Read-aloud couldn't play — tap play to try again", { error: true });
         return;

@@ -39,6 +39,30 @@ export const loadSettings = () => (loaded ||= (async () => {
 })());
 export const saveSettings = () => kvSet(SETTINGS_KEY, { ...settings });
 
+/**
+ * Voices that refused every utterance. iOS lists "premium"/enhanced voices
+ * that were never downloaded — picking one produces instant onend events,
+ * no audio. Remembered so the picker can badge them and a fallback can fire
+ * once instead of retrying forever.
+ */
+const BROKEN_KEY = "broken-voices";
+let brokenCache = null;
+export const brokenVoices = async () => {
+  brokenCache ??= new Set(await kvGet(BROKEN_KEY, []));
+  return brokenCache;
+};
+export const markVoiceBroken = (uri) => {
+  if (!uri) return;
+  brokenCache ??= new Set();
+  brokenCache.add(uri);
+  kvSet(BROKEN_KEY, [...brokenCache]).catch(() => {});
+};
+export const unmarkVoiceBroken = (uri) => {
+  if (!uri || !brokenCache?.has(uri)) return;
+  brokenCache.delete(uri);
+  kvSet(BROKEN_KEY, [...brokenCache]).catch(() => {});
+};
+
 /** The engine "auto" stands for on this device. */
 export const autoEngine = () => (isIOS() ? "piper" : "web");
 export const engineId = () => (settings.engine === "auto" ? autoEngine() : settings.engine);

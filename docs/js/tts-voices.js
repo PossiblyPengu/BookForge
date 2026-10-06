@@ -5,7 +5,7 @@
 import { toast, listSheet, fmtBytes, progressPill } from "./util.js";
 import {
   settings, saveSettings, engineId, currentVoice, setCurrentVoice,
-  web, piper, kokoro, KOKORO_VOICES,
+  web, piper, kokoro, KOKORO_VOICES, brokenVoices,
 } from "./tts-engines.js";
 import { ttsController, playClip, stopClip, unlockClip } from "./tts.js";
 
@@ -87,14 +87,16 @@ export const listVoices = async () => {
     }
   }
   const voices = await webVoices();
+  const broken = await brokenVoices();
   return voices.map((v) => ({
     title: v.name,
     sub: [langLabel(v.lang), v.localService ? "On device" : "Online"]
       .filter(Boolean).join(" · "),
-    badge: v.default ? "System" : "",
+    badge: broken.has(v.voiceURI) ? "Unavailable" : (v.default ? "System" : ""),
     checked: v.voiceURI === settings.voiceURI,
     value: v.voiceURI,
-    rank: rankLang(v.lang),
+    // dead voices sink under working ones of the same language tier
+    rank: rankLang(v.lang) + (broken.has(v.voiceURI) ? 10 : 0),
   })).sort(byRelevance);
 };
 

@@ -290,6 +290,12 @@ final class ReaderModel: ObservableObject {
               )
         else { return }
         readAloud.onError = { [weak self] message in self?.notice = message }
+        readAloud.onVoiceFallback = { [weak self] in
+            guard let self else { return }
+            settings.voiceIdentifier = nil
+            settings.save()
+            notice = "That voice can't play — switched to the automatic voice."
+        }
         self.readAloud = readAloud
         readAloud.start()
     }
