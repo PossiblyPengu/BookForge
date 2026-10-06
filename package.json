@@ -10,8 +10,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint docs/js/ docs/sw.js docs/functions/ tests/ scripts/",
-    "lint:fix": "eslint docs/js/ docs/sw.js docs/functions/ tests/ scripts/ --fix",
+    "lint": "eslint docs/js/ docs/sw.js functions/ tests/ scripts/",
+    "lint:fix": "eslint docs/js/ docs/sw.js functions/ tests/ scripts/ --fix",
     "icons": "node scripts/generate-icons.js",
     "vendor": "node scripts/build-vendor.js",
     "smoke": "node scripts/smoke.mjs",
