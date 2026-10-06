@@ -12,7 +12,7 @@ import {
 } from "./util.js";
 import { getFile, putBook, kvGet, kvSet } from "./db.js";
 import { registerAudioOwner, claimAudio } from "./audio-focus.js";
-import { syncProgress } from "./bookmaster.js";
+import { syncProgress, syncSession } from "./bookmaster.js";
 
 const audio = new Audio();
 audio.preload = "auto";
@@ -48,6 +48,41 @@ const savePos = debounce(async () => {
   await putBook(b).catch((err) => console.warn("position save failed", err));
   syncProgress(b);
 }, 2000);
+
+// Where the open stretch of listening began — { fraction, at }, or null when
+// no stretch is running (paused, closed, or the page hid). The "percent" is
+// the book-wide position fraction, like progress reports.
+let bmSessionStart = null;
+
+const currentFraction = () =>
+  player.duration ? Math.min(1, position() / player.duration) : 0;
+
+const beginBookmasterSession = () => {
+  if (player.book && !bmSessionStart)
+    bmSessionStart = { fraction: currentFraction(), at: Date.now() };
+};
+
+/**
+ * The stretch since bmSessionStart becomes a BookMaster session if the book
+ * moved half a percent — a pause before anything played doesn't count. The
+ * stretch ends either way: resumed listening is a new one, so the paused or
+ * hidden gap in between is never counted as listening time and no stretch is
+ * counted twice.
+ */
+const endBookmasterSession = () => {
+  const b = player.book;
+  if (!b || !bmSessionStart) return;
+  const start = bmSessionStart;
+  bmSessionStart = null;
+  const fraction = currentFraction();
+  if ((fraction - start.fraction) * 100 < 0.5) return;
+  syncSession(b, {
+    percentStart: start.fraction * 100,
+    percentEnd: fraction * 100,
+    minutes: (Date.now() - start.at) / 60000,
+    at: Date.now(),
+  });
+};
 
 const position = () =>
   (player.fileStarts[player.fileIndex] || 0) + (audio.currentTime || 0);
@@ -156,6 +191,7 @@ export const openPlayer = async (book, { onClose, onUpdate } = {}) => {
   player.onClose = onClose || (() => {});
   player.onUpdate = onUpdate || (() => {});
   player.book = book;
+  bmSessionStart = { fraction: book.progress?.fraction || 0, at: Date.now() };
   book.lastOpenedAt = Date.now();
   await putBook(book);
 
@@ -168,6 +204,7 @@ export const openPlayer = async (book, { onClose, onUpdate } = {}) => {
       // leave no half-open player behind — a set player.book with empty urls
       // put a stale, unplayable title on the mini-player
       player.book = null;
+      bmSessionStart = null;
       player.onUpdate();
       toast("Audio file missing", { error: true });
       return;
@@ -223,7 +260,10 @@ export const closePlayer = async () => {
   // the position you stopped at was lost.
   savePos();
   savePos.flush();
-  // closing is a forced push — capture the book before player.book clears
+  // closing is a forced push — capture the book before player.book clears —
+  // and a real stretch of listening becomes a session on the tracker
+  endBookmasterSession();
+  bmSessionStart = null;
   syncProgress(player.book, { force: true });
   player.urls.forEach((u) => URL.revokeObjectURL(u));
   player.urls = [];
@@ -362,9 +402,18 @@ export const initPlayer = () => {
   });
 
   audio.addEventListener("timeupdate", () => { updateUI(); savePos(); checkSleep(); });
-  audio.addEventListener("play", () => { claimAudio("audiobook"); updateUI(); });
-  // a pause is a natural checkpoint — force a push past the throttle
-  audio.addEventListener("pause", () => { updateUI(); syncProgress(player.book, { force: true }); });
+  audio.addEventListener("play", () => {
+    claimAudio("audiobook");
+    beginBookmasterSession(); // resumed listening starts a new stretch
+    updateUI();
+  });
+  // a pause is a natural checkpoint — force a push past the throttle, and
+  // call the stretch a session: this pause may be where listening ended
+  audio.addEventListener("pause", () => {
+    updateUI();
+    endBookmasterSession();
+    syncProgress(player.book, { force: true });
+  });
   audio.addEventListener("ratechange", updatePositionState);
   // A decode failure or an evicted blob used to just go quiet mid-book.
   audio.addEventListener("error", () => {
@@ -384,8 +433,14 @@ export const initPlayer = () => {
   registerAudioOwner("audiobook", () => audio.pause());
   if (!sleepInterval) sleepInterval = setInterval(checkSleep, 5000);
   // losing the last two seconds of an audiobook position is worse than for a
-  // book — it's a spot in a narration, not a page
-  onPageHidden(() => savePos.flush());
+  // book — it's a spot in a narration, not a page — and a hidden page may be
+  // the app's last moment, so the stretch counts as a session on the tracker
+  onPageHidden(() => { savePos.flush(); endBookmasterSession(); });
+  // audio can keep playing while the page is hidden — a return starts the
+  // stretch the hide ended
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && !audio.paused) beginBookmasterSession();
+  });
 };
 
 export const playerActive = () => !!player.book;

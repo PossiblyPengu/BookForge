@@ -24,12 +24,15 @@ import { FootnoteHandler } from "../vendor/foliate/footnotes.js";
 import { foliateTts } from "./tts-foliate.js";
 import { ttsController } from "./tts.js";
 import { pickTtsSleep, pickVoice } from "./tts-voices.js";
-import { syncProgress } from "./bookmaster.js";
+import { syncProgress, syncSession } from "./bookmaster.js";
 
 let view = null;          // <foliate-view> instance (ebook kind)
 let activeBook = null;
 let activeRenderer = null; // { getText?(): AsyncIterable<string>, getProgress(), goTo(progress), destroy() }
 let onClose = () => {};
+// Where the open stretch of reading began — { pct, at } — so closing,
+// hiding or pausing can tell BookMaster it was a session.
+let bmSessionStart = null;
 
 const FOLIATE_KIND = "ebook";
 
@@ -143,6 +146,29 @@ const clearReaderTheme = () => {
   delete document.documentElement.dataset.readerTheme;
   if (appThemeColor != null) themeMeta()?.setAttribute("content", appThemeColor);
   appThemeColor = null;
+};
+
+const currentFraction = () =>
+  activeRenderer?.getProgress?.().fraction ?? activeBook?.progress?.fraction ?? 0;
+
+/**
+ * The stretch since bmSessionStart becomes a BookMaster session if the book
+ * moved half a percent — a peek doesn't count. The stretch ends either way:
+ * a hidden stretch that resumes is a new one, so the gap in between is never
+ * counted as reading time and no stretch is counted twice.
+ */
+const endBookmasterSession = () => {
+  if (!activeBook || !bmSessionStart) return;
+  const start = bmSessionStart;
+  bmSessionStart = null;
+  const fraction = currentFraction();
+  if ((fraction - start.pct) * 100 < 0.5) return;
+  syncSession(activeBook, {
+    percentStart: start.pct * 100,
+    percentEnd: fraction * 100,
+    minutes: (Date.now() - start.at) / 60000,
+    at: Date.now(),
+  });
 };
 
 // ---------- progress persistence ----------
@@ -610,6 +636,7 @@ const readerKey = (e) => {
 export const openReader = async (book, hooks = {}) => {
   onClose = hooks.onClose || (() => {});
   activeBook = book;
+  bmSessionStart = { pct: book.progress?.fraction || 0, at: Date.now() };
   book.lastOpenedAt = Date.now();
   await putBook(book);
 
@@ -670,7 +697,10 @@ export const closeReader = async () => {
   clearJumpBack();
   const p = activeRenderer?.getProgress?.();
   if (activeBook && p) { activeBook.progress = p; await putBook(activeBook); }
-  // closing is a forced push — the throttle may have swallowed the last turns
+  // closing is a forced push — the throttle may have swallowed the last
+  // turns — and a real stretch of reading becomes a session on the tracker
+  endBookmasterSession();
+  bmSessionStart = null;
   if (activeBook) syncProgress(activeBook, { force: true });
   if (activeRenderer?.destroy) activeRenderer.destroy();
   activeRenderer = null;
@@ -1104,12 +1134,18 @@ export const initReader = async () => {
   await loadReaderSettings();
   initAppearance();
   // iOS discards backgrounded web apps, so don't leave the page you're on
-  // sitting in a 1.2s debounce
-  onPageHidden(() => saveProgress.flush());
+  // sitting in a 1.2s debounce — and this may be the app's last moment, so
+  // the stretch just read counts as a session on the tracker
+  onPageHidden(() => { saveProgress.flush(); endBookmasterSession(); });
   document.addEventListener("keydown", readerKey);
-  // iOS drops the wake lock when the page backgrounds — ask again on return
+  // iOS drops the wake lock when the page backgrounds — ask again on return;
+  // and the stretch that ended when the page hid starts anew from here
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") keepAwake();
+    if (document.visibilityState !== "visible") return;
+    keepAwake();
+    if (activeBook && !bmSessionStart) {
+      bmSessionStart = { pct: currentFraction(), at: Date.now() };
+    }
   });
   // pinch resizes text on the text reader too; PDFs pan/zoom their own way
   wirePinch($("reader-stage"), () => activeBook?.kind !== "pdf");
