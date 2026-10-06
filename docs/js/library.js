@@ -809,6 +809,8 @@ export const openDetail = async (id) => {
   $("detail-open-btn").textContent = audio
     ? (finished ? "Listen again" : started ? "Continue listening" : "Listen")
     : (finished ? "Read again" : started ? "Continue reading" : "Read");
+  // "Listen" means read-aloud, which only makes sense on non-audio books
+  $("detail-listen-btn").hidden = audio;
 
   const desc = (b.desc || "").trim();
   const d = $("detail-desc");
@@ -940,6 +942,12 @@ export const initDetail = () => {
       await putBook(b);
     }
     onOpenBook(b);
+  });
+  // same door, but opens straight into the read-aloud panel
+  $("detail-listen-btn").addEventListener("click", () => {
+    const b = detailBook;
+    closeSheet();
+    if (b) onOpenBook(b, { listen: true });
   });
   $("detail-desc-more").addEventListener("click", () => {
     $("detail-desc").classList.add("expanded");

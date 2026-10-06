@@ -497,7 +497,10 @@
           </div>
         </div>
 
-        <button type="button" class="btn btn-primary btn-lg" id="detail-open-btn">Read</button>
+        <div class="detail-open-row">
+          <button type="button" class="btn btn-primary btn-lg" id="detail-open-btn">Read</button>
+          <button type="button" class="btn btn-ghost btn-lg" id="detail-listen-btn" hidden>Listen</button>
+        </div>
 
         <div class="book-missing" id="detail-missing" hidden>
           <span>The title or author is missing.</span>
@@ -563,6 +566,43 @@
         <h3 class="define-word" id="define-word"></h3>
         <p class="define-phon" id="define-phon"></p>
         <div class="define-list" id="define-list"></div>
+      </div>
+    </div>
+
+    <div class="sheet" id="sheet-listen" hidden role="dialog" aria-modal="true" aria-labelledby="listen-title">
+      <div class="sheet-grabber"></div>
+      <h3 class="sheet-title" id="listen-title">Listen</h3>
+      <div class="sheet-body">
+        <div class="list-card">
+          <div class="list-row">
+            <span class="row-label"><span class="row-icon" style="--ic:#ff9f0a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg></span>Engine</span>
+            <div class="seg" id="listen-engine">
+              <button type="button" data-val="auto">Auto</button>
+              <button type="button" data-val="web">Device</button>
+              <button type="button" data-val="piper">Neural</button>
+              <button type="button" data-val="kokoro" hidden>HQ</button>
+            </div>
+          </div>
+          <button type="button" class="list-row list-row-btn" id="listen-voice">
+            <span class="row-label"><span class="row-icon" style="--ic:#30b0c7"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M19 8a4 4 0 0 1 0 6"/></svg></span>Voice</span>
+            <span class="list-value list-value-chevron" id="listen-voice-name">…</span>
+          </button>
+          <div class="list-row">
+            <span class="row-label"><span class="row-icon" style="--ic:#34c759"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14l4-4"/><path d="M3.3 17a9 9 0 1 1 17.4 0"/></svg></span>Speed</span>
+            <div class="stepper" role="group" aria-label="Reading speed">
+              <button type="button" id="listen-rate-down" aria-label="Slower">−</button>
+              <span id="listen-rate-val" aria-live="polite">1×</span>
+              <button type="button" id="listen-rate-up" aria-label="Faster">+</button>
+            </div>
+          </div>
+          <button type="button" class="list-row list-row-btn" id="listen-sleep">
+            <span class="row-label"><span class="row-icon" style="--ic:#5e5ce6"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>Sleep timer</span>
+            <span class="list-value list-value-chevron" id="listen-sleep-val">Off</span>
+          </button>
+        </div>
+        <p class="list-group-note">Reads the page on screen aloud and keeps going when the screen locks. Pick a voice and tap ▶ in the list to hear it first.</p>
+        <button type="button" class="btn btn-primary btn-lg" id="listen-start">Start listening</button>
+        <button type="button" class="btn btn-ghost" id="listen-stop" hidden>Stop</button>
       </div>
     </div>
 

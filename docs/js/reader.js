@@ -23,7 +23,8 @@ import { Overlayer } from "../vendor/foliate/overlayer.js";
 import { FootnoteHandler } from "../vendor/foliate/footnotes.js";
 import { foliateTts } from "./tts-foliate.js";
 import { ttsController } from "./tts.js";
-import { pickTtsSleep, pickVoice } from "./tts-voices.js";
+import { pickTtsSleep, pickVoice, voiceLabel } from "./tts-voices.js";
+import { settings as ttsSettings, saveSettings as saveTtsSettings, kokoro } from "./tts-engines.js";
 import { syncProgress, syncSession } from "./bookmaster.js";
 import { recordSession } from "./stats.js";
 import { definable, define } from "./dict.js";
@@ -685,6 +686,8 @@ export const openReader = async (book, hooks = {}) => {
     applyStyles();
     syncBookmarkBtn();
     keepAwake();
+    // "Listen" from the book page lands on the read-aloud panel, book loaded
+    if (hooks.autoListen) openListen();
     // settle into the book: hide the bars once it's on screen, unless a
     // sheet or the read-aloud bar is in the way
     clearTimeout(chromeTimer);
@@ -1137,12 +1140,88 @@ const cycleRate = () => {
 };
 
 // ---------------------------------------------------------------------------
+// Listen sheet — engine, voice, speed and sleep in one place, then Start
+// ---------------------------------------------------------------------------
+
+const syncListenSpeed = () => {
+  $("listen-rate-val").textContent = `${+ttsController.settings.rate.toFixed(2)}×`;
+};
+
+const sleepLabel = () => {
+  const v = ttsController._sleepAt;
+  if (v == null) return "Off";
+  if (v === "chapter") return "End of chapter";
+  return `${Math.max(1, Math.round((v - Date.now()) / 60000))} min`;
+};
+
+const openListen = () => {
+  const eng = $("listen-engine");
+  const hq = eng.querySelector("[data-val=kokoro]");
+  if (hq) hq.hidden = !kokoro.available();
+  for (const b of eng.querySelectorAll("button")) {
+    b.classList.toggle("active", b.dataset.val === ttsSettings.engine);
+  }
+  $("listen-voice-name").textContent = "…";
+  voiceLabel().then((l) => { $("listen-voice-name").textContent = l; });
+  syncListenSpeed();
+  $("listen-sleep-val").textContent = sleepLabel();
+  const live = ttsController._session || ttsController.playing;
+  $("listen-start").textContent = ttsController.playing ? "Pause" : live ? "Resume" : "Start listening";
+  $("listen-stop").hidden = !live;
+  openSheet("sheet-listen");
+};
+
+const initListenSheet = () => {
+  const live = () => ttsController._session || ttsController.playing;
+  for (const b of $("listen-engine").querySelectorAll("button")) {
+    b.addEventListener("click", async () => {
+      ttsSettings.engine = b.dataset.val;
+      await saveTtsSettings();
+      $("listen-voice-name").textContent = "…";
+      $("listen-voice-name").textContent = await voiceLabel();
+      for (const x of $("listen-engine").querySelectorAll("button"))
+        x.classList.toggle("active", x === b);
+      if (live()) ttsController.revoice();
+    });
+  }
+  $("listen-voice").addEventListener("click", () => pickVoice(openListen));
+  const step = (dir) => {
+    const r = ttsController.settings.rate;
+    const i = RATES.findIndex((x) => Math.abs(x - r) < 0.01);
+    const next = RATES[Math.min(RATES.length - 1, Math.max(0, (i < 0 ? 1 : i) + dir))];
+    ttsController.setRate(next);
+    syncListenSpeed();
+    syncRateChip();
+  };
+  $("listen-rate-down").addEventListener("click", () => step(-1));
+  $("listen-rate-up").addEventListener("click", () => step(1));
+  $("listen-sleep").addEventListener("click", () => pickTtsSleep(openListen));
+  $("listen-start").addEventListener("click", () => {
+    closeSheet();
+    $("tts-bar").hidden = false;
+    syncRateChip();
+    if (live()) ttsController.toggle();
+    else ttsController.start(() => activeRenderer, {
+      title: activeBook?.title,
+      author: activeBook?.author,
+      cover: coverUrl(activeBook),
+    });
+  });
+  $("listen-stop").addEventListener("click", () => {
+    closeSheet();
+    ttsController.stop();
+    $("tts-bar").hidden = true;
+  });
+};
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
 export const initReader = async () => {
   await loadReaderSettings();
   initAppearance();
+  initListenSheet();
   // iOS discards backgrounded web apps, so don't leave the page you're on
   // sitting in a 1.2s debounce — and this may be the app's last moment, so
   // the stretch just read counts as a session on the tracker
@@ -1202,7 +1281,12 @@ export const initReader = async () => {
       cover: coverUrl(activeBook),
     });
   };
-  $("reader-tts-btn").addEventListener("click", playTts);
+  // The speaker opens the Listen panel when idle — pick voice/speed first —
+  // and toggles play once a session is live.
+  $("reader-tts-btn").addEventListener("click", () => {
+    if (ttsController._session || ttsController.playing) playTts();
+    else openListen();
+  });
   $("reader-bmk-btn").addEventListener("click", toggleBookmark);
   $("tts-play").addEventListener("click", playTts);
   $("tts-prev").addEventListener("click", () => ttsController.skip(-1));

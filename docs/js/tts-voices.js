@@ -286,7 +286,7 @@ export const openSavedVoices = async () => {
   });
 };
 
-export const pickVoice = async () => {
+export const pickVoice = async (onDone = null) => {
   const items = await listVoices();
   if (!items.length) { toast("No voices available"); return; }
   const note = engineId() === "web"
@@ -310,10 +310,10 @@ export const pickVoice = async () => {
     else toast("Voice updated");
     ttsController.revoice();
     onSavedChange();
-  }, { search: true, note, onClose: () => { stopPreview(); onSavedChange(); } });
+  }, { search: true, note, onClose: () => { stopPreview(); onSavedChange(); onDone?.(); } });
 };
 
-export const pickTtsSleep = () => {
+export const pickTtsSleep = (onDone = null) => {
   const active = ttsController._sleepAt;
   listSheet("Sleep timer", [
     { title: "Off", value: null, checked: active == null },
@@ -326,5 +326,5 @@ export const pickTtsSleep = () => {
   ], (v) => {
     ttsController.setSleep(v);
     toast(v == null ? "Sleep timer off" : v === "chapter" ? "Stops at end of chapter" : `Sleeping in ${v} min`);
-  });
+  }, { onClose: () => onDone?.() });
 };

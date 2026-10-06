@@ -566,11 +566,14 @@ const updateMini = () => {
 // Open a book — reader or player
 // ---------------------------------------------------------------------------
 
-const openBook = async (book) => {
+const openBook = async (book, opts = {}) => {
   if (book.kind === "audio") {
     await openPlayer(book, { onClose: () => { refreshLibrary(); updateMini(); }, onUpdate: updateMini });
   } else {
-    await openReader(book, { onClose: () => { refreshLibrary(); updateMini(); } });
+    await openReader(book, {
+      onClose: () => { refreshLibrary(); updateMini(); },
+      autoListen: opts.listen,
+    });
   }
 };
 

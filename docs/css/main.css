@@ -1272,6 +1272,8 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--text-3);
 }
 
+.detail-open-row { display: flex; gap: 10px; }
+.detail-open-row .btn { flex: 1; }
 .book-progress-block { display: flex; flex-direction: column; gap: 6px; }
 .bp-bar { height: 4px; border-radius: 2px; background: var(--fill-strong); overflow: hidden; }
 .bp-bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width 0.2s ease; }
