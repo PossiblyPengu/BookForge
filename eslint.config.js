@@ -38,6 +38,8 @@ export default [
         navigator: "readonly",
         localStorage: "readonly",
         sessionStorage: "readonly",
+        Notification: "readonly",
+        PushManager: "readonly",
         indexedDB: "readonly",
         AbortController: "readonly",
         URLSearchParams: "readonly",

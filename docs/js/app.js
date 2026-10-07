@@ -25,6 +25,7 @@ import {
   bookmasterLink, bookmasterUnlink, bookmasterUser, finishBookmasterLink, initPresence,
 } from "./bookmaster.js";
 import { bmPull } from "./bm-pull.js";
+import { pushState, enablePush, disablePush } from "./bm-push.js";
 import { VERSION, BUILD } from "./version.js";
 
 // ---------------------------------------------------------------------------
@@ -421,6 +422,37 @@ const initSettings = async () => {
       showBookmaster();
       toast("BookMaster unlinked");
     });
+  });
+
+  // Notifications through the same link — only offered while linked, since
+  // the endpoint is stored against that account. On an iPhone, PushManager
+  // only exists inside the installed app, so the row says so out loud.
+  const pushRow = $("set-push");
+  const pushVal = $("set-push-val");
+  const showPush = async () => {
+    const linked = !!(await bookmasterUser())?.username;
+    pushRow.hidden = !linked;
+    if (!linked) return;
+    const s = await pushState();
+    pushVal.textContent = {
+      on: "On", off: "Off", denied: "Blocked",
+      unsupported: "Needs the installed app",
+      unconfigured: "Not set up", unlinked: "Off",
+    }[s] || "Off";
+  };
+  showPush();
+  pushRow.addEventListener("click", async () => {
+    const s = await pushState();
+    if (s === "on") {
+      await disablePush();
+      toast("Notifications off");
+    } else if (s === "off") {
+      const r = await enablePush();
+      if (r === "on") toast("Notifications on — BookMaster will wake this device");
+      else if (r === "denied") toast("Notifications are blocked — allow them in Settings");
+      else toast("Couldn't turn notifications on");
+    }
+    showPush();
   });
 
   // The build this copy of the app was released as, and — when they differ —

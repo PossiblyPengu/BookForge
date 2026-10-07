@@ -1,6 +1,6 @@
 
-const CACHE_NAME = 'pageturner-cache-v65';
-const RUNTIME_CACHE = 'pageturner-runtime-v65';
+const CACHE_NAME = 'pageturner-cache-v66';
+const RUNTIME_CACHE = 'pageturner-runtime-v66';
 // Engine binaries (ONNX runtime, espeak data, model weights): ~30 MB that
 // rarely changes. Kept across app updates rather than re-downloaded with every
 // build, and re-checked with a cheap conditional request when a new version
@@ -21,6 +21,7 @@ const APP_SHELL = [
   './js/audio-focus.js',
   './js/backup.js',
   './js/bm-pull.js',
+  './js/bm-push.js',
   './js/book-parser.js',
   './js/bookmaster.js',
   './js/cbr.js',
@@ -198,4 +199,60 @@ self.addEventListener('fetch', event => {
       });
     })
   );
+});
+
+// ---------------------------------------------------------------------------
+// Push — BookMaster's pushes carry nothing: a wake-up POST to the endpoint,
+// then this worker asks the bridge what is new *for this endpoint* and says
+// that. The notice text never passes through the push service. The endpoint
+// is the device's whole identity — the worker knows nothing else about you.
+// ---------------------------------------------------------------------------
+
+const APP_NAMES = { bookmaster: 'BookMaster', kindred: 'Kindred', 'quest-log': 'Quest Log' };
+
+self.addEventListener('push', (event) => {
+  event.waitUntil((async () => {
+    let notices = [];
+    try {
+      const sub = await self.registration.pushManager.getSubscription();
+      if (!sub) return; // a push for a subscription that isn't ours
+      const qs = `?endpoint=${encodeURIComponent(sub.endpoint)}`;
+      const res = await fetch(`/api/bookmaster/push-inbox${qs}`, { cache: 'no-store' });
+      if (res.ok) notices = (await res.json()).notices || [];
+    } catch {
+      // Offline — say something rather than nothing.
+    }
+    if (!notices.length) {
+      return self.registration.showNotification('Pageturner', {
+        body: 'Something new for you',
+        tag: 'pageturner',
+        icon: '/icons/icon-192.png',
+        data: { url: '/' },
+      });
+    }
+    await Promise.all(notices.map((n) =>
+      self.registration.showNotification(APP_NAMES[n.app] || 'Pageturner', {
+        body: n.text,
+        tag: n.id || 'pageturner',
+        icon: '/icons/icon-192.png',
+        data: { url: n.url || '/' },
+      })
+    ));
+  })());
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/';
+  event.waitUntil((async () => {
+    // A notice that points at Pageturner focuses the app; one pointing at
+    // BookMaster (a suggestion lives there) opens it in a browser.
+    const own = new URL(url, self.location.origin);
+    if (own.origin === self.location.origin) {
+      const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const here = open.find((c) => c.url.startsWith(self.location.origin));
+      if (here) { await here.focus(); return; }
+    }
+    await self.clients.openWindow(url);
+  })());
 });

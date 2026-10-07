@@ -56,7 +56,6 @@ export const onRequest = async ({ request, env, params }) => {
   const upstreamPath = {
     link: "pageturner/redeem",
     "push-key": "push/key",
-    "push-inbox": "push/inbox",
   }[path] || `pageturner/${path}`;
 
   const url = new URL(`${BM(env)}/api/${upstreamPath}`);
