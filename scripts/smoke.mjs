@@ -811,6 +811,21 @@ const testFn = async (withPiper) => {
       // the up-next chip appears once a book carries the flag
       const chips = [...el("coll-chips").querySelectorAll(".coll-chip")].map((c) => c.textContent);
       log(chips.includes("↑ Next"), `up-next chip appears → [${chips.join(", ")}]`);
+
+      // the shared block appears when the suite has a partner
+      await (await import("./js/db.js")).kvSet("bm-pull", {
+        at: Date.now(), books: [], overview: {},
+        together: { partner: { name: "Kristen", online: false, apps: {}, reading: { title: "Piranesi", percent: 50 } }, nudges: [], notices: [] },
+      });
+      await openDetail(stored.id);
+      await wait(200);
+      const shared = el("detail-shared");
+      const sug = el("detail-suggest");
+      log(!shared.hidden && /Suggest to Kristen/.test(sug.textContent),
+        `shared block shows for a partner → "${sug.textContent}"`);
+      (await import("./js/util.js")).closeSheet();
+      await wait(150);
+      await (await import("./js/db.js")).kvSet("bm-pull", null);
     }
 
     // 12. Selection mode — bulk delete is destructive, so verify it ticks the

@@ -10,7 +10,7 @@
  */
 import { kvGet, kvSet, allBooks, putBook } from "./db.js";
 import { bookmasterUser } from "./bookmaster.js";
-import { listSheet } from "./util.js";
+import { listSheet, toast } from "./util.js";
 
 const PULL_KEY = "bm-pull";
 const TTL = 5 * 60 * 1000;
@@ -86,14 +86,15 @@ export const matchShelfRow = (book, rows) => {
  * enough to persist.
  */
 const mergeRow = (book, row) => {
-  const before = JSON.stringify([book.bmStatus, book.bmRating, book.bmRemotePercent, book.bmUpNext, book.bookmasterId, book.rating]);
+  const before = JSON.stringify([book.bmStatus, book.bmRating, book.bmRemotePercent, book.bmUpNext, book.bookmasterId, book.bmBookId, book.rating]);
   book.bookmasterId = book.bookmasterId || row.userBookId;
+  book.bmBookId = book.bmBookId || row.bookId;
   book.bmStatus = row.status;
   book.bmRemotePercent = typeof row.percent === "number" ? row.percent : null;
   book.bmUpNext = row.upNext != null;
   if (book.rating == null && typeof row.rating === "number") book.rating = row.rating;
   book.bmRating = row.rating ?? null;
-  return JSON.stringify([book.bmStatus, book.bmRating, book.bmRemotePercent, book.bmUpNext, book.bookmasterId, book.rating]) !== before;
+  return JSON.stringify([book.bmStatus, book.bmRating, book.bmRemotePercent, book.bmUpNext, book.bookmasterId, book.bmBookId, book.rating]) !== before;
 };
 
 const getJSON = async (path) => {
@@ -107,19 +108,24 @@ const getJSON = async (path) => {
  * fire-and-forget at startup and still get yesterday's data instantly.
  */
 export const bmPull = async ({ force = false } = {}) => {
-  if (cache === undefined) cache = await kvGet(PULL_KEY, null);
+  // null means "last attempt found nothing" — re-read kv so a link that
+  // happened in another tab (or a seeded record) is seen without a reload.
+  if (!cache) cache = await kvGet(PULL_KEY, null);
   if (!force && cache && Date.now() - cache.at < TTL) return cache;
   const user = await bookmasterUser();
   if (!user?.username) return cache;
 
   try {
     const q = `?username=${encodeURIComponent(user.username)}`;
-    const [library, overview] = await Promise.all([
+    const [library, overview, together] = await Promise.all([
       getJSON(`library${q}`),
       getJSON(`overview${q}`),
+      getJSON(`together${q}`),
     ]);
-    cache = { at: Date.now(), books: library.books || [], overview };
+    const firstPull = !cache;
+    cache = { at: Date.now(), books: library.books || [], overview, together };
     await kvSet(PULL_KEY, cache);
+    await toastNewNotices(together?.notices, firstPull);
 
     for (const b of await allBooks()) {
       const row = matchShelfRow(b, cache.books);
@@ -132,6 +138,77 @@ export const bmPull = async ({ force = false } = {}) => {
 };
 
 export const bmOverview = async () => (await bmPull())?.overview || null;
+
+/** The partner + suggestions + notices half of the pull. */
+export const bmTogether = async () => (await bmPull())?.together || null;
+
+/**
+ * Suite notices — "Alex suggested Dune", a Kindred round waiting — toasted
+ * once each, by id. The very first pull of a link marks everything seen
+ * silently: a backlog of old notices isn't news.
+ */
+const SEEN_KEY = "bm-seen-notices";
+const toastNewNotices = async (notices, firstPull) => {
+  if (!Array.isArray(notices) || !notices.length) return;
+  const seen = new Set(await kvGet(SEEN_KEY, []));
+  const fresh = notices.filter((n) => n?.id && !seen.has(n.id));
+  for (const n of fresh) seen.add(n.id);
+  await kvSet(SEEN_KEY, [...seen].slice(-200));
+  if (firstPull) return;
+  for (const n of fresh.slice(0, 3)) toast(n.text, { ms: 5000 });
+};
+
+/**
+ * A POST through the bridge that isn't worth queueing: comments, suggestions,
+ * heartbeats — conversational, one-off, cheap to retry by hand. Carries the
+ * link's username automatically; returns the parsed body or throws.
+ */
+export const bmPost = async (path, body = {}) => {
+  const user = await bookmasterUser();
+  if (!user?.username) throw new Error("not linked");
+  const res = await fetch(`/api/bookmaster/${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: user.username, ...body }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `BookMaster → ${res.status}`);
+  return data;
+};
+
+/** The fields every book-carrying route resolves by — the pin first. */
+const bookFields = (book) => ({
+  user_book_id: book.bookmasterId || undefined,
+  title: book.title,
+  author: book.author || "",
+  isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
+  open_library_id: book.identifiers?.open_library || undefined,
+});
+
+/**
+ * The shared thread on this book, gated the way BookMaster gates it — a note
+ * left further on than you are arrives sealed until you reach it (or ask).
+ */
+export const fetchComments = async (book, { reveal = false } = {}) => {
+  const user = await bookmasterUser();
+  if (!user?.username) return { comments: [] };
+  const q = new URLSearchParams({ username: user.username });
+  if (book.bookmasterId) q.set("ub", book.bookmasterId);
+  else { q.set("title", book.title || ""); q.set("author", book.author || ""); }
+  if (reveal) q.set("reveal", "1");
+  return getJSON(`comments?${q}`);
+};
+
+/** A note for whoever else has this book — lands on the shared thread. */
+export const postComment = (book, content) =>
+  bmPost("comment", { ...bookFields(book), content });
+
+/** "Read this next" — offer the book to the other reader. */
+export const suggestBook = (book, note) =>
+  bmPost("nudge", { ...bookFields(book), note: note || undefined });
+
+/** Accept shelves it on your want-to-read; dismiss just clears the offer. */
+export const answerNudge = (id, action) => bmPost("nudge-answer", { id, action });
 
 /** The remote position worth offering for a book, or null. */
 export const remoteResumeFraction = (book) => {

@@ -22,7 +22,7 @@ import {
 import { currentVoice, kokoro, piper } from "./tts-engines.js";
 import { deliverBackup, restoreBackup } from "./backup.js";
 import {
-  bookmasterLink, bookmasterUnlink, bookmasterUser, finishBookmasterLink,
+  bookmasterLink, bookmasterUnlink, bookmasterUser, finishBookmasterLink, initPresence,
 } from "./bookmaster.js";
 import { bmPull } from "./bm-pull.js";
 import { VERSION, BUILD } from "./version.js";
@@ -641,6 +641,9 @@ const boot = async () => {
   // then pull the shelf back down — status, ratings, remote positions —
   // and repaint once the merge lands; a no-op when unlinked
   bmPull().then((c) => { if (c?.books) refreshLibrary(); }).catch(() => {});
+  // and tell the suite where this device is — a beat now, one every 45s,
+  // a "leaving" when the page goes away
+  initPresence();
   await step("stats", initStats);
   await step("settings", initSettings);
   await step("help", initHelp);

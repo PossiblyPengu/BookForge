@@ -13,6 +13,7 @@ import { searchMetadata, fetchCoverBlob, metaConfident } from "./metadata.js";
 import { detectSeries } from "./book-parser.js";
 import { openDriveBrowser, initDrive } from "./gdrive.js";
 import { syncProgress } from "./bookmaster.js";
+import { bmTogether, fetchComments, postComment, suggestBook } from "./bm-pull.js";
 
 let onOpenBook = () => {};
 export const initLibrary = async (openBook) => {
@@ -846,6 +847,7 @@ export const openDetail = async (id) => {
     bmBits.push(`${Math.round(b.bmRemotePercent)}% elsewhere`);
   bm.textContent = bmBits.length ? `BookMaster · ${bmBits.join(" · ")}` : "";
   bm.hidden = !bmBits.length;
+  fillSharedBlock(b);
 
   // the one thing most people came here to do, worded for where they are
   $("detail-open-btn").textContent = audio
@@ -868,6 +870,88 @@ export const openDetail = async (id) => {
   // replaces the "?" that used to sit on the cover with no explanation
   $("detail-missing").hidden = !b.needsMeta;
   openSheet("sheet-book");
+};
+
+/**
+ * The shared thread on a book — notes left between the two readers, gated
+ * the way BookMaster gates them (a note from further on than you are stays
+ * sealed until you reach it). The block only exists when a second reader
+ * uses the instance at all.
+ */
+const fillSharedBlock = async (book) => {
+  const block = $("detail-shared");
+  const tg = await bmTogether().catch(() => null);
+  if (!tg?.partner) { block.hidden = true; return; }
+  block.hidden = false;
+
+  const sug = $("detail-suggest");
+  sug.hidden = false;
+  sug.textContent = `Suggest to ${tg.partner.name}`;
+  sug.onclick = async () => {
+    sug.disabled = true;
+    try {
+      const r = await suggestBook(book);
+      toast(`Suggested to ${r.to}`);
+      sug.hidden = true;
+    } catch (err) {
+      toast(err.message || "Couldn't suggest it");
+    } finally { sug.disabled = false; }
+  };
+
+  const wrap = $("detail-comments");
+  wrap.textContent = "";
+  let reveal = false;
+  const render = async () => {
+    wrap.textContent = "";
+    const { comments = [] } = await fetchComments(book, { reveal }).catch(() => ({ comments: [] }));
+    if (!comments.length) {
+      const p = document.createElement("p");
+      p.className = "dc-empty";
+      p.textContent = `Nothing said yet — first note is yours.`;
+      wrap.appendChild(p);
+      return;
+    }
+    for (const c of comments) {
+      const row = document.createElement("div");
+      row.className = "dc-row" + (c.ahead && !c.content ? " dc-gated" : "");
+      const meta = document.createElement("span");
+      meta.className = "dc-meta";
+      meta.textContent = `${c.display_name}${c.at_percent != null ? ` · ${Math.round(c.at_percent)}%` : ""}`;
+      row.appendChild(meta);
+      const body = document.createElement("p");
+      if (c.ahead && c.content == null) {
+        body.textContent = "A note from further on — reach it, or ";
+        const show = document.createElement("button");
+        show.type = "button";
+        show.className = "dc-reveal";
+        show.textContent = "peek";
+        show.addEventListener("click", () => { reveal = true; render(); });
+        body.appendChild(show);
+      } else {
+        body.textContent = c.content;
+      }
+      row.appendChild(body);
+      wrap.appendChild(row);
+    }
+  };
+  render();
+
+  const input = $("detail-comment-in");
+  const send = $("detail-comment-send");
+  input.value = "";
+  const post = async () => {
+    const content = input.value.trim();
+    if (!content) return;
+    send.disabled = true;
+    try {
+      await postComment(book, content);
+      input.value = "";
+      await render();
+    } catch (err) { toast(err.message || "Couldn't post it"); }
+    finally { send.disabled = false; }
+  };
+  send.onclick = post;
+  input.onkeydown = (e) => { if (e.key === "Enter") post(); };
 };
 
 const saveDetail = async (updates) => {

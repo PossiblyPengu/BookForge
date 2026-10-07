@@ -515,6 +515,18 @@
         <p class="book-desc" id="detail-desc" hidden></p>
         <button type="button" class="book-desc-more" id="detail-desc-more" hidden>More</button>
 
+        <div class="detail-shared" id="detail-shared" hidden>
+          <div class="detail-shared-head">
+            <h4>Between you two</h4>
+            <button type="button" class="chip-btn" id="detail-suggest" hidden></button>
+          </div>
+          <div class="detail-comments" id="detail-comments"></div>
+          <div class="detail-comment-box">
+            <input type="text" id="detail-comment-in" placeholder="Say something about it…" maxlength="1000" enterkeyhint="send">
+            <button type="button" class="chip-btn" id="detail-comment-send">Post</button>
+          </div>
+        </div>
+
         <div class="book-actions">
           <button type="button" class="book-action" id="detail-progress-btn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.3 2.3L15.8 9.8"/></svg>

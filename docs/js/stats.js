@@ -5,9 +5,9 @@
  * BookMaster sync uses, so a quick peek never inflates the numbers.
  */
 
-import { $, openSheet } from "./util.js";
+import { $, openSheet, toast } from "./util.js";
 import { allBooks, kvGet, kvSet } from "./db.js";
-import { bmOverview } from "./bm-pull.js";
+import { answerNudge, bmOverview, bmTogether, bmPull } from "./bm-pull.js";
 
 const fmtMins = (m) =>
   m >= 60 ? `${Math.floor(m / 60)}h ${m % 60 ? `${m % 60}m` : ""}`.trim() : `${m}m`;
@@ -129,21 +129,60 @@ const GOAL_LABELS = { yearly_books: "books this year", yearly_pages: "pages this
 
 const fillBookmaster = async () => {
   const block = $("stats-bm");
-  const ov = await bmOverview().catch(() => null);
-  block.hidden = !ov;
-  if (!ov) return;
+  const [ov, tg] = await Promise.all([
+    bmOverview().catch(() => null),
+    bmTogether().catch(() => null),
+  ]);
+  block.hidden = !ov && !tg;
+  if (!ov && !tg) return;
   const body = $("stats-bm-body");
   body.textContent = "";
-  const s = ov.stats || {};
+
+  // The other reader, the way the suite says it: book first, then where.
+  const p = tg?.partner;
+  if (p) {
+    const where = p.online ? "online now" : "";
+    const reading = p.reading
+      ? (p.reading.percent != null ? `${Math.round(p.reading.percent)}% through ` : "reading ") + p.reading.title
+      : "not mid-book";
+    body.appendChild(bmLine(`${p.name} — ${reading}${where ? ` · ${where}` : ""}`, null, true));
+  }
+
+  // Suggestions waiting on you — accept shelves it on BookMaster's TBR,
+  // dismiss just lets it go.
+  for (const n of tg?.nudges || []) {
+    const row = bmLine(`${n.fromName} suggested “${n.title}”${n.note ? ` — “${n.note}”` : ""}`, null, true);
+    const acts = document.createElement("span");
+    acts.className = "bm-nudge-acts";
+    for (const [label, action] of [["Shelf it", "accept"], ["Skip", "dismiss"]]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "bm-nudge-btn" + (action === "accept" ? " primary" : "");
+      b.textContent = label;
+      b.addEventListener("click", async () => {
+        try {
+          await answerNudge(n.id, action);
+          row.remove();
+          toast(action === "accept" ? `“${n.title}” is on your TBR` : "Suggestion cleared");
+          await bmPull({ force: true }).catch(() => {});
+        } catch (err) { toast(err.message || "Couldn't reach BookMaster"); }
+      });
+      acts.appendChild(b);
+    }
+    row.appendChild(acts);
+    body.appendChild(row);
+  }
+
+  const s = ov?.stats || {};
   if (s.currentStreak || s.longestStreak)
     body.appendChild(bmLine(`Streak: ${s.currentStreak || 0} day${s.currentStreak === 1 ? "" : "s"} (best ${s.longestStreak || 0})`));
-  for (const g of ov.goals || []) {
+  for (const g of ov?.goals || []) {
     const pct = Math.round((g.progress || 0) * 100);
     body.appendChild(bmLine(
       `${g.label || GOAL_LABELS[g.type] || "Goal"} — ${g.current}/${g.target} (${pct}%)`,
       g.progress));
   }
-  for (const a of ov.recentAchievements || [])
+  for (const a of ov?.recentAchievements || [])
     body.appendChild(bmLine(`${a.icon || "🏆"} ${a.name}`, null, true));
 };
 

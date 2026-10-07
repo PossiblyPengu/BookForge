@@ -10,7 +10,7 @@
  * rides the queue.
  */
 import { kvGet, kvSet, putBook } from "./db.js";
-import { toast } from "./util.js";
+import { $, toast } from "./util.js";
 
 const USER_KEY = "bm-user";
 const QUEUE_KEY = "bm-queue";
@@ -320,3 +320,39 @@ if (typeof window !== "undefined") {
   flushBookmaster().catch(() => {});
   window.addEventListener("online", () => flushBookmaster().catch(() => {}));
 }
+
+// ---------------------------------------------------------------------------
+// Presence — "I'm here", in the same three-field shape every suite app keeps.
+// Pageturner has no server to be polled, so it pushes beats: every 45s while
+// visible (the suite counts you there for two minutes), once more as
+// `leaving` when the page goes away. Never queued — a replayed beat is a lie
+// about when you were there, and a beat is cheap to remake.
+// ---------------------------------------------------------------------------
+
+const BEAT_MS = 45_000;
+
+const currentPlace = () => {
+  // The overlay views cover the library when they're up — the deepest open
+  // one is where you actually are.
+  if (!$("view-reader")?.hidden) return "reader";
+  if (!$("view-player")?.hidden) return "player";
+  if (!$("view-settings")?.hidden) return "settings";
+  return "library";
+};
+
+const beat = (extra = {}) =>
+  linkedUser()
+    .then((user) => user?.username
+      && postBookmaster("presence", { username: user.username, ...extra }))
+    .catch(() => {}); // a missed beat is absence of signal, not an error
+
+export const initPresence = () => {
+  if (typeof window === "undefined") return;
+  const arrive = () => beat({ place: currentPlace() });
+  arrive();
+  setInterval(() => { if (document.visibilityState === "visible") arrive(); }, BEAT_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") beat({ leaving: true });
+    else arrive();
+  });
+};
