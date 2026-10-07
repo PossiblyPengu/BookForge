@@ -2,32 +2,47 @@
    Pageturner — warm library design system (iOS-style layout, bookish palette)
    ================================================================== */
 
-:root {
-  --accent: #f0a040;
-  --accent-press: #d9822b;
-  --accent-2: #e08a36;
-  --danger: #ff453a;
-  --accent-ink: var(--accent);
-  --on-accent: #241a0e; /* ink on the amber accent */
+/* The suite reads as one house: BookMaster's paper-and-terracotta ramp,
+   Pageturner's token names. Values are BookMaster's own — dark room first,
+   the bright room under [data-theme="light"], the OLED room under "black". */
+@font-face {
+  font-family: "Fraunces";
+  src: url("../fonts/fraunces-var.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-display: swap;
+}
 
-  --bg: #171411;
-  --bg-grouped: #100d0b;
-  --bg-raised: #231e19;
-  --bg-card: #231e19;
-  --bg-sheet: #292219;
-  --fill: rgba(242, 232, 214, 0.09);
-  --fill-strong: rgba(242, 232, 214, 0.16);
-  --text: #f2ede3;
-  --text-2: rgba(242, 237, 227, 0.62);
-  --text-3: rgba(242, 237, 227, 0.38);
-  --separator: rgba(242, 237, 227, 0.11);
-  --bar-bg: rgba(23, 20, 17, 0.82);
+:root {
+  --accent: #cd844f;        /* accent-500, evening clay */
+  --accent-press: #b06938;  /* accent-600 */
+  --danger: #c6726a;        /* brick-500 */
+  --accent-ink: var(--accent);
+  --on-accent: #18110c;     /* dark ink on the lighter evening clay */
+
+  /* the muted suite hues — status and meaning, never decoration */
+  --sage: #7ea082;
+  --brick: #c6726a;
+  --denim: #7ea2c0;
+  --plum: #a88cb4;
+
+  --bg: #0e0b09;            /* paper-950 */
+  --bg-grouped: #0e0b09;
+  --bg-raised: #1e1915;     /* paper-900 */
+  --bg-card: #1e1915;
+  --bg-sheet: #2c2520;      /* paper-800 */
+  --fill: rgba(244, 236, 226, 0.08);
+  --fill-strong: rgba(244, 236, 226, 0.15);
+  --text: #f4ece2;          /* paper-100 */
+  --text-2: #ad9d8d;        /* paper-400 */
+  --text-3: #9e8c7c;        /* paper-500 */
+  --separator: rgba(244, 236, 226, 0.11);
+  --bar-bg: rgba(14, 11, 9, 0.82);
 
   --shadow-card: 0 5px 16px rgba(0, 0, 0, 0.42);
   --shadow-lift: 0 2px 8px rgba(0, 0, 0, 0.35);
 
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Iowan Old Style", "New York", "Palatino Linotype", Georgia, serif;
+  --font-display: "Fraunces", "Iowan Old Style", "New York", "Palatino Linotype", Georgia, serif;
 
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -43,25 +58,32 @@
 }
 
 [data-theme="light"] {
-  /* the bright amber reads ~2:1 on these backgrounds — text and icons use a
-     deeper amber (4.5:1+); fills keep the bright one, under dark text */
-  --accent-ink: #a05a0e;
-  --danger: #d70015;
-  --bg: #f6f1e8;
-  --bg-grouped: #f6f1e8;
-  --bg-raised: #fffdf9;
-  --bg-card: #fffdf9;
-  --bg-sheet: #fffdf9;
+  /* the bright room: same terracotta as BookMaster's day side — white text
+     on it, never dark ink */
+  --accent: #a0532a;
+  --accent-press: #844220;
+  --accent-ink: #a0532a;
+  --on-accent: #ffffff;
+  --danger: #b04a42;
+  --sage: #4a6a4e;
+  --brick: #b04a42;
+  --denim: #4a7096;
+  --plum: #7a5c86;
+  --bg: #f3eee6;
+  --bg-grouped: #f3eee6;
+  --bg-raised: #fffefb;
+  --bg-card: #fffefb;
+  --bg-sheet: #fffefb;
   --fill: rgba(90, 66, 30, 0.07);
   --fill-strong: rgba(90, 66, 30, 0.14);
-  --text: #2a231a;
-  --text-2: rgba(42, 35, 26, 0.62);
-  --text-3: rgba(42, 35, 26, 0.38);
+  --text: #2b211b;
+  --text-2: #64564a;
+  --text-3: #726457;
   --separator: rgba(70, 52, 28, 0.12);
-  --bar-bg: rgba(246, 241, 232, 0.84);
+  --bar-bg: rgba(243, 238, 230, 0.84);
 
-  --shadow-card: 0 4px 14px rgba(60, 40, 10, 0.14);
-  --shadow-lift: 0 2px 8px rgba(60, 40, 10, 0.12);
+  --shadow-card: 0 4px 14px rgba(74, 56, 42, 0.14);
+  --shadow-lift: 0 2px 8px rgba(74, 56, 42, 0.12);
 }
 
 /* True black for OLED: lit pixels cost power, black ones are off. Surfaces
@@ -121,7 +143,7 @@ body {
    shelves. Paper and OLED stay flat: it would wash the former and burn power
    on the latter. data-theme="dark" is set before first paint (app.js). */
 :root:not([data-theme="light"]):not([data-theme="black"]) body {
-  background-image: radial-gradient(120% 50% at 50% 0%, rgba(240, 160, 64, 0.05), transparent 60%);
+  background-image: radial-gradient(120% 50% at 50% 0%, rgba(205, 132, 79, 0.05), transparent 60%);
   background-repeat: no-repeat;
 }
 
@@ -299,7 +321,7 @@ input, textarea { font: inherit; color: inherit; }
   transition: color 0.2s ease, opacity 0.12s ease-out;
 }
 .tab-item.active { color: var(--accent-ink); }
-.tab-item.active svg { filter: drop-shadow(0 0 7px rgba(240, 160, 64, 0.5)); }
+.tab-item.active svg { filter: drop-shadow(0 0 7px rgba(205, 132, 79, 0.5)); }
 .tab-item:active { opacity: 0.6; }
 /* a little spring on the icon when a tab becomes active */
 .tab-item.active svg { animation: tab-pop 0.28s cubic-bezier(0.3, 1.45, 0.6, 1); }
@@ -396,10 +418,11 @@ input, textarea { font: inherit; color: inherit; }
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(180deg, #f6ad4f 0%, var(--accent-2) 100%);
+  background: var(--accent);
   color: var(--on-accent);
   box-shadow: var(--shadow-lift);
 }
+.continue-go:active { background: var(--accent-press); }
 
 /* ---------- Collection chips ---------- */
 .coll-chips {
@@ -507,9 +530,9 @@ input, textarea { font: inherit; color: inherit; }
   width: 100%;
   min-height: 3px;
   border-radius: 4px;
-  background: linear-gradient(180deg, #f6ad4f, var(--accent-2));
+  background: var(--accent);
 }
-.stats-bar.stats-today i { box-shadow: 0 0 10px rgba(240, 160, 64, 0.4); }
+.stats-bar.stats-today i { box-shadow: 0 0 10px rgba(205, 132, 79, 0.4); }
 .stats-days { display: flex; gap: 6px; margin-top: 6px; }
 .stats-days span { flex: 1; text-align: center; font-size: 10px; color: var(--text-3); }
 .stats-note { margin: 12px 2px 0; font-size: 12px; color: var(--text-3); }
@@ -867,7 +890,7 @@ input, textarea { font: inherit; color: inherit; }
 .welcome-icon {
   width: 76px; height: 76px;
   border-radius: 18px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 48px rgba(240, 160, 64, 0.25);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 48px rgba(205, 132, 79, 0.25);
   margin-bottom: 20px;
 }
 .welcome-title {
@@ -911,7 +934,7 @@ input, textarea { font: inherit; color: inherit; }
   min-height: 44px;
 }
 .btn-primary {
-  background: linear-gradient(180deg, #f6ad4f 0%, var(--accent-2) 100%);
+  background: var(--accent);
   color: var(--on-accent);
   box-shadow: var(--shadow-lift);
 }
@@ -1340,7 +1363,7 @@ input, textarea { font: inherit; color: inherit; }
    the reader's chrome and sheets take the page's colours rather than the
    app's — no white sheet flashing up over a dark page. */
 :root[data-reader-theme="light"] :is(#view-reader, .sheet, .sel-chip) {
-  --accent-ink: #8f4f08;
+  --accent-ink: #844220;
   --bg: #fbf8f2; --text: #1d1a14;
   --bg-sheet: #fffdf9; --bg-card: #f2eee5; --bg-raised: #ffffff;
   --fill: rgba(29, 26, 20, 0.07); --fill-strong: rgba(29, 26, 20, 0.14);
@@ -1348,7 +1371,7 @@ input, textarea { font: inherit; color: inherit; }
   --separator: rgba(29, 26, 20, 0.12); --bar-bg: rgba(251, 248, 242, 0.9);
 }
 :root[data-reader-theme="sepia"] :is(#view-reader, .sheet, .sel-chip) {
-  --accent-ink: #8f4f08;
+  --accent-ink: #844220;
   --bg: #f4ecd9; --text: #3a2f1d;
   --bg-sheet: #f9f2e3; --bg-card: #ece2ca; --bg-raised: #fffaf0;
   --fill: rgba(58, 47, 29, 0.08); --fill-strong: rgba(58, 47, 29, 0.15);
@@ -2297,6 +2320,14 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--text-3);
   text-align: center;
 }
+/* shelf colours spoken the same way BookMaster speaks them */
+.bm-s-want_to_read { color: var(--text-3); }
+.bm-s-reading { color: var(--accent-ink); }
+.bm-s-read { color: var(--sage); }
+.bm-s-abandoned { color: var(--brick); }
+.bm-s-upnext { color: var(--plum); }
+.bm-s-rating { color: var(--accent-ink); }
+.bm-s-elsewhere { color: var(--denim); }
 .stats-bm { margin-top: 14px; }
 .stats-bm-title {
   margin: 0 0 8px;
@@ -2311,15 +2342,16 @@ input, textarea { font: inherit; color: inherit; }
   display: block;
   padding: 7px 0;
   font-size: 14px;
-  color: var(--text-1);
+  color: var(--text);
 }
 .bm-badge { color: var(--text-2); }
+.bm-online { color: var(--sage); font-weight: 600; }
 .bm-goal-bar {
   display: block;
   height: 3px;
   margin-top: 5px;
   border-radius: 2px;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2, var(--accent)));
+  background: var(--accent);
 }
 
 /* ---------- Between you two (comments + suggestions) ---------- */
@@ -2400,7 +2432,7 @@ input, textarea { font: inherit; color: inherit; }
 }
 .bm-nudge-btn.primary, .chip-btn.primary {
   border-color: transparent;
-  color: var(--accent-ink);
+  color: var(--on-accent);
   background: var(--accent);
 }
 .bm-nudge-btn:disabled, .chip-btn:disabled { opacity: 0.5; }

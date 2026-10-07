@@ -13,7 +13,7 @@
 import { Overlayer } from "../vendor/foliate/overlayer.js";
 import { rangeForChunk, extractBlocks, resumePoint } from "./util.js";
 
-const HL_OPTS = { color: "#f0a040", padding: 1 };
+const HL_OPTS = { color: "#cd844f", padding: 1 };
 
 // START_TO_END compares THIS range's end against the SOURCE range's start
 // (DOM spec §compareBoundaryPoints). END_TO_START is the mirror image — it

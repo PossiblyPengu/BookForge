@@ -12,8 +12,8 @@
     "standalone",
     "minimal-ui"
   ],
-  "background_color": "#171411",
-  "theme_color": "#171411",
+  "background_color": "#0e0b09",
+  "theme_color": "#0e0b09",
   "categories": [
     "utilities",
     "music"

@@ -58,11 +58,11 @@ const saveReaderSettings = () => kvSet(readerSettingsKey, { ...readerSettings })
 
 // page colours; the chrome takes the same palette (main.css, data-reader-theme)
 const THEMES = {
-  light: { bg: "#fbf8f2", fg: "#1d1a14", link: "#9a5b12" },
-  sepia: { bg: "#f4ecd9", fg: "#3a2f1d", link: "#8a4f10" },
-  gray: { bg: "#4b4b4e", fg: "#ecebe7", link: "#f3b766" },
-  dark: { bg: "#131311", fg: "#e8e4da", link: "#f0a040" },
-  black: { bg: "#000000", fg: "#cfcbc2", link: "#e0973a" },
+  light: { bg: "#fbf8f2", fg: "#1d1a14", link: "#a0532a" },
+  sepia: { bg: "#f4ecd9", fg: "#3a2f1d", link: "#844220" },
+  gray: { bg: "#4b4b4e", fg: "#ecebe7", link: "#e09e6e" },
+  dark: { bg: "#131311", fg: "#e8e4da", link: "#cd844f" },
+  black: { bg: "#000000", fg: "#cfcbc2", link: "#e09e6e" },
 };
 // null → the book's own typeface
 const FONTS = {

@@ -101,7 +101,7 @@ const launchSvg = (w, h) => {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
   <rect width="${w}" height="${h}" fill="${BG}"/>
   <g transform="translate(${(w - mark) / 2}, ${(h - mark) / 2}) scale(${scale})"
-     fill="none" stroke="#f0a040" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+     fill="none" stroke="#cd844f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M9 18V5l12-2v13"/>
     <circle cx="6" cy="18" r="3"/>
     <circle cx="18" cy="16" r="3"/>

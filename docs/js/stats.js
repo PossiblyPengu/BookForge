@@ -141,11 +141,17 @@ const fillBookmaster = async () => {
   // The other reader, the way the suite says it: book first, then where.
   const p = tg?.partner;
   if (p) {
-    const where = p.online ? "online now" : "";
     const reading = p.reading
       ? (p.reading.percent != null ? `${Math.round(p.reading.percent)}% through ` : "reading ") + p.reading.title
       : "not mid-book";
-    body.appendChild(bmLine(`${p.name} — ${reading}${where ? ` · ${where}` : ""}`, null, true));
+    const row = bmLine(`${p.name} — ${reading}`, null, true);
+    if (p.online) {
+      const on = document.createElement("span");
+      on.className = "bm-online";
+      on.textContent = " · online now";
+      row.firstElementChild.appendChild(on);
+    }
+    body.appendChild(row);
   }
 
   // Suggestions waiting on you — accept shelves it on BookMaster's TBR,

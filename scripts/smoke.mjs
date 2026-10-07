@@ -208,7 +208,7 @@ const testFn = async (withPiper) => {
     if (block && ov) {
       const found = rangeForChunk(block.el, block.text.split(/\s+/).slice(0, 3).join(" "), 0);
       const range = found?.range ?? (() => { const r = block.doc.createRange(); r.selectNodeContents(block.el); return r; })();
-      ov.add("tts", range, Overlayer.highlight, { color: "#f0a040" });
+      ov.add("tts", range, Overlayer.highlight, { color: "#cd844f" });
       hlRects = ov.element.querySelectorAll("rect").length;
       ov.remove("tts");
     }
@@ -805,8 +805,16 @@ const testFn = async (withPiper) => {
       log(!bmTxt.hidden && /Reading/.test(bmTxt.textContent) && /up next/.test(bmTxt.textContent)
         && /62%/.test(bmTxt.textContent),
         `BookMaster line shows pull state → "${bmTxt.textContent}"`);
+      log(bmTxt.querySelector(".bm-s-reading") && getComputedStyle(bmTxt.querySelector(".bm-s-reading")).color !== "",
+        "BM status word carries a suite colour");
       (await import("./js/util.js")).closeSheet();
       await wait(150);
+
+      // visual parity: the suite accent is BookMaster's terracotta
+      const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim().toLowerCase();
+      log(accent === "#cd844f", `suite accent is BookMaster terracotta → ${accent}`);
+      const dispFont = getComputedStyle(document.querySelector(".nav-title") || document.body).fontFamily;
+      log(/fraunces/i.test(dispFont), `display face is Fraunces → "${dispFont.split(",")[0]}"`);
 
       // the up-next chip appears once a book carries the flag
       const chips = [...el("coll-chips").querySelectorAll(".coll-chip")].map((c) => c.textContent);

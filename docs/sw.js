@@ -1,6 +1,6 @@
 
-const CACHE_NAME = 'pageturner-cache-v66';
-const RUNTIME_CACHE = 'pageturner-runtime-v66';
+const CACHE_NAME = 'pageturner-cache-v67';
+const RUNTIME_CACHE = 'pageturner-runtime-v67';
 // Engine binaries (ONNX runtime, espeak data, model weights): ~30 MB that
 // rarely changes. Kept across app updates rather than re-downloaded with every
 // build, and re-checked with a cheap conditional request when a new version
@@ -17,6 +17,7 @@ const APP_SHELL = [
   './manifest.json',
   './icon.svg',
   './css/main.css',
+  './fonts/fraunces-var.woff2',
   './js/app.js',
   './js/audio-focus.js',
   './js/backup.js',

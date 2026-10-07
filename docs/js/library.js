@@ -840,12 +840,22 @@ export const openDetail = async (id) => {
   // "want to read" there doesn't rewrite the book's own progress here
   const bm = $("detail-bm");
   const bmBits = [];
-  if (b.bmStatus) bmBits.push({ want_to_read: "On the TBR", reading: "Reading", read: "Read" }[b.bmStatus] || b.bmStatus);
-  if (b.bmUpNext) bmBits.push("up next");
-  if (b.bmRating && b.bmRating !== b.rating) bmBits.push(`★${b.bmRating} there`);
+  if (b.bmStatus) bmBits.push([{ want_to_read: "On the TBR", reading: "Reading", read: "Read", abandoned: "Abandoned" }[b.bmStatus] || b.bmStatus, `bm-s-${b.bmStatus}`]);
+  if (b.bmUpNext) bmBits.push(["up next", "bm-s-upnext"]);
+  if (b.bmRating && b.bmRating !== b.rating) bmBits.push([`★${b.bmRating} there`, "bm-s-rating"]);
   if (b.bmRemotePercent != null && Math.abs(b.bmRemotePercent / 100 - frac) > 0.02)
-    bmBits.push(`${Math.round(b.bmRemotePercent)}% elsewhere`);
-  bm.textContent = bmBits.length ? `BookMaster · ${bmBits.join(" · ")}` : "";
+    bmBits.push([`${Math.round(b.bmRemotePercent)}% elsewhere`, "bm-s-elsewhere"]);
+  bm.replaceChildren();
+  if (bmBits.length) {
+    bm.append("BookMaster · ");
+    bmBits.forEach(([text, cls], i) => {
+      if (i) bm.append(" · ");
+      const s = document.createElement("span");
+      s.className = cls;
+      s.textContent = text;
+      bm.append(s);
+    });
+  }
   bm.hidden = !bmBits.length;
   fillSharedBlock(b);
 
