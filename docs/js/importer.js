@@ -11,7 +11,7 @@ import { detectFormat, AUDIO_EXTS, TEXT_EXTS, FOLIATE_EXTS } from "./detect.js";
 import { putBook, putFile, getBook } from "./db.js";
 import { uid, toast, dropCoverUrl, shrinkCover } from "./util.js";
 import { inferBook, extractSortKey } from "./book-parser.js";
-import { searchMetadata, fetchCoverBlob, metaConfident } from "./metadata.js";
+import { searchMetadata, fetchCoverBlob, metaConfident, bmCandidateFields } from "./metadata.js";
 import { cbrToCbz } from "./cbr.js";
 import { readZip } from "./zip.js";
 
@@ -360,6 +360,7 @@ const autoMeta = async (book) => {
     if (!cur.author && match.author) cur.author = match.author;
     if (!cur.title && match.title) cur.title = match.title;
     cur.identifiers = { ...(cur.identifiers || {}), ...match.identifiers };
+    Object.assign(cur, bmCandidateFields(match)); // a shelf candidate pins the row
     cur.needsMeta = false;
     cur.metaSource = match.source;
     await putBook(cur);

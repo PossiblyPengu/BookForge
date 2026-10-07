@@ -9,7 +9,7 @@ import {
 } from "./util.js";
 import { allBooks, getBook, putBook, deleteBook, kvGet, kvSet } from "./db.js";
 import { importFiles } from "./importer.js";
-import { searchMetadata, fetchCoverBlob, metaConfident } from "./metadata.js";
+import { searchMetadata, fetchCoverBlob, metaConfident, bmCandidateFields } from "./metadata.js";
 import { detectSeries } from "./book-parser.js";
 import { openDriveBrowser, initDrive } from "./gdrive.js";
 import { syncProgress } from "./bookmaster.js";
@@ -643,6 +643,7 @@ const bulkMetadata = async () => {
       if (!cur.year && match.year) cur.year = match.year;
       if (!cur.desc && match.desc) cur.desc = match.desc;
       cur.identifiers = { ...(cur.identifiers || {}), ...match.identifiers };
+      Object.assign(cur, bmCandidateFields(match));
       cur.metaSource = match.source;
       cur.needsMeta = false;
       await putBook(cur);
@@ -993,6 +994,7 @@ const runMetaSearch = async () => {
         desc: c.desc || detailBook.desc,
         identifiers: { ...(detailBook.identifiers || {}), ...c.identifiers },
         metaSource: c.source,
+        ...bmCandidateFields(c),
       };
       if (c.cover) {
         const blob = await fetchCoverBlob(c.cover);

@@ -21,6 +21,7 @@ const ROUTES = new Set([
   "comments",
   "library",
   "overview",
+  "search",
   "together",
   "nudge",
   "nudge-answer",

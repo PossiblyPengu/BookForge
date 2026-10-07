@@ -9,6 +9,7 @@
 
 import { kvGet } from "./db.js";
 import { shrinkCover } from "./util.js";
+import { bookmasterUser } from "./bookmaster.js";
 
 const GB_KEY = ""; // Google Books works keyless at low volume
 const UA_TIMEOUT = 12000;
@@ -81,33 +82,83 @@ const searchOpenLibrary = async (query) => {
   );
 };
 
+/**
+ * BookMaster's own search — the same Open Library query its add-book flow
+ * runs, with the reader's shelf folded in ahead of it. A candidate that names
+ * a shelf row carries its pin (bookmasterId/bmBookId), so applying it can
+ * never later push a duplicate: the bridge resolves the pin before any guess.
+ */
+const searchBookmaster = async (title, author, q) => {
+  const user = await bookmasterUser().catch(() => null);
+  if (!user?.username) return [];
+  const p = new URLSearchParams({ username: user.username, title: title || "", author: author || "", q });
+  const data = await fetchJson(`/api/bookmaster/search?${p}`);
+  if (!data?.books) return [];
+  return data.books.map((b) => ({
+    ...cand({
+      title: b.title,
+      author: b.author,
+      year: b.year,
+      cover: b.coverUrl,
+      source: b.userBookId ? "On your BookMaster shelf" : "BookMaster",
+      identifiers: {
+        isbn13: b.isbn?.length === 13 ? b.isbn : undefined,
+        isbn10: b.isbn?.length === 10 ? b.isbn : undefined,
+        open_library: b.openLibraryId,
+      },
+    }),
+    bookmasterId: b.userBookId || undefined,
+    bmBookId: b.bookId || undefined,
+    bmStatus: b.status || undefined,
+    bmTotalPages: b.totalPages || undefined,
+  }));
+};
+
 // Session query cache — the same book looked up twice (import → later manual
 // search) shouldn't cost two round trips. FIFO-capped; failures aren't kept.
 const queryCache = new Map();
 
-/** Search both sources; returns combined, roughly deduplicated candidates. */
+/** Search the sources — BookMaster first when linked, then Google's and Open
+ * Library's public catalogues — returning combined, deduplicated candidates. */
 export const searchMetadata = async (title, author = "") => {
   const q = [title, author].filter(Boolean).join(" ").trim();
   if (!q) return [];
   if (!(await kvGet("meta-online", true))) return [];
   const key = q.toLowerCase();
   if (queryCache.has(key)) return queryCache.get(key);
-  const [gb, ol] = await Promise.all([
+  const [bm, gb, ol] = await Promise.all([
+    searchBookmaster(title, author, q).catch(() => []),
     searchGoogleBooks(q).catch(() => []),
     searchOpenLibrary(q).catch(() => []),
   ]);
-  const seen = new Set();
+  const seen = new Map();
   const out = [];
-  for (const c of [...gb, ...ol]) {
+  for (const c of [...bm, ...gb, ...ol]) {
     const k = `${norm(c.title)}|${norm(c.author)}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
+    const prior = seen.get(k);
+    if (prior) {
+      // Same book, another source: the first candidate keeps its place, but
+      // picks up identifiers and a cover the later one knew — a pinned shelf
+      // row still gains the duplicate's Open Library id.
+      for (const [id, v] of Object.entries(c.identifiers || {}))
+        if (v && !prior.identifiers[id]) prior.identifiers[id] = v;
+      if (!prior.cover && c.cover) prior.cover = c.cover;
+      if (!prior.desc && c.desc) prior.desc = c.desc;
+      continue;
+    }
+    seen.set(k, c);
     out.push(c);
   }
   if (queryCache.size >= 50) queryCache.delete(queryCache.keys().next().value);
   queryCache.set(key, out);
   return out;
 };
+
+/** The BookMaster pin a chosen candidate carries, for the apply sites. */
+export const bmCandidateFields = (c) =>
+  c?.bookmasterId
+    ? { bookmasterId: c.bookmasterId, bmBookId: c.bmBookId, bmStatus: c.bmStatus }
+    : {};
 
 /** Fetch a cover image URL into a Blob (for offline storage). */
 export const fetchCoverBlob = async (url) => {
