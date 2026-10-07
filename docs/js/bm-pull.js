@@ -9,7 +9,7 @@
  * truth — remote positions exist to be offered (resume), never imposed.
  */
 import { kvGet, kvSet, allBooks, putBook } from "./db.js";
-import { bookmasterUser } from "./bookmaster.js";
+import { bookmasterUser, sendableAuthor } from "./bookmaster.js";
 import { listSheet, toast } from "./util.js";
 
 const PULL_KEY = "bm-pull";
@@ -18,7 +18,48 @@ const TTL = 5 * 60 * 1000;
 let cache; // { at, books: [shelf rows], overview: {...} } — undefined = unread
 
 const fold = (s) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
-const titleHead = (s) => fold(s).split(/\s*[—–:]\s*/)[0].trim();
+const bare = (s) => (s || "").replace(/\([^)]*\)/g, " ").replace(/\[[^\]]*\]/g, " ");
+/**
+ * The shapes a file's title can take — itself, the series note stripped
+ * ("Dune (Dune Chronicles, #1)" files as "Dune"), and the part ahead of a
+ * subtitle marker. Mirrors the ladder BookMaster's foldMatch climbs.
+ */
+const titleForms = (s) => {
+  const forms = [fold(s), fold(bare(s))];
+  for (const head of [
+    s.split(/\s*[—–:]\s*/)[0],
+    s.split(/\s+-\s+/)[0], // "Title - Author" file-name phrasing
+    bare(s).split(/\s*[—–:]\s*/)[0],
+  ])
+    forms.push(fold(head));
+  return [...new Set(forms)].filter(Boolean);
+};
+const titlesAgree = (want, got) => {
+  const ws = titleForms(want);
+  return titleForms(got).some((g) =>
+    ws.some((w) => w === g || (w.length >= 8 && g.startsWith(`${w} `)) || (g.length >= 8 && w.startsWith(`${g} `))));
+};
+
+/** "Herbert, Frank", role tags, and multi-name credits — same book, spellings aside. */
+const nameKey = (s) => {
+  const p = fold(bare(s)).split(" ").filter(Boolean);
+  return p.length ? `${p[0][0]} ${p[p.length - 1]}` : null;
+};
+const authorForms = (author) => {
+  const forms = [author];
+  const clean = bare(author).trim();
+  if (clean !== author) forms.push(clean);
+  const comma = /^([^,;&]+),\s*([^,;&]+)$/.exec(clean);
+  if (comma) forms.push(`${comma[2].trim()} ${comma[1].trim()}`);
+  for (const part of clean.split(/\s*;\s*|\s+&\s+/)) if (part.trim()) forms.push(part.trim());
+  return forms;
+};
+const authorsAgree = (want, got) => {
+  if (!want) return true; // no pushed author never decides
+  if (!got) return true;  // a row without an author can't disagree
+  const gotKeys = got.split(/\s*;\s*|\s+&\s+|\s+and\s+/i).map(nameKey).filter(Boolean);
+  return authorForms(want).some((f) => gotKeys.includes(nameKey(f)));
+};
 
 /**
  * ISBNs arrive as 10- or 13-digit strings for the same book; canonicalize
@@ -67,16 +108,10 @@ export const matchShelfRow = (book, rows) => {
     const hit = rows.find((r) => r.isbn && isbnOverlap(isbn, r.isbn));
     if (hit) return hit;
   }
-  const wantTitle = fold(book.title);
-  const wantHead = titleHead(book.title);
-  const wantAuthor = fold(book.author);
-  const candidates = rows.filter((r) => {
-    const t = fold(r.title);
-    const titleOk = t === wantTitle || (wantHead && (t === wantHead || titleHead(r.title) === wantHead));
-    if (!titleOk) return false;
-    const a = fold(r.author);
-    return !(wantAuthor && a && a !== wantAuthor); // disagree → reject; missing → allow
-  });
+  const wantAuthor = book.author || "";
+  const candidates = rows.filter(
+    (r) => titlesAgree(book.title, r.title) && authorsAgree(wantAuthor, r.author)
+  );
   return candidates[0] || null;
 };
 
@@ -180,7 +215,7 @@ export const bmPost = async (path, body = {}) => {
 const bookFields = (book) => ({
   user_book_id: book.bookmasterId || undefined,
   title: book.title,
-  author: book.author || "",
+  author: sendableAuthor(book.author),
   isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
   open_library_id: book.identifiers?.open_library || undefined,
 });
@@ -194,7 +229,7 @@ export const fetchComments = async (book, { reveal = false } = {}) => {
   if (!user?.username) return { comments: [] };
   const q = new URLSearchParams({ username: user.username });
   if (book.bookmasterId) q.set("ub", book.bookmasterId);
-  else { q.set("title", book.title || ""); q.set("author", book.author || ""); }
+  else { q.set("title", book.title || ""); q.set("author", sendableAuthor(book.author)); }
   if (reveal) q.set("reveal", "1");
   return getJSON(`comments?${q}`);
 };

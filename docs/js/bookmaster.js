@@ -128,6 +128,17 @@ const sameBook = (a, b) =>
   (a.user_book_id != null && a.user_book_id === b.user_book_id) || a.title === b.title;
 
 /**
+ * File metadata spells authors every way — "Herbert, Frank", "Frank Herbert
+ * (Author)". Send the display order: the shelf stores what a push carries,
+ * and a row created by the bridge shouldn't read backwards forever.
+ */
+export const sendableAuthor = (a) => {
+  const clean = (a || "").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  const comma = /^([^,;&]+),\s*([^,;&]+)$/.exec(clean);
+  return comma ? `${comma[2].trim()} ${comma[1].trim()}` : clean;
+};
+
+/**
  * Park a push the network couldn't take. Sessions always queue — each one is
  * a distinct stretch of reading — but progress is positional, so a newer
  * position for the same book replaces the queued one rather than adding a
@@ -213,7 +224,7 @@ export const syncProgress = async (book, { force = false } = {}) => {
     const res = await send("progress", {
       username: user.username,
       title: book.title,
-      author: book.author || "",
+      author: sendableAuthor(book.author),
       isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
       open_library_id: book.identifiers?.open_library || undefined,
       // The shelf row BookMaster gave back last time; pinning beats every
@@ -263,7 +274,7 @@ export const syncSession = async (book, { percentStart, percentEnd, minutes, at 
       username: user.username,
       user_book_id: book.bookmasterId || undefined,
       title: book.title,
-      author: book.author || "",
+      author: sendableAuthor(book.author),
       isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
       open_library_id: book.identifiers?.open_library || undefined,
       percent_start: percentStart,
@@ -297,7 +308,7 @@ export const postQuote = async (book, { content, percent } = {}) => {
       username: user.username,
       user_book_id: book.bookmasterId || undefined,
       title: book.title,
-      author: book.author || "",
+      author: sendableAuthor(book.author),
       isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
       open_library_id: book.identifiers?.open_library || undefined,
       content,

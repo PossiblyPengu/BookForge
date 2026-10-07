@@ -46,6 +46,25 @@ describe("matchShelfRow", () => {
     const rows = [row({ title: "Dune" })];
     expect(matchShelfRow(book({ title: "Dune", author: "" }), rows)?.userBookId).toBe("ub1");
   });
+
+  it("a series parenthetical still names the book", () => {
+    const rows = [row({ title: "Dune" })];
+    expect(matchShelfRow(book({ title: "Dune (Dune Chronicles, #1)" }), rows)?.userBookId).toBe("ub1");
+    // a shelved series-note title meets a plain file title too
+    const rows2 = [row({ title: "Dune (Dune Chronicles, #1)" })];
+    expect(matchShelfRow(book({ title: "Dune" }), rows2)?.userBookId).toBe("ub1");
+  });
+
+  it("file-as order is the same person — 'Herbert, Frank' is Frank Herbert", () => {
+    const rows = [row({ title: "Dune" })];
+    expect(matchShelfRow(book({ title: "Dune", author: "Herbert, Frank" }), rows)?.userBookId).toBe("ub1");
+  });
+
+  it("co-authors in one field still match the row's name", () => {
+    const rows = [row({ title: "A Memory Called Empire", author: "Arkady Martine" })];
+    expect(matchShelfRow(book({ title: "A Memory Called Empire", author: "Arkady Martine & Someone Else" }), rows)?.userBookId)
+      .toBe("ub1");
+  });
 });
 
 describe("remoteResumeFraction", () => {
