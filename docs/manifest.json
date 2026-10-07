@@ -112,6 +112,8 @@
             ".htm",
             ".zip",
             ".mp3",
+            ".mp2",
+            ".mpa",
             ".m4a",
             ".m4b",
             ".aac",
@@ -119,7 +121,13 @@
             ".oga",
             ".opus",
             ".flac",
-            ".wav"
+            ".wav",
+            ".aif",
+            ".aiff",
+            ".aifc",
+            ".caf",
+            ".mka",
+            ".weba"
           ]
         }
       ]

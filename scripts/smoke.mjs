@@ -138,6 +138,21 @@ const testFn = async (withPiper) => {
       const ab = acreated[0];
       log(dd.kind === "audio" && ab?.kind === "audio" && ab.audio?.chapters?.length === 1,
         `single audio file → ${dd.kind} book "${ab?.title}" (${ab?.audio?.chapters?.length} chapter)`);
+
+      // wider audio vocabulary: playable codecs import, DRM/unplayable
+      // formats refuse with a reason instead of a silent dead end
+      const audioExts = ["mka", "aif", "mp2", "caf", "weba"];
+      const missed = [];
+      for (const ext of audioExts) {
+        const d2 = await detectFormat(new File([new Uint8Array(16)], `t.${ext}`));
+        if (d2.kind !== "audio") missed.push(ext);
+      }
+      log(!missed.length, missed.length
+        ? `detect audio exts — missed ${missed.join(",")}`
+        : `${audioExts.join("/")} all detect as audio`);
+      const drm = await detectFormat(new File([new Uint8Array(16)], "book.aax"));
+      log(drm.kind === "unsupported" && /DRM/.test(drm.reason),
+        `.aax refused with reason → ${JSON.stringify(drm.reason)}`);
     }
 
     // 5. real reader open path — foliate view renders the imported book

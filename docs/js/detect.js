@@ -6,7 +6,14 @@
  *     | "unknown"
  */
 
-export const AUDIO_EXTS = new Set(["m4b", "m4a", "mp3", "aac", "flac", "ogg", "oga", "opus", "wav"]);
+// formats <audio> can actually play somewhere we ship: mp3/mp2 (all),
+// m4a/m4b/aac (all), wav/aif/caf (all), flac (Chrome + Safari 17+),
+// ogg/opus (Chrome + Safari 18+), mka/weba (Chrome). Anything a browser
+// can't decode goes to UNSUPPORTED with a reason instead of a dead book.
+export const AUDIO_EXTS = new Set([
+  "m4b", "m4a", "mp3", "mp2", "mpa", "aac", "flac",
+  "ogg", "oga", "opus", "wav", "aif", "aiff", "aifc", "caf", "mka", "weba",
+]);
 export const TEXT_EXTS = new Set(["txt", "md", "markdown", "html", "htm"]);
 export const FOLIATE_EXTS = new Set(["epub", "mobi", "azw", "azw3", "fb2", "fbz", "cbz"]);
 
@@ -51,6 +58,22 @@ const isFb2Xml = async (file) => {
 const UNSUPPORTED = {
   kfx: "Kindle KFX books are DRM-protected — Pageturner can’t open them.",
   azw4: "AZW4 is a Kindle PDF wrapper. Import the original PDF instead.",
+  aax: "Audible .aax files are DRM-protected — Pageturner can’t play them.",
+  aa: "Audible .aa files are DRM-protected — Pageturner can’t play them.",
+  m4p: ".m4p is DRM-protected iTunes audio — Pageturner can’t play it.",
+  wma: "WMA isn’t playable in a web app — convert it to MP3 or M4B first.",
+  ape: "Monkey’s Audio (.ape) isn’t playable in a web app — convert it to FLAC or MP3.",
+  wv: "WavPack (.wv) isn’t playable in a web app — convert it to FLAC or MP3.",
+  ac3: "AC-3 isn’t playable in a web app — convert it to MP3 or M4B first.",
+  eac3: "E-AC-3 isn’t playable in a web app — convert it to MP3 or M4B first.",
+  dts: "DTS audio isn’t playable in a web app — convert it to MP3 or M4B first.",
+  dsf: "DSD (.dsf) isn’t playable in a web app — convert it to FLAC first.",
+  dff: "DSD (.dff) isn’t playable in a web app — convert it to FLAC first.",
+  ra: "RealAudio isn’t playable in a web app — convert it to MP3 first.",
+  rm: "RealMedia isn’t playable in a web app — convert it to MP3 first.",
+  spx: "Speex (.spx) isn’t playable in a web app — convert it to Opus or MP3.",
+  mid: "MIDI isn’t an audiobook format — there’s nothing to play.",
+  midi: "MIDI isn’t an audiobook format — there’s nothing to play.",
 };
 
 /**
