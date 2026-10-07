@@ -163,8 +163,15 @@ export const importFiles = async (fileList, onProgress, signal) => {
   for (const items of groups.values()) {
     if (signal?.aborted) return created;
     onProgress?.("Importing audiobook…");
-    const book = await importAudiobook(items);
-    if (book) created.push(book);
+    try {
+      const book = await importAudiobook(items);
+      if (book) created.push(book);
+    } catch (err) {
+      console.warn("Audiobook import failed:", items[0]?.file?.name, err);
+      // same rule as single files: say why, or it looks like a dead feature
+      const why = reasonFor(err);
+      toast(`Couldn’t import the audiobook${why ? ` — ${why}` : ""}`, { error: true, ms: 6000 });
+    }
   }
   for (let i = 0; i < others.length; i++) {
     if (signal?.aborted) return created;

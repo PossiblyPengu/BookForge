@@ -121,6 +121,25 @@ const testFn = async (withPiper) => {
     log(bulkCreated.length === 3 && kinds === "audio,audio,text",
       `bulk zip → ${bulkCreated.length} books (${titles})`);
 
+    // 4b. a lone real audio file becomes one audiobook — the single-file
+    //     path most people actually use (one .m4b = one book)
+    {
+      const wav = new Uint8Array(44 + 16000);
+      const dv = new DataView(wav.buffer);
+      const ws = (o, s) => { for (let i = 0; i < s.length; i++) wav[o + i] = s.charCodeAt(i); };
+      ws(0, "RIFF"); dv.setUint32(4, 36 + 16000, true); ws(8, "WAVEfmt ");
+      dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+      dv.setUint32(24, 8000, true); dv.setUint32(28, 16000, true);
+      dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+      ws(36, "data"); dv.setUint32(40, 16000, true);
+      const af = new File([wav], "Solo Audio Book.wav", { type: "audio/wav" });
+      const dd = await detectFormat(af);
+      const acreated = await importFiles([af]);
+      const ab = acreated[0];
+      log(dd.kind === "audio" && ab?.kind === "audio" && ab.audio?.chapters?.length === 1,
+        `single audio file → ${dd.kind} book "${ab?.title}" (${ab?.audio?.chapters?.length} chapter)`);
+    }
+
     // 5. real reader open path — foliate view renders the imported book
     const { openReader, closeReader } = await import("./js/reader.js");
     await openReader(stored);
