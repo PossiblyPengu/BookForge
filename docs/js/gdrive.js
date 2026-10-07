@@ -17,7 +17,11 @@ import { $, openSheet, closeSheet, toast, fmtBytes, progressPill, listSheet } fr
 import { AUDIO_EXTS, TEXT_EXTS, FOLIATE_EXTS } from "./detect.js";
 import { doImport } from "./library.js";
 
-export const GOOGLE_CLIENT_ID = "";
+// Recovered from the old Forge build (commit e23fa41). Client IDs are public
+// by design — this identifies the app to Google, it isn't a secret.
+// If sign-in shows "origin_mismatch", add https://pageturner.pages.dev to the
+// client's Authorized JavaScript origins in Google Cloud Console.
+export const GOOGLE_CLIENT_ID = "306789600163-6hrqppjduqchesalvqp400rj78hbku8l.apps.googleusercontent.com";
 
 const API = "https://www.googleapis.com/drive/v3";
 const SCOPES = "https://www.googleapis.com/auth/drive.readonly";
