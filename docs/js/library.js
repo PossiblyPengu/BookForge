@@ -66,7 +66,9 @@ const mixedLibrary = () =>
 const applyView = () => {
   let list = books;
   if (mixedLibrary()) list = list.filter(FILTERS[filterMode] || FILTERS.all);
-  if (collectionFilter !== "all")
+  if (collectionFilter === "upnext")
+    list = list.filter((b) => b.bmUpNext);
+  else if (collectionFilter !== "all")
     list = list.filter((b) => b.collections?.includes(collectionFilter));
   const q = query.trim().toLowerCase();
   if (q) list = list.filter((b) =>
@@ -249,13 +251,19 @@ const renderRecent = () => {
 const renderChips = () => {
   const wrap = $("coll-chips");
   wrap.textContent = "";
-  wrap.hidden = !collections.length || selecting;
+  // "Up next" rides the shelf chips but comes from BookMaster's queue —
+  // it appears only while some book carries the flag.
+  const chips = ["all", ...(books.some((b) => b.bmUpNext) ? ["upnext"] : []), ...collections];
+  // a filter can outlive its chip — up-next flags arrive and vanish with
+  // sync — so a name the row can't show falls back to the whole library
+  if (!chips.includes(collectionFilter)) collectionFilter = "all";
+  wrap.hidden = (chips.length <= 1) || selecting;
   if (wrap.hidden) return;
-  for (const name of ["all", ...collections]) {
+  for (const name of chips) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "coll-chip" + (collectionFilter === name ? " active" : "");
-    chip.textContent = name === "all" ? "All" : name;
+    chip.textContent = name === "all" ? "All" : name === "upnext" ? "↑ Next" : name;
     chip.addEventListener("click", async () => {
       collectionFilter = name;
       await kvSet("library-collection", name);
@@ -826,6 +834,18 @@ export const openDetail = async (id) => {
     });
     stars.append(s);
   }
+
+  // what the tracker says about this copy — read-only facts pulled down, so
+  // "want to read" there doesn't rewrite the book's own progress here
+  const bm = $("detail-bm");
+  const bmBits = [];
+  if (b.bmStatus) bmBits.push({ want_to_read: "On the TBR", reading: "Reading", read: "Read" }[b.bmStatus] || b.bmStatus);
+  if (b.bmUpNext) bmBits.push("up next");
+  if (b.bmRating && b.bmRating !== b.rating) bmBits.push(`★${b.bmRating} there`);
+  if (b.bmRemotePercent != null && Math.abs(b.bmRemotePercent / 100 - frac) > 0.02)
+    bmBits.push(`${Math.round(b.bmRemotePercent)}% elsewhere`);
+  bm.textContent = bmBits.length ? `BookMaster · ${bmBits.join(" · ")}` : "";
+  bm.hidden = !bmBits.length;
 
   // the one thing most people came here to do, worded for where they are
   $("detail-open-btn").textContent = audio

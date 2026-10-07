@@ -13,6 +13,7 @@ import {
 import { getFile, putBook, kvGet, kvSet } from "./db.js";
 import { registerAudioOwner, claimAudio } from "./audio-focus.js";
 import { syncProgress, syncSession } from "./bookmaster.js";
+import { offerRemoteResume } from "./bm-pull.js";
 import { recordSession } from "./stats.js";
 
 const audio = new Audio();
@@ -258,6 +259,12 @@ export const openPlayer = async (book, { onClose, onUpdate } = {}) => {
   // opening counts as starting the audiobook — shelf it on the tracker now,
   // not on the first play (which may never come for a peek)
   syncProgress(book, { force: true });
+  // …and if the other device is further along, offer to catch up
+  offerRemoteResume(book, async (f) => {
+    await seekGlobal(f * player.duration);
+    savePos();
+    syncProgress(book, { force: true });
+  });
 };
 
 export const closePlayer = async () => {

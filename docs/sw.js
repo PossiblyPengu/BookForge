@@ -1,6 +1,6 @@
 
-const CACHE_NAME = 'pageturner-cache-v63';
-const RUNTIME_CACHE = 'pageturner-runtime-v63';
+const CACHE_NAME = 'pageturner-cache-v64';
+const RUNTIME_CACHE = 'pageturner-runtime-v64';
 // Engine binaries (ONNX runtime, espeak data, model weights): ~30 MB that
 // rarely changes. Kept across app updates rather than re-downloaded with every
 // build, and re-checked with a cheap conditional request when a new version
@@ -20,6 +20,7 @@ const APP_SHELL = [
   './js/app.js',
   './js/audio-focus.js',
   './js/backup.js',
+  './js/bm-pull.js',
   './js/book-parser.js',
   './js/bookmaster.js',
   './js/cbr.js',

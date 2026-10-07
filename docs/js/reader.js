@@ -26,6 +26,7 @@ import { ttsController } from "./tts.js";
 import { pickTtsSleep, pickVoice, voiceLabel } from "./tts-voices.js";
 import { settings as ttsSettings, saveSettings as saveTtsSettings, kokoro } from "./tts-engines.js";
 import { syncProgress, syncSession, postQuote } from "./bookmaster.js";
+import { offerRemoteResume } from "./bm-pull.js";
 import { recordSession } from "./stats.js";
 import { definable, define } from "./dict.js";
 
@@ -693,6 +694,13 @@ export const openReader = async (book, hooks = {}) => {
     // opening counts as starting the book — shelf it on the tracker now,
     // not on the first page turn (which may never come for a peek)
     syncProgress(book, { force: true });
+    // …and if the other device is further along, offer to catch up
+    offerRemoteResume(book, (f) => {
+      if (view) view.goToFraction(f);
+      else activeRenderer?.seekFraction?.(f);
+      saveProgress();
+      syncProgress(book, { force: true });
+    });
     keepAwake();
     // "Listen" from the book page lands on the read-aloud panel, book loaded
     if (hooks.autoListen) openListen();

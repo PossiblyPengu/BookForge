@@ -24,6 +24,7 @@ import { deliverBackup, restoreBackup } from "./backup.js";
 import {
   bookmasterLink, bookmasterUnlink, bookmasterUser, finishBookmasterLink,
 } from "./bookmaster.js";
+import { bmPull } from "./bm-pull.js";
 import { VERSION, BUILD } from "./version.js";
 
 // ---------------------------------------------------------------------------
@@ -637,6 +638,9 @@ const boot = async () => {
   // a BookMaster pair redirect lands back here with ?bm-link=<code> —
   // redeem it before settings init reads the link state for its row
   await step("bookmaster link", finishBookmasterLink);
+  // then pull the shelf back down — status, ratings, remote positions —
+  // and repaint once the merge lands; a no-op when unlinked
+  bmPull().then((c) => { if (c?.books) refreshLibrary(); }).catch(() => {});
   await step("stats", initStats);
   await step("settings", initSettings);
   await step("help", initHelp);

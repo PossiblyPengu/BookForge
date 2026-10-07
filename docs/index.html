@@ -23,6 +23,8 @@
     <link rel="modulepreload" href="js/tts.js" />
     <link rel="modulepreload" href="js/backup.js" />
     <link rel="modulepreload" href="js/stats.js" />
+    <link rel="modulepreload" href="js/bookmaster.js" />
+    <link rel="modulepreload" href="js/bm-pull.js" />
     <link rel="modulepreload" href="js/tts-voices.js" />
     <link rel="modulepreload" href="js/importer.js" />
     <link rel="modulepreload" href="js/player.js" />
@@ -498,6 +500,7 @@
         </div>
 
         <div class="book-rating" id="detail-rating" role="radiogroup" aria-label="Your rating"></div>
+        <p class="detail-bm" id="detail-bm" hidden></p>
 
         <div class="detail-open-row">
           <button type="button" class="btn btn-primary btn-lg" id="detail-open-btn">Read</button>
@@ -559,6 +562,10 @@
           <div class="stats-days" id="stats-days"></div>
         </div>
         <p class="stats-note" id="stats-note"></p>
+        <div class="stats-bm" id="stats-bm" hidden>
+          <h4 class="stats-bm-title">BookMaster</h4>
+          <div class="stats-bm-body" id="stats-bm-body"></div>
+        </div>
       </div>
     </div>
 

@@ -787,7 +787,30 @@ const testFn = async (withPiper) => {
       const rated = await getBook(stored.id);
       log(stars.length === 5 && rated.rating === 4,
         `rating row → ${stars.length} stars, tap 4th persists rating=${rated.rating}`);
+
+      // BookMaster status line exists and stays hidden when nothing was pulled
+      const bmLine = el("detail-bm");
+      log(!!bmLine && bmLine.hidden, "BookMaster line hidden while unlinked");
+
+      // a pulled merge decorates it — simulate a remote row landing
+      const merged = await getBook(stored.id);
+      merged.bmStatus = "reading";
+      merged.bmUpNext = true;
+      merged.bmRemotePercent = 62;
+      await (await import("./js/db.js")).putBook(merged);
+      const { refreshLibrary: rl2 } = await import("./js/library.js");
+      await rl2();
+      await openDetail(stored.id);
+      const bmTxt = el("detail-bm");
+      log(!bmTxt.hidden && /Reading/.test(bmTxt.textContent) && /up next/.test(bmTxt.textContent)
+        && /62%/.test(bmTxt.textContent),
+        `BookMaster line shows pull state → "${bmTxt.textContent}"`);
       (await import("./js/util.js")).closeSheet();
+      await wait(150);
+
+      // the up-next chip appears once a book carries the flag
+      const chips = [...el("coll-chips").querySelectorAll(".coll-chip")].map((c) => c.textContent);
+      log(chips.includes("↑ Next"), `up-next chip appears → [${chips.join(", ")}]`);
     }
 
     // 12. Selection mode — bulk delete is destructive, so verify it ticks the

@@ -316,5 +316,7 @@ export const postQuote = async (book, { content, percent } = {}) => {
 
 // Pushes stranded by an earlier outage or a killed page go first, and the
 // queue drains again whenever the network comes back.
-flushBookmaster().catch(() => {});
-window.addEventListener("online", () => flushBookmaster().catch(() => {}));
+if (typeof window !== "undefined") {
+  flushBookmaster().catch(() => {});
+  window.addEventListener("online", () => flushBookmaster().catch(() => {}));
+}

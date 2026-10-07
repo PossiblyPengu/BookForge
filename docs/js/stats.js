@@ -7,6 +7,7 @@
 
 import { $, openSheet } from "./util.js";
 import { allBooks, kvGet, kvSet } from "./db.js";
+import { bmOverview } from "./bm-pull.js";
 
 const fmtMins = (m) =>
   m >= 60 ? `${Math.floor(m / 60)}h ${m % 60 ? `${m % 60}m` : ""}`.trim() : `${m}m`;
@@ -120,6 +121,45 @@ export const openStats = async () => {
     ? `${sessions.length} reading session${sessions.length === 1 ? "" : "s"} recorded on this device.`
     : "Sessions are recorded as you read — check back after your first stretch.";
   openSheet("sheet-stats");
+  fillBookmaster(); // cached or fresh — fills the block when the link exists
+};
+
+/** The tracker's view of the same numbers: goals, streak, recent badges. */
+const GOAL_LABELS = { yearly_books: "books this year", yearly_pages: "pages this year", monthly_books: "books this month" };
+
+const fillBookmaster = async () => {
+  const block = $("stats-bm");
+  const ov = await bmOverview().catch(() => null);
+  block.hidden = !ov;
+  if (!ov) return;
+  const body = $("stats-bm-body");
+  body.textContent = "";
+  const s = ov.stats || {};
+  if (s.currentStreak || s.longestStreak)
+    body.appendChild(bmLine(`Streak: ${s.currentStreak || 0} day${s.currentStreak === 1 ? "" : "s"} (best ${s.longestStreak || 0})`));
+  for (const g of ov.goals || []) {
+    const pct = Math.round((g.progress || 0) * 100);
+    body.appendChild(bmLine(
+      `${g.label || GOAL_LABELS[g.type] || "Goal"} — ${g.current}/${g.target} (${pct}%)`,
+      g.progress));
+  }
+  for (const a of ov.recentAchievements || [])
+    body.appendChild(bmLine(`${a.icon || "🏆"} ${a.name}`, null, true));
+};
+
+const bmLine = (text, progress = null, badge = false) => {
+  const row = document.createElement("div");
+  row.className = badge ? "bm-line bm-badge" : "bm-line";
+  const t = document.createElement("span");
+  t.textContent = text;
+  row.appendChild(t);
+  if (progress != null) {
+    const bar = document.createElement("i");
+    bar.className = "bm-goal-bar";
+    bar.style.width = `${Math.round(Math.min(1, progress) * 100)}%`;
+    row.appendChild(bar);
+  }
+  return row;
 };
 
 export const initStats = () => {
