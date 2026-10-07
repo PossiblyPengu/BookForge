@@ -255,6 +255,9 @@ export const openPlayer = async (book, { onClose, onUpdate } = {}) => {
   await seekGlobal(book.progress?.positionSec || 0);
   updateUI();
   wireMediaSession();
+  // opening counts as starting the audiobook — shelf it on the tracker now,
+  // not on the first play (which may never come for a peek)
+  syncProgress(book, { force: true });
 };
 
 export const closePlayer = async () => {

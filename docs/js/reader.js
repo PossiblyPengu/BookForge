@@ -685,6 +685,9 @@ export const openReader = async (book, hooks = {}) => {
     stage.style.opacity = "";
     applyStyles();
     syncBookmarkBtn();
+    // opening counts as starting the book — shelf it on the tracker now,
+    // not on the first page turn (which may never come for a peek)
+    syncProgress(book, { force: true });
     keepAwake();
     // "Listen" from the book page lands on the read-aloud panel, book loaded
     if (hooks.autoListen) openListen();
