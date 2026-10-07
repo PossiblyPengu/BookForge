@@ -26,6 +26,7 @@ const APP_SHELL = [
   './js/db.js',
   './js/detect.js',
   './js/dict.js',
+  './js/gdrive.js',
   './js/importer.js',
   './js/library.js',
   './js/metadata.js',

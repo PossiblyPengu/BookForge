@@ -11,6 +11,7 @@ import { allBooks, getBook, putBook, deleteBook, kvGet, kvSet } from "./db.js";
 import { importFiles } from "./importer.js";
 import { searchMetadata, fetchCoverBlob, metaConfident } from "./metadata.js";
 import { detectSeries } from "./book-parser.js";
+import { openDriveBrowser, initDrive } from "./gdrive.js";
 
 let onOpenBook = () => {};
 export const initLibrary = async (openBook) => {
@@ -966,11 +967,16 @@ export const wireImportUI = () => {
   const dirInput = $("dir-input");
   const trigger = () =>
     listSheet("Import", [
-      { title: "Files", sub: "Pick one or more — zip archives unpack automatically", value: "files" },
-      { title: "Folder", sub: "Import a whole folder at once", value: "dir" },
-    ], (v) => (v === "dir" ? dirInput : input).click());
+      { title: "Files", sub: "iCloud Drive, On My iPhone, or other apps — zips unpack", value: "files" },
+      { title: "Folder", sub: "A whole folder at once — iCloud Drive folders work too", value: "dir" },
+      { title: "Google Drive", sub: "Browse your Drive and download straight into the library", value: "drive" },
+    ], (v) => {
+      if (v === "drive") return openDriveBrowser();
+      (v === "dir" ? dirInput : input).click();
+    });
   $("import-btn").addEventListener("click", trigger);
   $("empty-import-btn").addEventListener("click", trigger);
+  initDrive();
   $("sort-btn").addEventListener("click", pickSort);
   input.addEventListener("change", () => {
     doImport(input.files);

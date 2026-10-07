@@ -153,6 +153,21 @@ const testFn = async (withPiper) => {
       const drm = await detectFormat(new File([new Uint8Array(16)], "book.aax"));
       log(drm.kind === "unsupported" && /DRM/.test(drm.reason),
         `.aax refused with reason → ${JSON.stringify(drm.reason)}`);
+
+      // the import menu surfaces cloud sources (Drive browses via gdrive.js;
+      // without a client ID it shows the setup sheet — both states are fine)
+      const el = (id) => document.getElementById(id);
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      el("import-btn").click();
+      await sleep(120);
+      const importRows = [...el("sheet-list-body").querySelectorAll(".sheet-list-item")]
+        .map((b) => b.textContent);
+      const hasDrive = importRows.some((t) => /google drive/i.test(t));
+      const hasIcloudHint = importRows.some((t) => /icloud drive/i.test(t));
+      log(hasDrive && hasIcloudHint,
+        `import menu → ${JSON.stringify(importRows.map((t) => t.slice(0, 22)))}`);
+      el("sheet-overlay").click(); // dismiss without picking (would open a picker)
+      await sleep(80);
     }
 
     // 5. real reader open path — foliate view renders the imported book
