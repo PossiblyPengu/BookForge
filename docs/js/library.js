@@ -12,6 +12,7 @@ import { importFiles } from "./importer.js";
 import { searchMetadata, fetchCoverBlob, metaConfident } from "./metadata.js";
 import { detectSeries } from "./book-parser.js";
 import { openDriveBrowser, initDrive } from "./gdrive.js";
+import { syncProgress } from "./bookmaster.js";
 
 let onOpenBook = () => {};
 export const initLibrary = async (openBook) => {
@@ -806,6 +807,26 @@ export const openDetail = async (id) => {
   $("detail-progress-extra").textContent = b.lastOpenedAt
     ? `Opened ${ago(b.lastOpenedAt)}` : `Added ${ago(b.addedAt)}`;
 
+  // your rating — taps push straight through to BookMaster when linked
+  const stars = $("detail-rating");
+  stars.textContent = "";
+  for (let i = 1; i <= 5; i++) {
+    const s = document.createElement("button");
+    s.type = "button";
+    s.className = "rating-star" + ((b.rating || 0) >= i ? " on" : "");
+    s.textContent = "★";
+    s.setAttribute("role", "radio");
+    s.setAttribute("aria-checked", String((b.rating || 0) === i));
+    s.setAttribute("aria-label", `${i} star${i === 1 ? "" : "s"}`);
+    s.addEventListener("click", async () => {
+      const rating = b.rating === i ? null : i; // tap your rating again to clear
+      await saveDetail({ rating });
+      syncProgress(b, { force: true });
+      toast(rating ? `Rated ${rating}★` : "Rating cleared");
+    });
+    stars.append(s);
+  }
+
   // the one thing most people came here to do, worded for where they are
   $("detail-open-btn").textContent = audio
     ? (finished ? "Listen again" : started ? "Continue listening" : "Listen")
@@ -911,6 +932,7 @@ const runProgress = () => {
       // fraction 1 drops it out of Continue; the position is left alone so
       // reopening still lands where they stopped
       await saveDetail({ progress: { ...(b.progress || {}), fraction: 1 } });
+      syncProgress(b, { force: true }); // shelves it as read on BookMaster
       toast(audio ? "Marked as listened" : "Marked as finished");
     } else if (v === "reset") {
       await saveDetail({ progress: { fraction: 0 }, lastOpenedAt: null });

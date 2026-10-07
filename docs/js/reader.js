@@ -25,7 +25,7 @@ import { foliateTts } from "./tts-foliate.js";
 import { ttsController } from "./tts.js";
 import { pickTtsSleep, pickVoice, voiceLabel } from "./tts-voices.js";
 import { settings as ttsSettings, saveSettings as saveTtsSettings, kokoro } from "./tts-engines.js";
-import { syncProgress, syncSession } from "./bookmaster.js";
+import { syncProgress, syncSession, postQuote } from "./bookmaster.js";
 import { recordSession } from "./stats.js";
 import { definable, define } from "./dict.js";
 
@@ -497,6 +497,11 @@ const wireSelection = (doc, index) => {
           ];
           await putBook(activeBook);
           await view.addAnnotation({ value: cfi });
+          // a kept line is a quote on the tracker — silent no-op when unlinked
+          postQuote(activeBook, {
+            content: text.slice(0, 3000),
+            percent: activeRenderer?.getProgress?.()?.fraction,
+          });
           clear();
           toast("Highlighted");
         },

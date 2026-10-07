@@ -221,16 +221,25 @@ export const syncProgress = async (book, { force = false } = {}) => {
       user_book_id: book.bookmasterId || undefined,
       percent: pct,
       format: book.kind === "audio" ? "audio" : "ebook",
+      // 'read' is the only status a push may claim — finishing here (a page
+      // turn past 99.5%, or "Mark as finished") marks it read over there,
+      // reads_on_finish trigger and all.
+      status: (book.progress?.fraction || 0) >= 0.995 ? "read" : undefined,
+      rating: book.rating || undefined,
     });
     if (!res) return; // offline — parked in the queue
     if (res.ok) {
       // BookMaster answers with the shelf row it wrote — remember its id so
       // the next push pins to it rather than trusting the title again.
-      const { userBook } = await res.json().catch(() => ({}));
+      const { userBook, newAchievements } = await res.json().catch(() => ({}));
       if (userBook?.id && userBook.id !== book.bookmasterId) {
         book.bookmasterId = userBook.id;
         await putBook(book).catch(() => {});
       }
+      // the bridge hydrates ids into {id, name, icon} — Pageturner keeps no
+      // achievement catalogue of its own
+      for (const a of newAchievements || [])
+        toast(`${a.icon || "🏆"} ${a.name || "Achievement earned"}`, { ms: 4500 });
     } else {
       await handleFailedPush(book, res);
     }
@@ -262,9 +271,46 @@ export const syncSession = async (book, { percentStart, percentEnd, minutes, at 
       duration_minutes: Math.round(minutes) || undefined,
       at,
     });
-    if (res && !res.ok) await handleFailedPush(book, res);
+    if (res && res.ok) {
+      const { newAchievements } = await res.json().catch(() => ({}));
+      for (const a of newAchievements || [])
+        toast(`${a.icon || "🏆"} ${a.name || "Achievement earned"}`, { ms: 4500 });
+    } else if (res) {
+      await handleFailedPush(book, res);
+    }
   } catch (err) {
     console.warn("BookMaster session sync failed", err);
+  }
+};
+
+/**
+ * A line worth keeping, pushed from the reader's selection chip — lands on
+ * the book's shelf row as a BookMaster quote. Queues like a session: a quote
+ * is an event, not a position.
+ */
+export const postQuote = async (book, { content, percent } = {}) => {
+  try {
+    if (!book?.title || !content) return false;
+    const user = await linkedUser();
+    if (!user?.username) return false;
+    const res = await send("quote", {
+      username: user.username,
+      user_book_id: book.bookmasterId || undefined,
+      title: book.title,
+      author: book.author || "",
+      isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
+      open_library_id: book.identifiers?.open_library || undefined,
+      content,
+      // the reader measures in percent — BookMaster converts to pages when
+      // the shelf row knows the book's length
+      percent: typeof percent === "number" ? percent * 100 : undefined,
+    });
+    if (!res) return true; // parked for later — report success
+    if (!res.ok) { await handleFailedPush(book, res); return false; }
+    return true;
+  } catch (err) {
+    console.warn("BookMaster quote sync failed", err);
+    return false;
   }
 };
 

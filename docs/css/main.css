@@ -2272,3 +2272,20 @@ input, textarea { font: inherit; color: inherit; }
   border-top: 0.5px solid var(--separator);
 }
 .drive-foot span { font-size: 14px; color: var(--text-2); font-weight: 600; }
+
+/* ---------- Detail sheet rating ---------- */
+.book-rating {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 2px 0 12px;
+}
+.rating-star {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--fill-strong);
+  padding: 4px 2px;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+.rating-star.on { color: var(--accent); }
+.rating-star:active { transform: scale(1.25); }

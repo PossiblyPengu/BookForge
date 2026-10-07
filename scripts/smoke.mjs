@@ -778,6 +778,15 @@ const testFn = async (withPiper) => {
       const reset = await getBook(stored.id);
       log(reset.progress.fraction === 0 && !reset.lastOpenedAt,
         `start over clears progress → ${reset.progress.fraction}, lastOpened ${reset.lastOpenedAt}`);
+
+      // rating stars render in the detail sheet and persist a tap
+      await openDetail(stored.id);
+      const stars = [...el("detail-rating").querySelectorAll(".rating-star")];
+      stars[3]?.click();
+      await wait(150);
+      const rated = await getBook(stored.id);
+      log(stars.length === 5 && rated.rating === 4,
+        `rating row → ${stars.length} stars, tap 4th persists rating=${rated.rating}`);
       (await import("./js/util.js")).closeSheet();
     }
 
