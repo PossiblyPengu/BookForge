@@ -94,12 +94,15 @@ const searchBookmaster = async (title, author, q) => {
   const p = new URLSearchParams({ username: user.username, title: title || "", author: author || "", q });
   const data = await fetchJson(`/api/bookmaster/search?${p}`);
   if (!data?.books) return [];
+  // A cover the bridge itself stored is served root-relative on BookMaster —
+  // resolving it here, it would ask this origin and get the app shell back.
+  const abs = (u) => (u?.startsWith("/") ? `https://bookmaster.pages.dev${u}` : u);
   return data.books.map((b) => ({
     ...cand({
       title: b.title,
       author: b.author,
       year: b.year,
-      cover: b.coverUrl,
+      cover: abs(b.coverUrl),
       source: b.userBookId ? "On your BookMaster shelf" : "BookMaster",
       identifiers: {
         isbn13: b.isbn?.length === 13 ? b.isbn : undefined,

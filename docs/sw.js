@@ -1,6 +1,6 @@
 
-const CACHE_NAME = 'pageturner-cache-v72';
-const RUNTIME_CACHE = 'pageturner-runtime-v72';
+const CACHE_NAME = 'pageturner-cache-v73';
+const RUNTIME_CACHE = 'pageturner-runtime-v73';
 // Engine binaries (ONNX runtime, espeak data, model weights): ~30 MB that
 // rarely changes. Kept across app updates rather than re-downloaded with every
 // build, and re-checked with a cheap conditional request when a new version
