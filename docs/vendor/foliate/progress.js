@@ -35,7 +35,7 @@ export class TOCProgress {
         this.map = map
         this.getFragment = getFragment
     }
-    getProgress(index, range) {
+    getProgress(index, range, fraction = 0) {
         if (!this.ids) return
         const id = this.ids[index]
         const obj = this.map.get(id)
@@ -45,13 +45,25 @@ export class TOCProgress {
         if (!range || items.length === 1 && !items[0].fragment) return items[0].item
 
         const doc = range.startContainer.getRootNode()
+        // Pageturner patch (scripts/patch-foliate.js, __ptAnchored): when no
+        // anchor resolves, position the label by how far through the section
+        // the page sits instead of answering with the group's LAST item —
+        // dead anchors used to label every page with the file's final
+        // chapter ("Chapter 5" throughout a five-chapter file). And when the
+        // range sits before the first anchor with no previous group to
+        // inherit, the group's own first item is better than nothing.
+        let __ptAnchored = false
         for (const [i, { fragment }] of items.entries()) {
             const el = this.getFragment(doc, fragment)
             if (!el) continue
+            __ptAnchored = true
             if (range.comparePoint(el, 0) > 0)
-                return (items[i - 1]?.item ?? prev)
+                return (items[i - 1]?.item ?? prev ?? items[0].item)
         }
-        return items[items.length - 1].item
+        return __ptAnchored
+            ? items[items.length - 1].item
+            : items[Math.min(items.length - 1, Math.max(0,
+                Math.round((Number.isFinite(fraction) ? fraction : 0) * (items.length - 1))))].item
     }
 }
 

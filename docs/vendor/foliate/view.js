@@ -315,7 +315,7 @@ export class View extends HTMLElement {
     }
     #onRelocate({ reason, range, index, fraction, size }) {
         const progress = this.#sectionProgress?.getProgress(index, fraction, size) ?? {}
-        const tocItem = this.#tocProgress?.getProgress(index, range)
+        const tocItem = this.#tocProgress?.getProgress(index, range, fraction)
         const pageItem = this.#pageProgress?.getProgress(index, range)
         const cfi = this.getCFI(index, range)
         this.lastLocation = { ...progress, tocItem, pageItem, cfi, range }

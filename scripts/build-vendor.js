@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { patchPiper } from "./patch-piper.js";
+import { patchFoliate } from "./patch-foliate.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const ROOT = path.join(path.dirname(__filename), "..");
@@ -37,6 +38,7 @@ for (const f of fs.readdirSync(nm("foliate-js"))) {
   if (fs.statSync(src).isDirectory() || f.endsWith(".js") || f.endsWith(".html"))
     cp(src, out(path.join("foliate", f)));
 }
+patchFoliate(out("foliate"));
 
 // --- pdfjs ---
 fs.rmSync(out("pdfjs"), { recursive: true, force: true });
