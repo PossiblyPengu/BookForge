@@ -9,7 +9,7 @@
  * truth — remote positions exist to be offered (resume), never imposed.
  */
 import { kvGet, kvSet, allBooks, putBook } from "./db.js";
-import { bookmasterUser, sendableAuthor } from "./bookmaster.js";
+import { bookmasterUser, sendableAuthor, syncCover } from "./bookmaster.js";
 import { listSheet, toast } from "./util.js";
 
 const PULL_KEY = "bm-pull";
@@ -165,6 +165,9 @@ export const bmPull = async ({ force = false } = {}) => {
     for (const b of await allBooks()) {
       const row = matchShelfRow(b, cache.books);
       if (row && mergeRow(b, row)) await putBook(b).catch(() => {});
+      // a matched book with a jacket hands it over — once, then the tag on
+      // the record says done. Books with no coverBlob send nothing.
+      syncCover(b);
     }
   } catch (err) {
     console.warn("BookMaster pull failed", err);

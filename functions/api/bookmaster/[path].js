@@ -16,6 +16,7 @@ const ROUTES = new Set([
   "link",
   "progress",
   "session",
+  "cover",
   "quote",
   "comment",
   "comments",

@@ -85,13 +85,18 @@ let brokeWarned = false; // toast the dead link once per session, not per turn
  * the page hides — a session logged at the moment the app is killed — be
  * delivered anyway.
  */
-const postBookmaster = (path, body) =>
-  fetch(`/api/bookmaster/${path}`, {
+export const postBookmaster = (path, body) => {
+  const json = JSON.stringify(body);
+  return fetch(`/api/bookmaster/${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    keepalive: true,
-    body: JSON.stringify(body),
+    // keepalive lets a close-time push outlive the page, but the platform
+    // caps those bodies near 64KB — a cover-bearing push is far over and
+    // would throw every time, parked in the queue blocking what came after.
+    keepalive: json.length < 60_000,
+    body: json,
   });
+};
 
 /**
  * What a refused push means. A 404 "Unknown reader" is a dead link — stop
@@ -218,6 +223,58 @@ const blobToBase64 = async (blob) => {
   return btoa(bin);
 };
 
+/**
+ * The cover fields a push carries, or null when there's nothing new to send.
+ * A cover goes up once per blob — bmCoverTag (size:type) on the book record
+ * is the "already sent" mark; a re-picked or re-compressed cover changes the
+ * tag and sends again. Over 1MB stays home rather than bloat every push.
+ */
+const coverFields = async (book) => {
+  const blob = book.coverBlob;
+  if (!blob?.size || blob.size > 1_000_000) return null;
+  const tag = `${blob.size}:${blob.type || "image/jpeg"}`;
+  if (book.bmCoverTag === tag) return null;
+  try {
+    return {
+      tag,
+      fields: {
+        cover_b64: await blobToBase64(blob),
+        cover_mime: blob.type || "image/jpeg",
+      },
+    };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Just the cover, for a book the bridge already knows — the pull sweep sends
+ * these for books whose last push predates the feature. No progress fields,
+ * so a want_to_read row stays want_to_read.
+ */
+export const syncCover = async (book) => {
+  try {
+    if (!book?.title || !(book.bookmasterId || book.bmBookId)) return;
+    const user = await linkedUser();
+    if (!user?.username) return;
+    const cover = await coverFields(book);
+    if (!cover) return;
+    const res = await postBookmaster("cover", {
+      username: user.username,
+      user_book_id: book.bookmasterId || undefined,
+      title: book.title,
+      author: sendableAuthor(book.author),
+      isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
+      open_library_id: book.identifiers?.open_library || undefined,
+      ...cover.fields,
+    });
+    if (res.ok && book.bmCoverTag !== cover.tag) {
+      book.bmCoverTag = cover.tag;
+      await putBook(book).catch(() => {});
+    }
+  } catch { /* a cover is extra — never worth an error */ }
+};
+
 export const syncProgress = async (book, { force = false } = {}) => {
   try {
     if (!book?.title) return;
@@ -250,18 +307,9 @@ export const syncProgress = async (book, { force = false } = {}) => {
     // The cover the reader sees goes too — real art lives in coverBlob
     // (generated jackets never touch it), so the bytes ride the push once
     // and BookMaster serves them back. The tag remembers which blob went up.
-    const blob = book.coverBlob;
-    let coverTag = null;
-    if (blob?.size && blob.size <= 1_000_000) {
-      const tag = `${blob.size}:${blob.type || "image/jpeg"}`;
-      if (book.bmCoverTag !== tag) {
-        try {
-          payload.cover_b64 = await blobToBase64(blob);
-          payload.cover_mime = blob.type || "image/jpeg";
-          coverTag = tag;
-        } catch { /* a cover is extra — the push goes without it */ }
-      }
-    }
+    const cover = await coverFields(book);
+    if (cover) Object.assign(payload, cover.fields);
+    const coverTag = cover?.tag ?? null;
     const res = await send("progress", payload);
     if (!res) return; // offline — parked in the queue
     if (res.ok) {
