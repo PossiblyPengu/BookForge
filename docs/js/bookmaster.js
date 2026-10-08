@@ -209,6 +209,15 @@ const send = async (kind, body) => {
   return res;
 };
 
+/** A blob as the JSON-safe string a push can carry. */
+const blobToBase64 = async (blob) => {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+};
+
 export const syncProgress = async (book, { force = false } = {}) => {
   try {
     if (!book?.title) return;
@@ -221,7 +230,7 @@ export const syncProgress = async (book, { force = false } = {}) => {
       if (last && Date.now() - last.at < 30_000) return;
     }
     lastPush.set(book.id, { at: Date.now(), pct });
-    const res = await send("progress", {
+    const payload = {
       username: user.username,
       title: book.title,
       author: sendableAuthor(book.author),
@@ -237,16 +246,38 @@ export const syncProgress = async (book, { force = false } = {}) => {
       // reads_on_finish trigger and all.
       status: (book.progress?.fraction || 0) >= 0.995 ? "read" : undefined,
       rating: book.rating || undefined,
-    });
+    };
+    // The cover the reader sees goes too — real art lives in coverBlob
+    // (generated jackets never touch it), so the bytes ride the push once
+    // and BookMaster serves them back. The tag remembers which blob went up.
+    const blob = book.coverBlob;
+    let coverTag = null;
+    if (blob?.size && blob.size <= 1_000_000) {
+      const tag = `${blob.size}:${blob.type || "image/jpeg"}`;
+      if (book.bmCoverTag !== tag) {
+        try {
+          payload.cover_b64 = await blobToBase64(blob);
+          payload.cover_mime = blob.type || "image/jpeg";
+          coverTag = tag;
+        } catch { /* a cover is extra — the push goes without it */ }
+      }
+    }
+    const res = await send("progress", payload);
     if (!res) return; // offline — parked in the queue
     if (res.ok) {
       // BookMaster answers with the shelf row it wrote — remember its id so
       // the next push pins to it rather than trusting the title again.
       const { userBook, newAchievements } = await res.json().catch(() => ({}));
+      let dirty = false;
       if (userBook?.id && userBook.id !== book.bookmasterId) {
         book.bookmasterId = userBook.id;
-        await putBook(book).catch(() => {});
+        dirty = true;
       }
+      if (coverTag && book.bmCoverTag !== coverTag) {
+        book.bmCoverTag = coverTag;
+        dirty = true;
+      }
+      if (dirty) await putBook(book).catch(() => {});
       // the bridge hydrates ids into {id, name, icon} — Pageturner keeps no
       // achievement catalogue of its own
       for (const a of newAchievements || [])
