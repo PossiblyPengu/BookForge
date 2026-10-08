@@ -94,7 +94,7 @@ const showSkeletons = () => {
     card.className = "skel-card";
     card.setAttribute("aria-hidden", "true");
     card.innerHTML =
-      '<div class="skel-cover"></div><div class="skel-line"></div><div class="skel-line short"></div>';
+      '<div class="skel-cover"></div><div class="skel-lines"><div class="skel-line"></div><div class="skel-line short"></div></div>';
     grid.appendChild(card);
   }
   skelTimer = setTimeout(() => { grid.textContent = ""; }, 600);
@@ -414,19 +414,25 @@ const seriesCard = (group) => {
   const cover = document.createElement("div");
   cover.className = "book-cover";
   cover.appendChild(coverFor(group.members[0], { lazy: true }));
-  const pill = document.createElement("span");
-  pill.className = "book-pill";
-  pill.textContent = `${group.members.length} books`;
-  cover.appendChild(pill);
   card.appendChild(cover);
+  const info = document.createElement("div");
+  info.className = "book-card-info";
   const t = document.createElement("div");
   t.className = "book-card-title";
   t.textContent = group.series;
-  card.appendChild(t);
+  info.appendChild(t);
   const a = document.createElement("div");
   a.className = "book-card-author";
   a.textContent = group.author || "";
-  card.appendChild(a);
+  info.appendChild(a);
+  const foot = document.createElement("div");
+  foot.className = "book-card-foot";
+  const pill = document.createElement("span");
+  pill.className = "book-fmt";
+  pill.textContent = `${group.members.length} books`;
+  foot.appendChild(pill);
+  info.appendChild(foot);
+  card.appendChild(info);
   card.addEventListener("click", () => {
     const ordered = [...group.members].sort((a2, b2) => {
       const an = detectSeries(a2.title || "")?.bookNum ?? Infinity;
@@ -458,7 +464,7 @@ const renderGrid = () => {
 
   const view = applyView();
   const mixed = mixedLibrary();
-  $("library-head").hidden = !books.length;
+  $("library-head").hidden = !books.length || !mixed; // the row only carries the filter
   $("library-search-wrap").hidden = !books.length; // nothing to search yet
   if (!selecting) {
     $("select-btn").hidden = !books.length;
@@ -471,9 +477,10 @@ const renderGrid = () => {
     b.setAttribute("aria-pressed", on ? "true" : "false");
   }
   const noun = (n) => (mixed && filterMode === "audio" ? `audiobook${n === 1 ? "" : "s"}` : `book${n === 1 ? "" : "s"}`);
-  $("library-count").textContent = view.length === books.length
-    ? `${books.length} ${noun(books.length)}`
-    : `${view.length} of ${books.length}`;
+  $("library-sub").textContent = !books.length ? ""
+    : view.length === books.length
+      ? `${books.length} ${noun(books.length)}`
+      : `${view.length} of ${books.length}`;
   if (!view.length && books.length) {
     const none = document.createElement("p");
     none.className = "library-none";
@@ -493,39 +500,6 @@ const renderGrid = () => {
     const cover = document.createElement("div");
     cover.className = "book-cover";
     cover.appendChild(coverFor(book, { lazy: true }));
-    // generated audiobook covers already carry headphones — the badge is for real art
-    if (book.kind === "audio" && book.coverBlob) {
-      const badge = document.createElement("span");
-      badge.className = "book-badge book-badge-audio";
-      badge.innerHTML = HEADPHONES_BADGE;
-      badge.title = "Audiobook";
-      cover.appendChild(badge);
-    } else if (BADGE_FORMATS.has(book.format)) {
-      const badge = document.createElement("span");
-      badge.className = "book-badge";
-      badge.textContent = book.format === "Markdown" ? "MD" : book.format;
-      cover.appendChild(badge);
-    }
-    if (isNew(book)) {
-      const pill = document.createElement("span");
-      pill.className = "book-pill";
-      pill.textContent = "New";
-      cover.appendChild(pill);
-    } else if (isFinished(book)) {
-      const done = document.createElement("span");
-      done.className = "book-pill book-pill-done";
-      done.textContent = "✓ Finished";
-      cover.appendChild(done);
-    }
-    const frac = book.progress?.fraction || 0;
-    if (frac > 0.005 && !isFinished(book)) {
-      const bar = document.createElement("div");
-      bar.className = "book-progress";
-      const fill = document.createElement("i");
-      fill.style.width = `${Math.round(frac * 100)}%`;
-      bar.appendChild(fill);
-      cover.appendChild(bar);
-    }
     if (selecting) {
       // a corner check, like Photos — the cover stays visible
       const tick = document.createElement("span");
@@ -535,15 +509,71 @@ const renderGrid = () => {
     }
     card.appendChild(cover);
 
+    const info = document.createElement("div");
+    info.className = "book-card-info";
     const t = document.createElement("div");
     t.className = "book-card-title";
     t.textContent = book.title;
-    card.appendChild(t);
+    info.appendChild(t);
     const a = document.createElement("div");
     a.className = "book-card-author";
     a.textContent = book.author || "Unknown author";
     if (!book.author) a.classList.add("book-card-author-missing");
-    card.appendChild(a);
+    info.appendChild(a);
+
+    const foot = document.createElement("div");
+    foot.className = "book-card-foot";
+    const frac = book.progress?.fraction || 0;
+    const st = document.createElement("span");
+    if (isFinished(book)) {
+      st.className = "book-status st-read";
+      st.textContent = "Finished";
+    } else if (frac > 0.005) {
+      st.className = "book-status st-reading";
+      st.textContent = book.kind === "audio" ? "Listening" : "Reading";
+    } else if (isNew(book)) {
+      st.className = "book-status st-new";
+      st.textContent = "New";
+    }
+    if (st.className) foot.appendChild(st);
+    if (book.rating) {
+      const star = document.createElement("span");
+      star.className = "book-rating";
+      star.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>${book.rating}`;
+      foot.appendChild(star);
+    }
+    // generated audiobook covers already carry headphones — the badge is for real art;
+    // quiet formats (epub) say nothing, like BookMaster says nothing about ebooks
+    if (book.kind === "audio" && book.coverBlob) {
+      const badge = document.createElement("span");
+      badge.className = "book-fmt";
+      badge.innerHTML = HEADPHONES_BADGE;
+      badge.title = "Audiobook";
+      foot.appendChild(badge);
+    } else if (BADGE_FORMATS.has(book.format)) {
+      const badge = document.createElement("span");
+      badge.className = "book-fmt";
+      badge.textContent = book.format === "Markdown" ? "MD" : book.format;
+      foot.appendChild(badge);
+    }
+    if (foot.childElementCount) info.appendChild(foot);
+
+    if (frac > 0.005) {
+      const row = document.createElement("div");
+      row.className = "book-progress-row";
+      const bar = document.createElement("div");
+      bar.className = "book-progress" + (isFinished(book) ? " done" : "");
+      const fill = document.createElement("i");
+      fill.style.width = `${Math.round(frac * 100)}%`;
+      bar.appendChild(fill);
+      const pct = document.createElement("span");
+      pct.className = "book-progress-pct";
+      pct.textContent = `${Math.round(frac * 100)}%`;
+      row.appendChild(bar);
+      row.appendChild(pct);
+      info.appendChild(row);
+    }
+    card.appendChild(info);
 
     card.addEventListener("click", () => {
       if (selecting) toggleSelected(book.id);
@@ -561,7 +591,7 @@ const visibleIds = () => applyView().map((b) => b.id);
 
 const syncSelectUI = () => {
   const n = selected.size;
-  $("library-nav-title").textContent = selecting
+  $("library-title").textContent = selecting
     ? (n ? `${n} selected` : "Select books")
     : "Library";
   $("select-bar").hidden = !selecting;

@@ -96,7 +96,10 @@
       <section class="view" id="view-library">
         <header class="nav-bar">
           <div class="nav-bar-inner">
-            <h1 class="nav-title" id="library-nav-title">Library</h1>
+            <span class="nav-wordmark" aria-label="Pageturner">
+              <span class="nav-wordmark-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg></span>
+              <span class="nav-wordmark-text">Page<em>turner</em></span>
+            </span>
             <div class="nav-actions">
               <button type="button" class="nav-btn" id="select-btn" aria-label="Select books">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
@@ -112,6 +115,11 @@
           </div>
         </header>
         <div class="view-body" id="library-body">
+          <div class="page-col">
+          <header class="page-head">
+            <h1 class="page-title" id="library-title">Library</h1>
+            <p class="page-sub" id="library-sub"></p>
+          </header>
           <div class="library-search" id="library-search-wrap">
             <input type="search" id="library-search" placeholder="Search library" autocomplete="off" />
           </div>
@@ -135,7 +143,6 @@
             <div class="shelf-row" id="recent-row"></div>
           </section>
           <div class="library-head" id="library-head" hidden>
-            <span class="library-count" id="library-count"></span>
             <div class="seg seg-sm" id="library-filter" role="group" aria-label="Show" hidden>
               <button type="button" data-val="all">All</button>
               <button type="button" data-val="books">Books</button>
@@ -165,6 +172,7 @@
             <button type="button" class="btn btn-ghost btn-lg" id="empty-install-btn" hidden>Install the app</button>
             <p class="welcome-drop">or drop files anywhere on this window</p>
           </div>
+          </div>
         </div>
       </section>
 
@@ -172,10 +180,17 @@
       <section class="view" id="view-settings" hidden>
         <header class="nav-bar">
           <div class="nav-bar-inner">
-            <h1 class="nav-title">Settings</h1>
+            <span class="nav-wordmark" aria-label="Pageturner">
+              <span class="nav-wordmark-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg></span>
+              <span class="nav-wordmark-text">Page<em>turner</em></span>
+            </span>
           </div>
         </header>
         <div class="view-body">
+          <div class="page-col">
+          <header class="page-head">
+            <h1 class="page-title">Settings</h1>
+          </header>
           <div class="list-group">
             <p class="list-group-label">Appearance</p>
             <div class="list-card">
@@ -310,6 +325,7 @@
             <p class="list-group-note">Clears downloaded voices and engine files only; books, covers and reading positions stay. Repair removes file data no book points at — leftovers from interrupted restores and old bugs.</p>
           </div>
           <p class="settings-foot"><span>Pageturner</span> <span id="set-version">2.7.0</span></p>
+          </div>
         </div>
       </section>
 
@@ -460,11 +476,11 @@
       <!-- ================= TAB BAR ================= -->
       <nav class="tab-bar" id="tab-bar">
         <button type="button" class="tab-item active" data-view="library">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
           <span>Library</span>
         </button>
         <button type="button" class="tab-item" data-view="settings">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span>Settings</span>
         </button>
       </nav>

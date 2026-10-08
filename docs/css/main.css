@@ -48,10 +48,9 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
-  --tabbar-h: calc(49px + var(--safe-bottom));
-  /* floating pill bar: how much room its top edge takes from the screen
-     bottom — views, toasts and the mini-player clear this, not --tabbar-h */
-  --tab-clearance: calc(var(--safe-bottom) + var(--chin) + 10px + 62px);
+  /* flush tab bar: how much room its top edge takes from the screen
+     bottom — views, toasts and the mini-player clear this */
+  --tab-clearance: calc(var(--safe-bottom) + var(--chin) + 52px);
   /* iOS 26 standalone: viewport shorter than the screen — js/viewport.js
      measures the strip and bottom bars grow into it */
   --chin: 0px;
@@ -199,22 +198,47 @@ input, textarea { font: inherit; color: inherit; }
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 52px;
+  height: 48px;
   padding: 0 12px;
 }
+/* the BookMaster chrome: a wordmark carries the bar, the section title lives
+   in the page where it can be big */
+.nav-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.nav-wordmark-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-card);
+}
+.nav-wordmark-text {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.nav-wordmark-text em { font-style: normal; color: var(--accent); }
 .nav-title {
   flex: 1;
   margin: 0;
-  font-family: var(--font-display);
   font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 700;
+  letter-spacing: -0.025em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .nav-title-sm { font-size: 17px; font-weight: 600; text-align: center; }
-.nav-actions { display: flex; gap: 4px; }
+.nav-actions { display: flex; gap: 4px; margin-left: auto; }
 .nav-btn {
   display: grid;
   place-items: center;
@@ -223,8 +247,13 @@ input, textarea { font: inherit; color: inherit; }
   border-radius: 10px;
   color: var(--accent-ink);
 }
+/* bar icons are chrome, not calls to action — BookMaster keeps them quiet
+   slate; the accent stays for real buttons */
+.nav-bar .nav-btn { color: var(--text-2); }
+.nav-bar .nav-btn:active { color: var(--text); }
 .nav-btn:active { background: var(--fill); }
 .nav-btn-text { padding: 0 10px; font-size: 16px; font-weight: 600; }
+.nav-bar .nav-btn-text { color: var(--accent-ink); }
 .nav-btn[hidden] { display: none; }
 .nav-btn.on svg { fill: currentColor; }
 .nav-btn[disabled] { color: var(--text-3); }
@@ -292,20 +321,20 @@ input, textarea { font: inherit; color: inherit; }
 }
 
 /* ---------- Tab bar ---------- */
+/* BookMaster's bar: flush to the edges, translucent, ruled off by a hairline.
+   --chin pushes it down into the standalone viewport's dead band. */
 .tab-bar {
   position: fixed;
-  left: calc(14px + var(--safe-left));
-  right: calc(14px + var(--safe-right));
-  bottom: calc(var(--safe-bottom) + var(--chin) + 10px);
+  left: 0;
+  right: 0;
+  bottom: var(--chin);
   display: flex;
-  height: 62px;
-  padding: 0;
+  height: calc(52px + var(--safe-bottom));
+  padding: 0 0 var(--safe-bottom);
   background: var(--bar-bg);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  backdrop-filter: blur(20px) saturate(1.4);
-  border: 0.5px solid var(--separator);
-  border-radius: 22px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 0.5px 0 rgba(255, 255, 255, 0.05);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  backdrop-filter: blur(20px) saturate(1.8);
+  border-top: 0.5px solid var(--separator);
   z-index: 40;
 }
 .tab-item {
@@ -314,21 +343,42 @@ input, textarea { font: inherit; color: inherit; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 3px;
   color: var(--text-3);
   font-size: 10px;
   font-weight: 500;
   transition: color 0.2s ease, opacity 0.12s ease-out;
 }
 .tab-item.active { color: var(--accent-ink); }
-.tab-item.active svg { filter: drop-shadow(0 0 7px rgba(205, 132, 79, 0.5)); }
 .tab-item:active { opacity: 0.6; }
 /* a little spring on the icon when a tab becomes active */
 .tab-item.active svg { animation: tab-pop 0.28s cubic-bezier(0.3, 1.45, 0.6, 1); }
 @keyframes tab-pop { from { transform: scale(0.92); } }
 
+/* BookMaster's content column: one width for every page, centered, instead
+   of each view stretching to whatever the window is */
+.page-col { max-width: 1024px; margin-inline: auto; }
+
+/* ---------- Page header ----------
+   BookMaster's PageHeader: a big sans title in the content column, the bar
+   above stays small. Tight tracking, subdued subtitle under it. */
+.page-head { padding: 20px 16px 4px; }
+.page-title {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.page-sub { margin: 2px 0 0; font-size: 15px; color: var(--text-3); }
+.page-sub:empty { display: none; }
+
 /* ---------- Library ---------- */
-.library-search { padding: 2px 16px 10px; }
+.library-search { padding: 12px 16px 10px; }
 .library-search input {
   width: 100%;
   border: 0;
@@ -349,11 +399,10 @@ input, textarea { font: inherit; color: inherit; }
   gap: 12px;
   width: calc(100% - 32px);
   margin: 0 16px 14px;
-  padding: 10px;
-  border-radius: 16px;
-  background: var(--bg-raised);
-  border: 0.5px solid var(--separator);
-  box-shadow: var(--shadow-lift);
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--bg-card);
+  box-shadow: 0 0 0 0.5px var(--separator);
   text-align: left;
 }
 .continue-card:active { background: var(--fill); }
@@ -362,9 +411,9 @@ input, textarea { font: inherit; color: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 62px;
-  height: 93px;
-  border-radius: 12px;
+  width: 64px;
+  height: 96px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--fill);
   color: var(--text-3);
@@ -488,11 +537,10 @@ input, textarea { font: inherit; color: inherit; }
 /* offset "copies" behind the first cover read as a pile of books */
 .series-card .book-cover {
   box-shadow: var(--shadow-card),
-    4px -4px 0 -1px var(--bg-raised),
-    8px -8px 0 -2px var(--fill-strong);
-  margin-right: 8px;
+    2px -2px 0 -1px var(--bg-raised),
+    4px -4px 0 -2px var(--fill-strong);
+  margin-right: 4px;
 }
-.series-card { margin-bottom: 8px; }
 
 /* ---------- Stats sheet ---------- */
 .stats-grid {
@@ -565,10 +613,10 @@ input, textarea { font: inherit; color: inherit; }
 }
 .shelf-title {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: 19px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
   letter-spacing: -0.01em;
+  color: var(--text);
 }
 .shelf-row {
   display: flex;
@@ -589,7 +637,6 @@ input, textarea { font: inherit; color: inherit; }
 }
 .shelf-book .book-cover { margin-bottom: 7px; }
 .shelf-book-title {
-  font-family: var(--font-display);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.25;
@@ -615,22 +662,33 @@ input, textarea { font: inherit; color: inherit; }
   min-height: 30px;
   padding: 0 16px 4px;
 }
-.library-count { font-size: 13px; font-weight: 600; color: var(--text-3); letter-spacing: 0.02em; }
 .seg-sm button { padding: 4px 10px; font-size: 12.5px; }
 .library-none { grid-column: 1 / -1; margin: 32px 0; text-align: center; color: var(--text-3); font-size: 14px; }
 
+/* BookMaster's library: one column of horizontal cards on a phone, widening
+   to two, then three across on larger screens */
 .library-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-  gap: 20px 14px;
+  grid-template-columns: 1fr;
+  gap: 12px;
   padding: 8px 16px 16px;
 }
+@media (min-width: 640px) { .library-grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1024px) { .library-grid { grid-template-columns: 1fr 1fr 1fr; } }
 /* leave room for the selection action bar above the tab bar */
 .library-grid.selecting { padding-bottom: 72px; }
 
 /* Cold-boot placeholders: six of these stand in for the grid while the
    first IndexedDB read is in flight, then the real render replaces them. */
-.skel-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.skel-card {
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  background: var(--bg-card);
+  border-radius: 12px;
+  box-shadow: 0 0 0 0.5px var(--separator);
+}
 .skel-cover, .skel-line {
   background-color: var(--fill);
   background-image: linear-gradient(100deg,
@@ -639,7 +697,8 @@ input, textarea { font: inherit; color: inherit; }
   background-repeat: no-repeat;
   animation: skel-shimmer 1.2s ease-in-out infinite;
 }
-.skel-cover { aspect-ratio: 2 / 3; border-radius: 10px; }
+.skel-cover { width: 64px; height: 96px; flex-shrink: 0; border-radius: 8px; }
+.skel-lines { flex: 1; display: flex; flex-direction: column; gap: 7px; padding-top: 2px; }
 .skel-line { height: 10px; border-radius: 5px; width: 92%; }
 .skel-line.short { width: 55%; }
 @keyframes skel-shimmer {
@@ -663,7 +722,8 @@ input, textarea { font: inherit; color: inherit; }
 }
 .library-grid.selecting .book-card:not(.selected) .book-cover > :first-child { opacity: 0.72; }
 .book-card.selected .book-tick { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.book-card.selected .book-cover { box-shadow: 0 0 0 3px var(--accent), var(--shadow-card); }
+/* the ring belongs to the card now, the way BookMaster marks a picked row */
+.book-card.selected { box-shadow: 0 0 0 1.5px var(--accent); }
 .select-bar {
   position: fixed;
   left: 0; right: 0;
@@ -768,12 +828,22 @@ input, textarea { font: inherit; color: inherit; }
   .gen-cover-mono { display: block; }
 }
 
+/* BookMaster's card: a horizontal row — jacket on the left, then title,
+   author, and a bottom strip carrying status, rating, format and progress */
 .book-card {
-  display: flex; flex-direction: column; gap: 6px; min-width: 0;
-  /* cards below the fold skip layout/paint entirely; ~220px is one card's
-     height (110px column × 1.5 cover + text rows) so scroll size stays right */
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  text-align: left;
+  background: var(--bg-card);
+  border-radius: 12px;
+  /* the card reads as a grouped cell: fill + a hairline ring, no shadow */
+  box-shadow: 0 0 0 0.5px var(--separator);
+  /* cards below the fold skip layout/paint entirely; ~122px is one card's
+     height (12px pad + 96px cover + 12px pad) so scroll size stays right */
   content-visibility: auto;
-  contain-intrinsic-size: auto 220px;
+  contain-intrinsic-size: auto 122px;
 }
 .book-cover {
   position: relative;
@@ -786,6 +856,7 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--text-3);
   box-shadow: var(--shadow-card), inset 0 0 0 0.5px var(--separator);
 }
+.book-card .book-cover { width: 64px; height: 96px; flex-shrink: 0; border-radius: 8px; }
 /* a bound-book spine: the left edge darkens and catches a sliver of light,
    so covers read as objects rather than tiles */
 .continue-cover, .book-detail-cover { position: relative; }
@@ -799,6 +870,7 @@ input, textarea { font: inherit; color: inherit; }
   z-index: 1;
   pointer-events: none;
 }
+.book-card .book-cover::before { width: 8px; }
 /* the cover image paints above the element's own inset hairline, so the
    edge line lives on an overlay that follows the same rounded box */
 .book-cover::after, .continue-cover::after, .book-detail-cover::after {
@@ -814,51 +886,75 @@ input, textarea { font: inherit; color: inherit; }
   width: 100%; height: 100%;
   object-fit: cover;
 }
+.book-card .book-cover .cover-glyph { width: 40%; height: 40%; }
 .book-cover .cover-glyph { width: 36%; height: 36%; }
-.book-badge {
-  position: absolute;
-  top: 6px; right: 6px;
-  padding: 2px 7px;
-  border-radius: 6px;
+/* BookMaster's little pills — the format/genre row in the card's footer */
+.book-fmt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--text-3);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  background: rgba(0,0,0,0.65);
-  color: #f2ede3;
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
 }
-.book-badge-audio { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border-radius: 50%; color: #fff; }
-/* "New" on unopened books, "Finished" on read ones */
-.book-pill {
-  position: absolute;
-  left: 6px; top: 6px;
-  z-index: 1;
-  padding: 2px 7px;
-  border-radius: 6px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.book-pill-done { background: rgba(0,0,0,0.62); color: #f2ede3; text-transform: none; letter-spacing: 0; }
+.book-fmt svg { width: 11px; height: 11px; }
 .book-card-author-missing { font-style: italic; }
+/* the card's bottom strip: status word, rating star, format badge */
+.book-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.book-card-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+.book-status { font-size: 11px; font-weight: 600; }
+.st-reading { color: var(--accent); }
+.st-read { color: var(--sage); }
+.st-new { color: var(--denim); }
+.book-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.book-progress-row { display: flex; align-items: center; gap: 8px; }
 .book-progress {
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: 3px;
-  background: rgba(0,0,0,0.4);
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fill-strong);
+  overflow: hidden;
 }
 .book-progress i {
   display: block; height: 100%;
+  border-radius: inherit;
   background: var(--accent);
 }
+.book-progress.done i { background: var(--sage); }
+.book-progress-pct {
+  font-size: 11px;
+  color: var(--text-3);
+  min-width: 32px;
+  text-align: right;
+}
 .book-card-title {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -866,7 +962,7 @@ input, textarea { font: inherit; color: inherit; }
   overflow: hidden;
 }
 .book-card-author {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-2);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -958,14 +1054,13 @@ input, textarea { font: inherit; color: inherit; }
 
 /* ---------- Grouped lists (settings) ---------- */
 .list-group { margin: 20px 16px 0; }
+/* BookMaster sections are headed in bold sans, not small-caps labels */
 .list-group-label {
-  margin: 0 0 6px 12px;
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-3);
+  margin: 0 0 8px 2px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 .list-group-note {
   margin: 6px 12px 0;
@@ -983,7 +1078,9 @@ input, textarea { font: inherit; color: inherit; }
 #set-tts-engine button { padding-left: 10px; padding-right: 10px; }
 .list-card {
   background: var(--bg-card);
-  border-radius: 14px;
+  border-radius: 12px;
+  /* BookMaster's card: a fill and a hairline ring, not a border or shadow */
+  box-shadow: 0 0 0 0.5px var(--separator);
   overflow: hidden;
 }
 .list-row {
@@ -1147,9 +1244,9 @@ input, textarea { font: inherit; color: inherit; }
 .sheet-body { padding: 8px 16px 4px; }
 .sheet-title {
   margin: 6px 16px 10px;
-  font-family: var(--font-display);
   font-size: 17px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   text-align: center;
 }
 .sheet-actions {

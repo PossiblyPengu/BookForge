@@ -813,8 +813,20 @@ const testFn = async (withPiper) => {
       // visual parity: the suite accent is BookMaster's terracotta
       const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim().toLowerCase();
       log(accent === "#cd844f", `suite accent is BookMaster terracotta → ${accent}`);
-      const dispFont = getComputedStyle(document.querySelector(".nav-title") || document.body).fontFamily;
+      const dispFont = getComputedStyle(document.querySelector(".nav-wordmark-text") || document.body).fontFamily;
       log(/fraunces/i.test(dispFont), `display face is Fraunces → "${dispFont.split(",")[0]}"`);
+
+      // layout parity: BookMaster's shell — flush tab bar, big in-page title,
+      // horizontal cards in a 1/2/3-column list
+      const tabBar = getComputedStyle(el("tab-bar"));
+      log(tabBar.borderRadius === "0px" && parseFloat(tabBar.left) === 0,
+        `tab bar is flush to the edges → radius ${tabBar.borderRadius}, left ${tabBar.left}`);
+      const cardEl = el("library-grid").querySelector(".book-card");
+      const cardStyle = cardEl ? getComputedStyle(cardEl) : null;
+      log(cardStyle?.flexDirection === "row",
+        `book cards are horizontal rows → ${cardStyle?.flexDirection}`);
+      const titleSize = parseFloat(getComputedStyle(el("library-title")).fontSize);
+      log(titleSize >= 30, `page title is the big in-page header → ${titleSize}px`);
 
       // the up-next chip appears once a book carries the flag
       const chips = [...el("coll-chips").querySelectorAll(".coll-chip")].map((c) => c.textContent);
@@ -851,7 +863,7 @@ const testFn = async (withPiper) => {
       log(entered, `selection mode opens (${startCount} books)`);
 
       // nothing ticked yet → the destructive action is unavailable
-      log(el("select-delete").disabled && el("library-nav-title").textContent === "Select books",
+      log(el("select-delete").disabled && el("library-title").textContent === "Select books",
         "delete is disabled until something is ticked");
 
       // tick the first two cards
@@ -860,8 +872,8 @@ const testFn = async (withPiper) => {
       cards[1].click();
       const ticked = el("library-grid").querySelectorAll(".book-card.selected").length;
       log(ticked === 2 && el("select-delete").textContent === "Delete 2" &&
-          el("library-nav-title").textContent === "2 selected",
-        `two ticked → "${el("select-delete").textContent}", title "${el("library-nav-title").textContent}"`);
+          el("library-title").textContent === "2 selected",
+        `two ticked → "${el("select-delete").textContent}", title "${el("library-title").textContent}"`);
 
       // select all / none round-trips
       el("select-all").click();
