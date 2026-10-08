@@ -188,9 +188,10 @@ input, textarea { font: inherit; color: inherit; }
   padding-top: var(--safe-top);
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
-  background: var(--bar-bg);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  backdrop-filter: blur(20px) saturate(1.4);
+  /* solid, not frosted — the bar is in-flow so nothing ever scrolls beneath
+     it; a translucent blur backdrop only hazed the flat background into a
+     milky band at the top of the screen */
+  background: var(--bg);
   border-bottom: 0.5px solid var(--separator);
   z-index: 10;
 }
