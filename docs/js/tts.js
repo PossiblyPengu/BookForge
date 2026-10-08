@@ -17,6 +17,7 @@
  */
 
 import { $, toast, chunk } from "./util.js";
+import { cleanSpeech, wordAt } from "./speech.js";
 import { registerAudioOwner, claimAudio } from "./audio-focus.js";
 import {
   settings, loadSettings, saveSettings, currentEngine, silentWavUrl, web,
@@ -28,6 +29,9 @@ export { chunk };
 const LOOKAHEAD = 3; // sentences generated ahead of the one playing
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const asBlock = (v) => (typeof v === "string" ? { text: v } : v);
+// A sentence built outside Sentences (a test, a parked resume) carries no
+// cleaned form — voice its raw text rather than nothing.
+const sayOf = (s) => s.say ?? s.text;
 
 // --- iOS lock-screen plumbing ------------------------------------------------
 // iOS keeps a page's JS alive while an <audio> element is playing. A silent
@@ -127,8 +131,17 @@ export class Sentences {
       const block = asBlock(res.value);
       const chunks = chunk(String(block.text));
       // a block the page top cut through starts part-way in
-      for (let i = Math.min(block.startChunk ?? 0, chunks.length); i < chunks.length; i++)
-        this.pending.push({ text: chunks[i], block, i });
+      for (let i = Math.min(block.startChunk ?? 0, chunks.length); i < chunks.length; i++) {
+        // `text` stays verbatim for highlighting; `say` is what the voice
+        // gets — footnote refs, markdown and symbol furniture stripped.
+        const c = cleanSpeech(chunks[i], { newBlock: i === (block.startChunk ?? 0) });
+        if (c.silent) {
+          // a separator (* * *) voices as a beat of silence, not "asterisk…"
+          if (c.gap) this.pending.push({ marker: true, gap: c.gap });
+          continue;
+        }
+        this.pending.push({ text: chunks[i], say: c.say, map: c.map, gap: c.gap, block, i });
+      }
     }
     return this.pending.shift();
   }
@@ -267,8 +280,9 @@ export const ttsController = {
   },
 
   _prepare(s) {
+    if (s.marker) return;
     if (this.eng.kind === "audio" && !s.audio) {
-      s.audio = this.eng.synth(s.text);
+      s.audio = this.eng.synth(sayOf(s));
       s.audio.catch(() => {}); // surfaced when it's played
     }
   },
@@ -281,6 +295,16 @@ export const ttsController = {
       if (this._session !== session) return null;
       if (this._ahead.length) {
         const s = this._ahead.shift();
+        if (s.marker) { // a scene separator: a beat of silence, no voice
+          await sleep(s.gap);
+          if (this._session !== session) return null;
+          continue;
+        }
+        if (s.gap && this._spoke) { // the breath at a paragraph's start —
+          // not before the very first sentence: play pressed means play now
+          await sleep(s.gap);
+          if (this._session !== session) return null;
+        }
         this._empty = 0;
         this._spoke++;
         this._fill(this.eng.kind === "audio" ? LOOKAHEAD : 1); // keep generating ahead
@@ -416,8 +440,10 @@ export const ttsController = {
       }, () => done(false));
     } else {
       this._status("Reading aloud");
-      web.speak(s.text, done, (ci, cl) => {
-        if (this._cur === s && s.start != null) this._highlightWord(s, s.text.slice(ci, ci + cl), s.start + ci);
+      web.speak(sayOf(s), done, (ci) => {
+        // ci indexes the spoken text; map it back to the raw text before
+        // lighting a word
+        if (this._cur === s && s.start != null) this._highlightWordAt(s, ci);
       });
     }
   },
@@ -444,24 +470,35 @@ export const ttsController = {
     this._renderer()?.highlight?.(s.block, word, from);
   },
 
+  // A boundary index inside the spoken (cleaned) text → the raw-text word
+  // it lands on, so the highlight sits on what the page actually shows.
+  _highlightWordAt(s, sayIdx) {
+    const say = sayOf(s);
+    const i = Math.max(0, Math.min(sayIdx, say.length - 1));
+    const rawIdx = s.map?.length ? (s.map[i] ?? i) : i;
+    const { word, start } = wordAt(s.text, Math.min(rawIdx, s.text.length - 1));
+    this._highlightWord(s, word, s.start + start);
+  },
+
   // Audio clips carry no word timings. Estimate the word from how far
   // through the clip playback is — close enough to follow along with.
   _startWordSync(s) {
     this._stopWordSync();
     if (s.start == null || typeof requestAnimationFrame !== "function") return;
-    const words = [...s.text.matchAll(/\S+/g)];
+    const say = sayOf(s);
+    const words = [...say.matchAll(/\S+/g)];
     if (words.length < 2) return;
     let last = -1;
     const tick = () => {
       if (this._cur !== s) return;
       const f = player.progress();
       if (f != null && this.playing) {
-        const pos = f * s.text.length;
+        const pos = f * say.length;
         let k = words.findIndex((w) => w.index + w[0].length > pos);
         if (k < 0) k = words.length - 1;
         if (k !== last) {
           last = k;
-          this._highlightWord(s, words[k][0], s.start + words[k].index);
+          this._highlightWordAt(s, words[k].index);
         }
       }
       this._raf = requestAnimationFrame(tick);

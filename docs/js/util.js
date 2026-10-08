@@ -701,7 +701,14 @@ const SENTENCE_BREAK = /(?<=[.!?…]+["'”’)\]]*)\s+|(?<=\n)/;
 
 // Periods that don't end a sentence. Breaking on them makes the voice stop
 // dead mid-name ("Mr." … "Smith").
-const ABBREV = /(?:^|[\s("'“‘])(?:mr|mrs|ms|mx|dr|prof|sr|jr|st|mt|ft|capt|col|gen|lt|sgt|rev|hon|gov|sen|rep|vs|etc|approx|dept|fig|vol|ch|no|pp?|e\.g|i\.e|a\.m|p\.m)\.$/i;
+// Periods that don't end a sentence, in two grades:
+//   HARD — titles, initials and connectors that are always followed by the
+//          name or clause they belong to ("Mr. Smith", "J. Watson", "vs.")
+//   SOFT — abbreviations that can also END a sentence ("…Lake Ave.", "…5
+//          p.m."), so they only merge when what follows is lowercase or a
+//          number ("Jan. 5th", "Inc. fell"), not "Ave. She"
+const ABBREV_HARD = /(?:^|[\s("'“‘])(?:mr|mrs|ms|mx|dr|prof|sr|jr|st|mt|ft|capt|col|gen|lt|sgt|rev|hon|gov|sen|rep|esq|mme|mlle|messrs|fra|vs|e\.g|i\.e|ca|cf|ibid|op|ed|eds|trans|viz|vol|vols|fig|figs|ch|no|nos|pp?)\.$/i;
+const ABBREV_SOFT = /(?:^|[\s("'“‘])(?:etc|a\.m|p\.m|approx|dept|univ|assn|est|dist|bldg|apt|ste|ave|blvd|rd|ln|ct|corp|inc|ltd|co|bros|ph|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\.$/i;
 const INITIAL = /(?:^|\s)[A-Z]\.$/;
 
 const splitLong = (p, max, out) => {
@@ -731,7 +738,14 @@ export const chunk = (text, max = 240) => {
     const p = piece.trim();
     if (!p) continue;
     const prev = sentences[sentences.length - 1];
-    if (prev && (ABBREV.test(prev) || INITIAL.test(prev)) && prev.length + p.length < max)
+    // An ellipsis trailing into a lowercase word is a trailing-off, not a
+    // stop: "I thought… maybe" is one breath.
+    const trailed = prev && /…["'”’)\]]*$/.test(prev) && /^["'“‘([]?\p{Ll}/u.test(p);
+    // A soft abbreviation only continues into lowercase or a number —
+    // "Jan. 5th" is one phrase, "Ave. She" is a period and a new sentence.
+    const soft = prev && ABBREV_SOFT.test(prev) && /^[\p{Ll}\p{N}]/u.test(p);
+    if (prev && (ABBREV_HARD.test(prev) || INITIAL.test(prev) || soft || trailed) &&
+        prev.length + p.length < max)
       sentences[sentences.length - 1] = prev + " " + p;
     else sentences.push(p);
   }
@@ -783,11 +797,25 @@ const BLOCK_TAGS = new Set([
 // chapter collapses into one body-sized block.
 const tagOf = (el) => (el.localName || el.tagName || "").toUpperCase();
 
+// A <sup>/<sub> holding only digits or note marks is a footnote reference —
+// speaking it reads "word twelve" into the middle of a sentence.
+const NOTE_REF = /^[\d*†‡§.,()[\]\s]+$/;
+
+// Printed page furniture: role="doc-pagebreak", epub:type="pagebreak", or a
+// class like "pagenum"/"page-break" — the numbers a book shows but a voice
+// shouldn't.
+const isPageFurniture = (el) =>
+  el.getAttribute?.("role") === "doc-pagebreak" ||
+  el.getAttribute?.("epub:type") === "pagebreak" ||
+  /page-?break|page-?num|folio/i.test(String(el.className?.baseVal ?? el.className ?? ""));
+
 const ttsSkipped = (el) =>
   SKIP_TAGS.has(tagOf(el)) ||
   el.hidden === true ||
   el.getAttribute?.("aria-hidden") === "true" ||
-  el.classList?.contains?.("tts-hl-layer");
+  el.classList?.contains?.("tts-hl-layer") ||
+  isPageFurniture(el) ||
+  ((tagOf(el) === "SUP" || tagOf(el) === "SUB") && NOTE_REF.test(el.textContent || ""));
 
 const cleanBlockText = (s) =>
   (s || "").replace(/[^\S\n]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{2,}/g, "\n").trim();

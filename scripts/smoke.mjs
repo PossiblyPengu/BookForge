@@ -247,6 +247,7 @@ const testFn = async (withPiper) => {
         u?.onerror?.({ error: "interrupted" });
       },
       refuse: 0, // >0: refuse that many utterances the way iOS does (not-allowed)
+      dur: 40, // ms an utterance runs — lengthen to land a pause mid-flight
       speak(u) {
         // the silent gesture-unlock utterance: ends at once, never started
         if (!u.text.trim()) { setTimeout(() => u.onend?.(), 0); return; }
@@ -259,7 +260,7 @@ const testFn = async (withPiper) => {
         this._t = setTimeout(() => {
           if (this._u !== u) return;
           this._u = null; this.speaking = false; u.onend?.();
-        }, 40);
+        }, this.dur);
       },
     };
     Object.defineProperty(window, "speechSynthesis", { value: stub, configurable: true });
@@ -286,6 +287,11 @@ const testFn = async (withPiper) => {
     log(said[0] === want1,
       `controller starts on first visible sentence${midPara ? " (mid-paragraph)" : ""} → "${said[0]?.slice(0, 12)}", want "${want1?.slice(0, 12)}"`);
 
+    // land the pause inside an utterance — a pause taken in the breath
+    // between sentences should resume on the NEXT one, not replay the last
+    stub.dur = 300;
+    const n0 = said.length;
+    for (let k = 0; k < 100 && said.length === n0; k++) await wait(10);
     ttsController.pause();
     const cut = said[said.length - 1]; // in flight when paused
     const n = said.length;
@@ -295,13 +301,17 @@ const testFn = async (withPiper) => {
     await wait(20);
     log(said[n] === cut, `resume restarts the interrupted sentence → "${said[n]?.slice(0, 12)}"`);
 
-    await wait(150);
+    // wait for a sentence actually under way — in the gap between them _cur
+    // is empty and skip would have nothing to step back from
+    const m0 = said.length;
+    for (let k = 0; k < 100 && said.length === m0; k++) await wait(10);
     const before = said[said.length - 1];
     const hist = ttsController._history;
     const prevText = hist[hist.lastIndexOf(ttsController._cur) - 1]?.text;
     const m = said.length;
     ttsController.skip(-1);
-    await wait(100);
+    await wait(150);
+    stub.dur = 40;
     log(!!prevText && said[m] === prevText,
       `skip back → "${said[m]?.slice(0, 12)}" (was on "${before?.slice(0, 12)}")`);
 
@@ -373,8 +383,13 @@ const testFn = async (withPiper) => {
             if (!started && f2 && f2.range.compareBoundaryPoints(Range.START_TO_END, loc) >= 0) started = true;
             if (started) order.push(c); if (f2) from = f2.end; } } }
       await ttsController.start(getR, {});
-      await wait(900);
+      await wait(1600);
       const ahead = synthed.length - voiced.length;
+      // pause while a clip is actually playing — pausing in the breath
+      // between clips has nothing to hold
+      const vN = voiced.length;
+      for (let k = 0; k < 100 && voiced.length === vN; k++) await wait(10);
+      await wait(60); // the clip is 250ms; its synth resolved long ago
       ttsController.pause();
       const pausedClip = !!ttsController._pausedClip;
       const nPaused = voiced.length;

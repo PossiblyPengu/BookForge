@@ -275,6 +275,8 @@ export const openPdfReader = async (stage, book, { updateProgressUI, saveProgres
   for (let i = 0; i < total; i++) pageForIndex(i);
   requestAnimationFrame(() => setCurrent(current));
 
+  let lastHead = ""; // running heads repeat at the top of consecutive pages
+
   return {
     getProgress: () => ({ fraction: (current + 1) / total, page: current + 1 }),
     seekFraction: (f) => setCurrent(Math.round(f * (total - 1)), { smooth: true }),
@@ -309,7 +311,20 @@ export const openPdfReader = async (stage, book, { updateProgressUI, saveProgres
       const page = await doc.getPage(pageIndex + 1);
       const tc = await page.getTextContent();
       const [, y0, , y1] = page.view;
-      for (const b of pdfBlocks(tc.items, { top: y1, bottom: y0 })) yield { ...b, pageIndex };
+      // A line heading every page is a running head ("AUTHOR NAME  134") —
+      // spoken once per page is once too many. Digits strip out so the page
+      // number riding along doesn't stop the match.
+      const norm = (s) => s.toLowerCase().replace(/\d+/g, "").replace(/\s+/g, " ").trim();
+      let first = true;
+      for (const b of pdfBlocks(tc.items, { top: y1, bottom: y0 })) {
+        if (first) {
+          first = false;
+          const head = norm(b.text);
+          if (head && head === lastHead) continue;
+          lastHead = head;
+        }
+        yield { ...b, pageIndex };
+      }
     },
     highlight: (block, chunkText, searchFrom = 0) => {
       for (const q of pages) if (q?.hl) q.hl.textContent = "";
