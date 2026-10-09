@@ -118,12 +118,11 @@ html, body {
   overflow: hidden;
   overscroll-behavior: none;
 }
-/* iOS 26 standalone regression: with apple-mobile-web-app-status-bar-style
-   black-translucent + viewport-fit=cover, `height: 100%` on the root chain
-   resolves short of the screen and leaves a dead band at the bottom. 100lvh
-   is the full screen height here — standalone has no collapsing chrome to
-   make it overshoot. Browsers keep %/`100dvh` (which this also fixes under
-   the same bug). */
+/* iOS 26 standalone regression: with viewport-fit=cover, `height: 100%` on
+   the root chain resolves short of the screen and leaves a dead band at the
+   bottom. 100lvh is the full screen height here — standalone has no
+   collapsing chrome to make it overshoot. Browsers keep %/`100dvh` (which
+   this also fixes under the same bug). */
 @media (display-mode: standalone) {
   html, body { height: 100lvh; }
 }
