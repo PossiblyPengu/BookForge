@@ -1,6 +1,6 @@
 
-const CACHE_NAME = 'pageturner-cache-v79';
-const RUNTIME_CACHE = 'pageturner-runtime-v79';
+const CACHE_NAME = 'pageturner-cache-v80';
+const RUNTIME_CACHE = 'pageturner-runtime-v80';
 // Engine binaries (ONNX runtime, espeak data, model weights): ~30 MB that
 // rarely changes. Kept across app updates rather than re-downloaded with every
 // build, and re-checked with a cheap conditional request when a new version
@@ -179,6 +179,24 @@ self.addEventListener('fetch', event => {
     return;
   }
   if (!event.request.url.startsWith(self.location.origin)) return;
+  // Navigations go network-first, like BookMaster's worker: the app shell
+  // changes with every build, and what Add to Home Screen sees here is what
+  // iOS bakes into the icon — a cache-first answer kept installing the old
+  // status-bar-style meta even after the page changed. The precached shell
+  // remains the offline fallback.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).then(res => {
+        // only a page that loaded becomes the offline shell — never an error
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then(c => c.put('./index.html', copy)).catch(() => {});
+        }
+        return res;
+      }).catch(() => caches.match('./index.html').then(r => r ?? Response.error()))
+    );
+    return;
+  }
   event.respondWith(
     caches.match(event.request, { ignoreSearch: true }).then(cached => {
       if (cached) return cached;

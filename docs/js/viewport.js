@@ -29,6 +29,27 @@
       gap >= 8 && gap <= 160 ? Math.max(0, Math.min(gap - topGap, 160)) : 0;
     root.style.setProperty("--chin", `${chin}px`);
     root.dataset.standaloneGap = `${gap}`;
+
+    // The status-bar style is baked into the icon at Add to Home Screen, so
+    // both shapes still ship in the wild:
+    //   "default"           — the webview parks below the OS strip; no inset
+    //                         needed whatever env() claims
+    //   "black-translucent" — full-bleed, the strip's scrim overlaps the page;
+    //                         env() should carry the inset but reports 0 on
+    //                         iOS 26, which is how the wordmark slid under the
+    //                         scrim. Floor it so content clears the veil.
+    // Probe env() rather than read it: matchMedia can't see insets.
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "position:absolute;top:0;left:0;visibility:hidden;height:env(safe-area-inset-top,0px)";
+    root.appendChild(probe);
+    const envTop = probe.getBoundingClientRect().height;
+    probe.remove();
+    let safeTop = envTop;
+    if (gap >= 8 && topGap >= 8) safeTop = 0;
+    else if (!landscape && envTop < 8 && gap < 8) safeTop = 54;
+    if (safeTop === envTop) root.style.removeProperty("--safe-top");
+    else root.style.setProperty("--safe-top", `${safeTop}px`);
   };
   const schedule = () => { if (!raf) raf = requestAnimationFrame(measure); };
 

@@ -187,10 +187,11 @@ input, textarea { font: inherit; color: inherit; }
   padding-top: var(--safe-top);
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
-  /* solid, not frosted — the bar is in-flow so nothing ever scrolls beneath
-     it; a translucent blur backdrop only hazed the flat background into a
-     milky band at the top of the screen */
-  background: var(--bg);
+  /* no background of its own: the bar is in-flow, so nothing scrolls beneath
+     it — a solid strip only made the body's top glow stop dead at the bar,
+     which read as a dark band across the top. Transparent keeps the bar and
+     the page one continuous tone, the way BookMaster's bar sits on its paper. */
+  background: transparent;
   border-bottom: 0.5px solid var(--separator);
   z-index: 10;
 }
