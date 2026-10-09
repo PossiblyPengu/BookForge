@@ -285,6 +285,16 @@ const CLOSE_MS = 300;
 const closingTimers = new WeakMap();
 let overlayTimer = null;
 
+// The document scrolls now — freeze it while a sheet or a full-screen view
+// (reader, player) is up, so the page can't drift behind. Position is
+// preserved: overflow on the root doesn't reset scroll.
+const syncScrollLock = () => {
+  const overlayOpen = [...document.querySelectorAll(".view-overlay")]
+    .some((v) => !v.hidden);
+  document.documentElement.style.overflow =
+    (openSheetEl || overlayOpen) ? "hidden" : "";
+};
+
 export const openSheet = (id, onClose = null) => {
   const previous = focusBeforeSheet || document.activeElement;
   closeSheet();
@@ -305,6 +315,7 @@ export const openSheet = (id, onClose = null) => {
   // in-book search) do it themselves.
   openSheetEl.tabIndex = -1;
   openSheetEl.focus({ preventScroll: true });
+  syncScrollLock();
 };
 
 export const closeSheet = () => {
@@ -326,6 +337,7 @@ export const closeSheet = () => {
   openSheetEl = null;
   onSheetClose = null;
   focusBeforeSheet = null;
+  syncScrollLock();
   // give focus back to whatever opened the sheet, so keyboard users don't
   // land at the top of the document
   if (restore?.isConnected) restore.focus?.({ preventScroll: true });
@@ -365,6 +377,11 @@ const wireSheetDrag = (sheet) => {
 export const initSheets = () => {
   overlay().addEventListener("click", closeSheet);
   document.querySelectorAll(".sheet").forEach(wireSheetDrag);
+  // overlay views (reader, player) lock the document too — watch their
+  // hidden toggles rather than touch every open/close call site
+  for (const v of document.querySelectorAll(".view-overlay"))
+    new MutationObserver(syncScrollLock)
+      .observe(v, { attributes: true, attributeFilter: ["hidden"] });
   // aria-modal tells a screen reader to stay in the dialog; Tab doesn't
   // honour it, so wrap it by hand or focus walks the page behind the sheet
   document.addEventListener("keydown", (e) => {

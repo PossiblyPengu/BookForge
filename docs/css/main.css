@@ -114,18 +114,13 @@
 html { background: var(--bg); } /* any uncovered strip (the chin) is the app colour */
 html, body {
   margin: 0;
-  height: 100%;
-  overflow: hidden;
   overscroll-behavior: none;
 }
-/* iOS 26 standalone regression: with viewport-fit=cover, `height: 100%` on
-   the root chain resolves short of the screen and leaves a dead band at the
-   bottom. 100lvh is the full screen height here — standalone has no
-   collapsing chrome to make it overshoot. Browsers keep %/`100dvh` (which
-   this also fixes under the same bug). */
-@media (display-mode: standalone) {
-  html, body { height: 100lvh; }
-}
+/* The shell is a normal scrolling document, the way BookMaster's is: the top
+   bar is sticky and content moves under it. The earlier fixed-viewport shell
+   (overflow:hidden + a 100lvh pin against the iOS 26 height bug) kept the
+   page from scrolling at all — and put a differently-painted strip wherever
+   the real viewport and the pinned one disagreed. */
 
 body {
   font-family: var(--font-ui);
@@ -165,28 +160,26 @@ input, textarea { font: inherit; color: inherit; }
 #app {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  height: 100dvh; /* real viewport height where dvh exists */
-}
-@media (display-mode: standalone) {
-  /* match the body chain — lvh is the true screen height in the home-screen
-     build, so the shell reaches the bottom edge instead of stopping short */
-  #app { height: 100lvh; }
+  min-height: 100vh;
+  min-height: 100dvh; /* real viewport height where dvh exists */
 }
 
 /* ---------- Nav bar ---------- */
+/* BookMaster's bar: sticky, translucent and blurred — the frost is earned
+   now that content genuinely scrolls beneath it — and ruled off by a
+   hairline. --safe-top pushes its content below a translucent status strip. */
 .nav-bar {
+  position: sticky;
+  top: 0;
   flex-shrink: 0;
   padding-top: var(--safe-top);
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
-  /* no background of its own: the bar is in-flow, so nothing scrolls beneath
-     it — a solid strip only made the body's top glow stop dead at the bar,
-     which read as a dark band across the top. Transparent keeps the bar and
-     the page one continuous tone, the way BookMaster's bar sits on its paper. */
-  background: transparent;
+  background: var(--bar-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  backdrop-filter: blur(20px) saturate(1.8);
   border-bottom: 0.5px solid var(--separator);
-  z-index: 10;
+  z-index: 30;
 }
 .nav-bar-inner {
   display: flex;
@@ -293,8 +286,8 @@ input, textarea { font: inherit; color: inherit; }
 }
 .view-body {
   flex: 1;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  /* the document scrolls now — this is a plain flow region with room for the
+     fixed tab bar */
   padding-bottom: calc(var(--tab-clearance) + 16px);
 }
 
@@ -1189,6 +1182,8 @@ input, textarea { font: inherit; color: inherit; }
   inset: 0;
   background: rgba(0,0,0,0.45);
   z-index: 90;
+  /* a drag on the dimmer mustn't scroll the page behind the sheet */
+  touch-action: none;
   opacity: 1;
   transition: opacity 0.25s;
   animation: overlay-in 0.22s ease-out;
@@ -1212,6 +1207,9 @@ input, textarea { font: inherit; color: inherit; }
   z-index: 95;
   padding-bottom: calc(var(--safe-bottom) + 12px + var(--chin));
   overflow-y: auto;
+  /* the document scrolls now — a sheet scrolled to its end mustn't take the
+     page behind it with it */
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   box-shadow: 0 -8px 40px rgba(0,0,0,0.5);
   transition: transform 0.25s ease;

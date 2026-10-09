@@ -586,17 +586,14 @@ const showView = (name) => {
   document.querySelectorAll(".tab-item").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === name));
 
-  // read the outgoing view's scroll before hiding it — display:none reads 0
-  if (currentView && currentView !== name && VIEWS[currentView]) {
-    const body = $(VIEWS[currentView]).querySelector(".view-body");
-    if (body) viewScroll.set(currentView, body.scrollTop);
-  }
+  // the document scrolls now — remember where each tab was scrolled to
+  if (currentView && currentView !== name && VIEWS[currentView])
+    viewScroll.set(currentView, window.scrollY);
   for (const [k, id] of Object.entries(VIEWS)) $(id).hidden = k !== name;
 
   const incoming = $(VIEWS[name]);
   if (incoming) {
-    const body = incoming.querySelector(".view-body");
-    if (body && viewScroll.has(name)) body.scrollTop = viewScroll.get(name);
+    window.scrollTo(0, viewScroll.get(name) || 0);
     // .view-enter stays on once set — display:none→flex replays the enter
     // animation on later arrivals, so the first paint (no previous view,
     // nothing to crossfade from) is the only one that mustn't animate

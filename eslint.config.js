@@ -53,6 +53,7 @@ export default [
         location: "readonly",
         history: "readonly",
         MediaMetadata: "readonly",
+        MutationObserver: "readonly",
         SpeechSynthesisUtterance: "readonly",
         speechSynthesis: "readonly",
       },
