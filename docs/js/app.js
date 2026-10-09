@@ -488,12 +488,27 @@ const initSettings = async () => {
   }).catch(() => {});
 
   // Layout diagnostics for the iOS standalone viewport bug — only shown when
-  // it could matter, so we can see what the device measured.
+  // it could matter, so we can see what the device measured. ih = innerHeight,
+  // sh = screen height, t = visualViewport.offsetTop, e = env(safe-area-top)
+  // probed in px, st = the --safe-top override (or "env" when it's trusted),
+  // pt = the nav bar's resolved top padding, c = --chin.
   if (navigator.standalone || window.matchMedia("(display-mode: standalone)").matches) {
     const el = $("set-version");
     const show = () => {
-      const base = el.textContent.replace(/ · ih.*$/, "");
-      el.textContent = `${base} · ih ${window.innerHeight} sh ${window.screen.height} chin ${getComputedStyle(document.documentElement).getPropertyValue("--chin").trim()}`;
+      const base = el.textContent.replace(/ · .*$/, "");
+      const probe = document.createElement("div");
+      probe.style.cssText =
+        "position:absolute;top:0;left:0;visibility:hidden;height:env(safe-area-inset-top,0px)";
+      document.documentElement.appendChild(probe);
+      const envTop = Math.round(probe.getBoundingClientRect().height);
+      probe.remove();
+      const rs = getComputedStyle(document.documentElement);
+      const st = rs.getPropertyValue("--safe-top").trim();
+      const bar = document.querySelector(".nav-bar");
+      const pt = bar ? Math.round(parseFloat(getComputedStyle(bar).paddingTop) || 0) : "?";
+      el.textContent = `${base} · ih${window.innerHeight} sh${window.screen.height} ` +
+        `t${Math.round(window.visualViewport?.offsetTop || 0)} e${envTop} ` +
+        `st${st.includes("env") ? "env" : st} pt${pt} c${rs.getPropertyValue("--chin").trim()}`;
     };
     show();
     setTimeout(show, 1600);

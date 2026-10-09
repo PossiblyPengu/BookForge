@@ -137,13 +137,6 @@ body {
   -webkit-user-select: none;
   user-select: none;
 }
-/* a faint warm glow pooled at the top of the espresso dark — a lamp over the
-   shelves. Paper and OLED stay flat: it would wash the former and burn power
-   on the latter. data-theme="dark" is set before first paint (app.js). */
-:root:not([data-theme="light"]):not([data-theme="black"]) body {
-  background-image: radial-gradient(120% 50% at 50% 0%, rgba(205, 132, 79, 0.05), transparent 60%);
-  background-repeat: no-repeat;
-}
 
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 input, textarea { font: inherit; color: inherit; }
