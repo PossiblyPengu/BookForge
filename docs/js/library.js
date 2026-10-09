@@ -5,7 +5,7 @@
 
 import {
   $, toast, openSheet, closeSheet, listSheet, dropCoverUrl, fmtBytes, fmtLength,
-  fmtDuration, coverFor, coverUrl, fillCover, shrinkCover, sleep,
+  fmtDuration, coverFor, coverUrl, fillCover, shrinkCover, sleep, isIOS,
 } from "./util.js";
 import { allBooks, getBook, putBook, deleteBook, kvGet, kvSet } from "./db.js";
 import { importFiles } from "./importer.js";
@@ -1133,10 +1133,19 @@ export const initDetail = () => {
 export const wireImportUI = () => {
   const input = $("file-input");
   const dirInput = $("dir-input");
+  // iOS WebKit only honours MIME filters in `accept`, not extensions — and
+  // it can't sniff a MIME for .m4b, so the file stays greyed no matter what
+  // accept says (audio/* is worse: iOS reads it as video/*). Dropping the
+  // filter lets the picker offer everything; detectFormat still sorts the
+  // wheat from the chaff after selection.
+  if (isIOS()) input.removeAttribute("accept");
   const trigger = () =>
     listSheet("Import", [
       { title: "Files", sub: "iCloud Drive, On My iPhone, or other apps — zips unpack", value: "files" },
-      { title: "Folder", sub: "A whole folder at once — iCloud Drive folders work too", value: "dir" },
+      // iOS file inputs can't pick folders either — don't offer a dead end
+      ...(isIOS() ? [] : [
+        { title: "Folder", sub: "A whole folder at once — iCloud Drive folders work too", value: "dir" },
+      ]),
       { title: "Google Drive", sub: "Browse your Drive and download straight into the library", value: "drive" },
     ], (v) => {
       if (v === "drive") return openDriveBrowser();
