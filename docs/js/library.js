@@ -13,6 +13,9 @@ import { searchMetadata, fetchCoverBlob, metaConfident, bmCandidateFields } from
 import { detectSeries } from "./book-parser.js";
 import { openDriveBrowser, initDrive } from "./gdrive.js";
 import { syncProgress } from "./bookmaster.js";
+import {
+  autoImportSupported, watchFolder, scanWatched, listWatched, unwatchFolder, grantFolder,
+} from "./autoimport.js";
 import { bmTogether, fetchComments, postComment, suggestBook } from "./bm-pull.js";
 
 let onOpenBook = () => {};
@@ -1146,9 +1149,15 @@ export const wireImportUI = () => {
       ...(isIOS() ? [] : [
         { title: "Folder", sub: "A whole folder at once — iCloud Drive folders work too", value: "dir" },
       ]),
+      // File System Access API (Chromium) — a persistent handle we re-scan
+      // on every open. iOS has no handles at all, so it hides too.
+      ...(autoImportSupported() ? [
+        { title: "Watch a folder", sub: "New books import on their own when you open the app", value: "watch" },
+      ] : []),
       { title: "Google Drive", sub: "Browse your Drive and download straight into the library", value: "drive" },
     ], (v) => {
       if (v === "drive") return openDriveBrowser();
+      if (v === "watch") return watchAndScan();
       (v === "dir" ? dirInput : input).click();
     });
   $("import-btn").addEventListener("click", trigger);
@@ -1181,6 +1190,71 @@ export const wireImportUI = () => {
     for (const entry of entries)
       files.push(...await filesFromEntry(entry).catch(() => []));
     if (files.length) doImport(files);
+  });
+};
+
+/**
+ * Re-scan watched folders and feed anything new through the normal import
+ * path (progress pill, refresh, toasts). Quiet when nothing changed.
+ * Blocked folders get one hint per call — permission needs a tap.
+ */
+export const rescanWatched = async () => {
+  if (!autoImportSupported()) return;
+  const { files, blocked } = await scanWatched().catch(() => ({ files: [], blocked: [] }));
+  // doImport can still throw (e.g. the progress UI mid-boot) — a watched
+  // folder is a background nicety, it must never take down the caller
+  if (files.length) await doImport(files).catch(() => {});
+  if (blocked.length)
+    toast(`Folder access expired for ${blocked.join(", ")} — Settings → Auto-import folders`, { ms: 6000 });
+};
+
+/** Pick a folder to watch, then import whatever's already in it. */
+const watchAndScan = async () => {
+  let w;
+  try { w = await watchFolder(); }
+  catch { return; } // picker cancelled
+  toast(w.added ? `Watching "${w.name}"` : `"${w.name}" is already watched`);
+  await rescanWatched();
+};
+
+/** The manage sheet: watched folders, per-folder rescan, remove, add. */
+export const openWatchManager = async () => {
+  const folders = await listWatched();
+  const items = [];
+  for (const f of folders) {
+    const perm = await f.handle.queryPermission({ mode: "read" }).catch(() => "denied");
+    items.push({
+      title: f.name,
+      sub: perm === "granted" ? "Scans when the app opens" : "Folder access expired",
+      badge: perm === "granted" ? "" : "Needs access",
+      value: f.name,
+      action: perm === "granted" ? {
+        label: "Remove",
+        title: `Stop watching ${f.name}`,
+        onAction: async () => { await unwatchFolder(f); openWatchManager(); },
+      } : {
+        label: "Reconnect",
+        title: `Allow access to ${f.name} again`,
+        onAction: async () => {
+          await grantFolder(f.handle).catch(() => {});
+          await rescanWatched();
+          openWatchManager();
+        },
+      },
+    });
+  }
+  items.push({
+    title: "Add folder",
+    sub: "Books that appear in it import on their own",
+    value: "__add",
+  });
+  listSheet("Auto-import folders", items, async (v) => {
+    if (v === "__add") return watchAndScan();
+    if (v) return rescanWatched();
+  }, {
+    note: folders.length
+      ? `${folders.length} folder${folders.length === 1 ? "" : "s"} watched. Removing a watch never deletes books.`
+      : "No folders watched. Add one and new books in it import when the app opens.",
   });
 };
 

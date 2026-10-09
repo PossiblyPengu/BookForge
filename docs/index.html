@@ -11,6 +11,7 @@
     <link rel="modulepreload" href="js/util.js" />
     <link rel="modulepreload" href="js/db.js" />
     <link rel="modulepreload" href="js/audio-focus.js" />
+    <link rel="modulepreload" href="js/autoimport.js" />
     <link rel="modulepreload" href="js/detect.js" />
     <link rel="modulepreload" href="js/dict.js" />
     <link rel="modulepreload" href="js/book-parser.js" />
@@ -284,6 +285,10 @@
               <button type="button" class="list-row list-row-btn" id="backup-import">
                 <span class="row-label"><span class="row-icon" style="--ic:var(--denim)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></span>Restore a backup</span>
                 <span class="list-value list-value-chevron"></span>
+              </button>
+              <button type="button" class="list-row list-row-btn" id="set-autofolders" hidden>
+                <span class="row-label"><span class="row-icon" style="--ic:var(--sage)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6"/><path d="m9 14 3 3 3-3"/></svg></span>Auto-import folders</span>
+                <span class="list-value list-value-chevron" id="set-autofolders-val"></span>
               </button>
             </div>
             <p class="list-group-note">A backup holds every book, cover and reading position in one file you can restore here or on another device.</p>

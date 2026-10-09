@@ -10,8 +10,9 @@ import { kvGet, kvSet, storageEstimate, orphanedFiles, deleteFiles } from "./db.
 import {
   initLibrary, refreshLibrary, wireImportUI, initDetail, initEditSheet,
   checkSharedFiles, wireFileHandler, initContinue, initSelect, isSelecting,
-  resumeBook, shrinkOversizedCovers,
+  resumeBook, shrinkOversizedCovers, rescanWatched, openWatchManager,
 } from "./library.js";
+import { autoImportSupported, listWatched } from "./autoimport.js";
 import { initReader, openReader } from "./reader.js";
 import { initPlayer, openPlayer, playerState, reopenPlayer, closePlayer } from "./player.js";
 import { ttsController } from "./tts.js";
@@ -276,6 +277,25 @@ const initHelp = async () => {
   });
   // cheap enough to scan when Settings opens, like the cache size above
   onSettingsShown = () => { showSize(); countOrphans().catch(() => {}); };
+
+  // Watched folders — File System Access only, hidden on iOS where the API
+  // doesn't exist. The count refreshes when Settings opens.
+  const afBtn = $("set-autofolders");
+  const afVal = $("set-autofolders-val");
+  if (afBtn) {
+    afBtn.hidden = !autoImportSupported();
+    const paintWatched = async () => {
+      const n = (await listWatched().catch(() => [])).length;
+      afVal.textContent = n ? `${n} folder${n === 1 ? "" : "s"}` : "Off";
+    };
+    afBtn.addEventListener("click", async () => {
+      await openWatchManager();
+      paintWatched();
+    });
+    const prev = onSettingsShown;
+    onSettingsShown = () => { prev(); paintWatched(); };
+    paintWatched();
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -684,6 +704,11 @@ const boot = async () => {
   await step("shared files", checkSharedFiles);
   await step("file handler", wireFileHandler);
 
+  // watched folders: background scan — drops new books in on their own.
+  // Fire-and-forget so a large first pass doesn't hold the boot; granted
+  // folders only, expired ones surface as a toast pointing at Settings.
+  rescanWatched();
+
   // "Continue Reading" shortcut → reopen the most recent book
   const params = new URLSearchParams(location.search);
   if (params.get("continue")) {
@@ -704,7 +729,7 @@ const boot = async () => {
   $("mini-play").addEventListener("click", () => playerState().toggle?.());
 
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") updateMini();
+    if (document.visibilityState === "visible") { updateMini(); rescanWatched(); }
   });
 
   // older libraries can hold print-size covers — shrink them once, off-path

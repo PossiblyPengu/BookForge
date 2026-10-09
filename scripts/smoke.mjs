@@ -164,10 +164,14 @@ const testFn = async (withPiper) => {
         .map((b) => b.textContent);
       const hasDrive = importRows.some((t) => /google drive/i.test(t));
       const hasIcloudHint = importRows.some((t) => /icloud drive/i.test(t));
-      log(hasDrive && hasIcloudHint,
+      // File System Access API exists in Chromium — the watch row shows
+      const hasWatch = importRows.some((t) => /watch a folder/i.test(t));
+      log(hasDrive && hasIcloudHint && hasWatch,
         `import menu → ${JSON.stringify(importRows.map((t) => t.slice(0, 22)))}`);
       el("sheet-overlay").click(); // dismiss without picking (would open a picker)
       await sleep(80);
+      log(!el("set-autofolders").hidden,
+        "Settings shows auto-import folders where File System Access exists");
     }
 
     // 5. real reader open path — foliate view renders the imported book
