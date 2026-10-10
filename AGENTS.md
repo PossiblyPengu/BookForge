@@ -31,6 +31,17 @@ layout (`data.json` + `files/` + `covers/`; iOS books carry
   `ReaderModel`, `AudioPlayer`) are `ObservableObject`; newer code
   (`BookMaster`, `FolderWatcher`) uses `@Observable`.
 
+### UI structure (Liquid Glass; see `ios/DESIGN.md`)
+
+- `Design/Glass.swift` is the only place that touches `glassEffect` / `GlassEffectContainer`
+  and the `.glass` button styles — call its `ptGlass`, `PTGlassGroup`, `ptButtonStyle` helpers,
+  never `#available(iOS 26, *)` at a call site. Glass is for controls floating over content, not content.
+- `App/RootView.swift` is the tab shell (iOS 26.1+: glass `TabView` with `tabViewBottomAccessory`;
+  older: plain tabs with the mini player as an inset). `App/AppRouter.swift` decides what presents
+  over the tabs (reader, book sheets, settings).
+- Audiobooks play through `Audio/PlaybackCoordinator.swift`; `NowPlayingView` and `MiniPlayer` observe it.
+- `tabViewBottomAccessory(isEnabled:)` is iOS 26.1; the plain `tabViewBottomAccessory` is 26.0.
+
 ### BookMaster link (`ios/Pageturner/BookMaster/`)
 
 - `BookMasterClient` mirrors `docs/js/bookmaster.js`: pushes to

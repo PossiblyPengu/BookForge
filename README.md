@@ -9,7 +9,8 @@ A native SwiftUI app (iOS 17+) built on the [Readium](https://readium.org) toolk
 
 - **Reading:** EPUB, PDF and CBZ comics, with themes, fonts and sizes; in-book search; bookmarks and highlights
 - **Listening:** multi-file audiobooks (M4B/M4A/MP3/FLAC/OGG/OPUS/WAV) with speed, sleep timer and lock-screen controls; read-aloud with Apple's voices (install the Enhanced or Premium ones in Settings → Accessibility → Spoken Content)
-- **Library:** search, sort, covers, metadata lookup (Google Books + Open Library); import from Files or "Open in Pageturner"; **Watch a Folder…** auto-imports whatever lands in a Files folder
+- **Library:** a Continue card, All / Books / Audiobooks, search, sort, covers (designed jackets when there's no art), metadata lookup (Google Books + Open Library); import from Files or "Open in Pageturner"; **Watch a Folder…** in Settings auto-imports whatever lands in a Files folder
+- **Liquid Glass:** built for iOS 26 — a tab bar that shrinks as you scroll, a mini player docked above it, floating glass controls in the reader and the player. Earlier versions (iOS 17+) get plain materials.
 - **BookMaster:** link once and your progress and finished sessions go to BookMaster as you read or listen; see the other reader, accept their suggestions, comment on a book, send a passage as a quote, and see your streaks and goals. Pushes made offline are queued and replayed in order.
 - **Backup:** export the whole library to one zip and restore it here — also restores a backup made by the old web app
 
@@ -21,7 +22,7 @@ The app isn't on the App Store. CI builds an unsigned IPA on every change to `io
 2. Install it with [AltStore](https://altstore.io), [SideStore](https://sidestore.io) or [Sideloadly](https://sideloadly.io), signing with your Apple ID.
 3. A free Apple ID signs for 7 days — keep AltStore or SideStore running to refresh it automatically.
 
-To link BookMaster, open the library's ⋯ menu → **BookMaster** → **Link BookMaster**.
+To link BookMaster, tap the gear in the library → **Link BookMaster** (or the button on the Together and Stats tabs).
 
 ### Build
 

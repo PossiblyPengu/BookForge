@@ -48,7 +48,12 @@ Settings:  gear in the Library toolbar → sheet (BookMaster, watched folder, ba
 | Mini player | `tabViewBottomAccessory`: art, title, play/pause, skip |
 | Sheets | System detents; toolbar buttons use system glass; `Form` for settings |
 
-## Phases (each one ends with a green macOS build)
+## Phases (each one ends with a green macOS build) — all done
+
+A ✅ B ✅ C ✅ D ✅ E ✅ F ✅ (see git history on `claude/native-overhaul`).
+
+Not done: a draggable position scrubber in the reader (needs the book's page-position list), cover-tinted
+backdrops for the reader, and a device pass — none of this has been looked at on a screen.
 
 - **A** `Design/Glass.swift` helpers; SDK probe confirms the API names.
 - **B** App shell: `TabView`, Settings sheet, playback hoisted out of the full-screen

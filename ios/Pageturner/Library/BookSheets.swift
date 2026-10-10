@@ -7,6 +7,22 @@ struct BookDetailSheet: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
     @State private var showNotes = false
+    @State private var tint: Color = .ptAccent
+
+    private var openLabel: String {
+        let p = book.progression ?? 0
+        if p > 0.001, p < 0.995 { return book.isAudio ? "Continue Listening" : "Continue Reading" }
+        return book.isAudio ? "Listen" : "Read"
+    }
+
+    /// The cover's colour fading into the sheet, so the page belongs to the book.
+    private var backdrop: some View {
+        LinearGradient(
+            colors: [tint.opacity(0.35), Color(.systemGroupedBackground)],
+            startPoint: .top, endPoint: .center
+        )
+        .ignoresSafeArea()
+    }
 
     private static func statusLabel(_ status: String) -> String {
         switch status {
@@ -22,27 +38,28 @@ struct BookDetailSheet: View {
         NavigationStack {
             List {
                 Section {
-                    HStack(spacing: 16) {
-                        Group {
-                            if let cover {
-                                Image(uiImage: cover).resizable().scaledToFill()
-                            } else {
-                                ZStack {
-                                    LinearGradient(colors: [.orange.opacity(0.7), .brown], startPoint: .top, endPoint: .bottom)
-                                    Text(book.title).font(.caption.weight(.semibold)).foregroundStyle(.white)
-                                        .multilineTextAlignment(.center).padding(6)
-                                }
-                            }
-                        }
-                        .frame(width: 84, height: 126)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(book.title).font(.headline)
+                    VStack(spacing: 14) {
+                        BookCoverView(book: book, cover: cover, showsBadges: false, corner: 12)
+                            .frame(width: 150)
+                        VStack(spacing: 4) {
+                            Text(book.title)
+                                .font(.title3.weight(.bold))
+                                .multilineTextAlignment(.center)
                             if !book.author.isEmpty {
-                                Text(book.author).font(.subheadline).foregroundStyle(.secondary)
+                                Text(book.author)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
                             }
                         }
+                        Button(action: onOpen) {
+                            Label(openLabel, systemImage: book.isAudio ? "play.fill" : "book.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .ptButtonStyle(prominent: true)
+                        .controlSize(.large)
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
                     .listRowBackground(Color.clear)
                 }
                 Section {
@@ -72,7 +89,6 @@ struct BookDetailSheet: View {
                     }
                 }
                 Section {
-                    Button("Open Book", action: onOpen)
                     Button("Edit Details", action: onEdit)
                     if BookMaster.shared.isLinked {
                         Button("Comments & Suggestions") { showNotes = true }
@@ -82,6 +98,9 @@ struct BookDetailSheet: View {
             }
             .navigationTitle("Book Info")
             .navigationBarTitleDisplayMode(.inline)
+            .scrollContentBackground(.hidden)
+            .background(backdrop)
+            .task { if let color = cover?.averageColor { tint = Color(color) } }
             .sheet(isPresented: $showNotes) { BookNotesView(book: book) }
         }
         .presentationDetents([.medium, .large])
