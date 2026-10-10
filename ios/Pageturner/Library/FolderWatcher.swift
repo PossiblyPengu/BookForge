@@ -19,7 +19,7 @@ final class FolderWatcher {
     private let bookmarkKey = "watchedFolderBookmark"
     private let seenKey = "watchedFolderSeen"
     private let seenMax = 5000
-    private let supported: Set<String> = ["epub", "pdf", "cbz"].union(Book.audioExtensions)
+    private let supported = Set(["epub", "pdf", "cbz"]).union(Book.audioExtensions)
 
     private init() {
         folderName = resolve()?.lastPathComponent
