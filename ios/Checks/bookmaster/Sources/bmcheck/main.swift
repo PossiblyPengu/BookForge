@@ -112,6 +112,8 @@ func runData() {
     check("author: reordered name agrees", BMShelf.authorsAgree("Herbert, Frank", "Frank Herbert"))
     check("author: different people disagree", !BMShelf.authorsAgree("Stephen King", "Frank Herbert"))
     check("author: missing never decides", BMShelf.authorsAgree("", "Frank Herbert") && BMShelf.authorsAgree("Frank Herbert", nil))
+
+    runTextBook()
 }
 
 @MainActor

@@ -9,8 +9,9 @@ struct LibraryView: View {
     @State private var filter: Filter = .all
     @AppStorage("librarySort") private var sortOrder = LibraryStore.SortOrder.recent.rawValue
 
-    /// Comic archives have no system type — match them by extension.
-    private static let comicTypes = ["cbz"].compactMap { UTType(filenameExtension: $0) }
+    /// Comics and Markdown have no system type everywhere — match them by extension.
+    private static let extraTypes = ["cbz", "md", "markdown"].compactMap { UTType(filenameExtension: $0) }
+    private static let pickerTypes: [UTType] = [.epub, .pdf, .audio, .plainText, .html, .zip] + extraTypes
 
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All", books = "Books", audiobooks = "Audiobooks"
@@ -50,7 +51,7 @@ struct LibraryView: View {
             .toolbar { toolbar }
             .fileImporter(
                 isPresented: $showImporter,
-                allowedContentTypes: [.epub, .pdf, .audio] + Self.comicTypes,
+                allowedContentTypes: Self.pickerTypes,
                 allowsMultipleSelection: true
             ) { result in
                 if case let .success(urls) = result {
@@ -100,7 +101,7 @@ struct LibraryView: View {
         ContentUnavailableView {
             Label("No Books Yet", systemImage: "books.vertical")
         } description: {
-            Text("Add EPUB, PDF, CBZ comic or audiobook files from Files, or use “Open in Pageturner” from another app.")
+            Text("Add EPUB, PDF, CBZ comic, text or audiobook files (or a zip of them) from Files, or use “Open in Pageturner” from another app.")
         } actions: {
             Button { showImporter = true } label: {
                 Label("Add Books", systemImage: "plus")

@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import ReadiumShared
+import ReadiumZIPFoundation
 import SwiftUI
 import UIKit
 
@@ -167,14 +168,45 @@ final class LibraryStore: ObservableObject {
     /// Audio files from one folder become one audiobook (natural-sorted so
     /// "ch2" comes before "ch10"); different folders become separate books.
     /// Ebooks import one per file.
+    enum ImportError: LocalizedError {
+        case notAnArchive, looksLikeBackup, nothingToImport, emptyText
+
+        var errorDescription: String? {
+            switch self {
+            case .notAnArchive: return "That zip file couldn’t be opened."
+            case .looksLikeBackup: return "That looks like a Pageturner backup — restore it from Settings → Restore Backup."
+            case .nothingToImport: return "There were no books, comics or audio files inside."
+            case .emptyText: return "There was no text in that file."
+            }
+        }
+    }
+
+    /// What a zip may carry. HTML and text are left out on purpose: a zip of a
+    /// website or a folder of notes shouldn't become hundreds of "books".
+    private static let archiveExtensions: Set<String> = ["epub", "pdf", "cbz"].union(Book.audioExtensions)
+
     func importFiles(_ urls: [URL]) async {
         importing = true
         defer { importing = false }
         var failures: [String] = []
+        await importBatch(urls, failures: &failures, inArchive: false)
+        if !failures.isEmpty { lastError = failures.joined(separator: "\n") }
+    }
+
+    private func importBatch(_ urls: [URL], failures: inout [String], inArchive: Bool) async {
         var audio: [URL] = []
         for url in urls {
-            if Book.audioExtensions.contains(url.pathExtension.lowercased()) {
+            let ext = url.pathExtension.lowercased()
+            if Book.audioExtensions.contains(ext) {
                 audio.append(url)
+            } else if ext == "zip", !inArchive {
+                do { try await importArchive(url, failures: &failures) } catch {
+                    failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                }
+            } else if let format = TextBook.format(forExtension: ext) {
+                do { try await importTextBook(url, format: format) } catch {
+                    failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                }
             } else {
                 do { try await importFile(url) } catch {
                     failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
@@ -189,7 +221,58 @@ final class LibraryStore: ObservableObject {
                 failures.append("\(groups[dir]?.count ?? 0) audio files: \(error.localizedDescription)")
             }
         }
-        if !failures.isEmpty { lastError = failures.joined(separator: "\n") }
+    }
+
+    /// A zip of books — a folder of audiobook parts, a pile of EPUBs — unpacked
+    /// and imported. Folders inside it stay folders, so each audiobook directory
+    /// becomes one book.
+    private func importArchive(_ source: URL, failures: inout [String]) async throws {
+        let scoped = source.startAccessingSecurityScopedResource()
+        defer { if scoped { source.stopAccessingSecurityScopedResource() } }
+
+        guard let archive = try? await Archive(url: source, accessMode: .read) else {
+            throw ImportError.notAnArchive
+        }
+        let tmp = fm.temporaryDirectory.appendingPathComponent("unzip-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        var extracted: [URL] = []
+        let root = tmp.standardizedFileURL.path + "/"
+        for entry in try await archive.entries() where entry.type == .file {
+            let path = entry.path
+            if path == "data.json" { throw ImportError.looksLikeBackup }
+            let name = (path as NSString).lastPathComponent
+            let ext = (name as NSString).pathExtension.lowercased()
+            guard Self.archiveExtensions.contains(ext), !name.hasPrefix("."), !path.hasPrefix("__MACOSX/") else { continue }
+            // zip-slip: a crafted "../" entry must not escape the staging folder
+            let out = tmp.appendingPathComponent(path)
+            guard out.standardizedFileURL.path.hasPrefix(root) else { continue }
+            try fm.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if (try? await archive.extract(entry, to: out)) != nil { extracted.append(out) }
+        }
+        guard !extracted.isEmpty else { throw ImportError.nothingToImport }
+        await importBatch(extracted, failures: &failures, inArchive: true)
+    }
+
+    /// Plain text, Markdown or HTML: rebuilt as an EPUB (chapters found, text
+    /// un-wrapped) so it reads like any other book, then imported as one.
+    private func importTextBook(_ source: URL, format: TextBook.Format) async throws {
+        let scoped = source.startAccessingSecurityScopedResource()
+        defer { if scoped { source.stopAccessingSecurityScopedResource() } }
+
+        let data = try Data(contentsOf: source)
+        let fallback = source.deletingPathExtension().lastPathComponent
+        // a long book takes a moment — keep it off the main actor
+        let converted = await Task.detached(priority: .userInitiated) {
+            TextBook.convert(data, format: format, fallbackTitle: fallback)
+        }.value
+        guard let converted else { throw ImportError.emptyText }
+
+        let id = UUID()
+        let fileName = "\(id.uuidString).epub"
+        try converted.epub.write(to: booksDir.appendingPathComponent(fileName), options: .atomic)
+        try await register(id: id, fileName: fileName, fallbackTitle: converted.title)
     }
 
     private func importAudiobook(_ sources: [URL]) async throws {
@@ -262,12 +345,17 @@ final class LibraryStore: ObservableObject {
         let id = UUID()
         let ext = source.pathExtension.lowercased()
         let fileName = ext.isEmpty ? id.uuidString : "\(id.uuidString).\(ext)"
-        let dest = booksDir.appendingPathComponent(fileName)
-        try fm.copyItem(at: source, to: dest)
+        try fm.copyItem(at: source, to: booksDir.appendingPathComponent(fileName))
+        try await register(id: id, fileName: fileName, fallbackTitle: source.deletingPathExtension().lastPathComponent)
+    }
 
+    /// Open a copied file with Readium for its title, author and cover, and put
+    /// it on the shelf. A file Readium can't open is removed again.
+    private func register(id: UUID, fileName: String, fallbackTitle: String) async throws {
+        let dest = booksDir.appendingPathComponent(fileName)
         var book = Book(
             id: id,
-            title: source.deletingPathExtension().lastPathComponent,
+            title: fallbackTitle,
             author: "",
             fileName: fileName,
             fileNames: [fileName],

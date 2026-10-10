@@ -77,6 +77,48 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - public.audio
+          - CFBundleTypeName: Comic Book Archive
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - io.github.possiblypengu.pageturner.cbz
+          - CFBundleTypeName: Text
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.plain-text
+          - CFBundleTypeName: Markdown
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - net.daringfireball.markdown
+          - CFBundleTypeName: HTML
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.html
+        # CBZ and Markdown have no system type on every iOS — declare them so
+        # "Open in Pageturner" is offered for those files
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: io.github.possiblypengu.pageturner.cbz
+            UTTypeDescription: Comic Book Archive
+            UTTypeConformsTo:
+              - public.zip-archive
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - cbz
+              public.mime-type:
+                - application/vnd.comicbook+zip
+          - UTTypeIdentifier: net.daringfireball.markdown
+            UTTypeDescription: Markdown Document
+            UTTypeConformsTo:
+              - public.plain-text
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - md
+                - markdown
+                - mdown
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.possiblypengu.pageturner
