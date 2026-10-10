@@ -28,6 +28,7 @@ struct PageturnerApp: App {
                 switch phase {
                 case .active:
                     await BookMaster.shared.flush()
+                    await BookMaster.shared.pullShelf(into: library)
                     await BookMaster.shared.beat(place: "library")
                 case .background:
                     await BookMaster.shared.beat(leaving: true)

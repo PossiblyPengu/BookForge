@@ -270,7 +270,7 @@ final class BookMaster {
 
     // MARK: Transport
 
-    private func get(_ path: String, query: [String: String]) async throws -> (Data, Int) {
+    func get(_ path: String, query: [String: String]) async throws -> (Data, Int) {
         var parts = URLComponents(url: Self.bridge.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         parts.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         var request = URLRequest(url: parts.url!)

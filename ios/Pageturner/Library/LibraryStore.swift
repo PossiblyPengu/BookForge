@@ -51,6 +51,12 @@ struct Book: Identifiable, Codable, Hashable {
     var highlights: [Highlight] = []
     /// The BookMaster shelf row this book is pinned to, once a push has made one.
     var bookmasterId: String?
+    /// What BookMaster's shelf says about this book (status, rating, how far
+    /// it thinks you are, whether it is queued up next) — display only.
+    var bmStatus: String?
+    var bmRating: Int?
+    var bmRemotePercent: Double?
+    var bmUpNext: Bool?
 
     var ext: String { fileName.split(separator: ".").last.map(String.init)?.lowercased() ?? "" }
     var isAudio: Bool { Self.audioExtensions.contains(ext) }
@@ -97,6 +103,10 @@ extension Book {
         fileNames = try c.decodeIfPresent([String].self, forKey: .fileNames) ?? [fileName]
         trackTitles = try c.decodeIfPresent([String].self, forKey: .trackTitles) ?? []
         bookmasterId = try c.decodeIfPresent(String.self, forKey: .bookmasterId)
+        bmStatus = try c.decodeIfPresent(String.self, forKey: .bmStatus)
+        bmRating = try c.decodeIfPresent(Int.self, forKey: .bmRating)
+        bmRemotePercent = try c.decodeIfPresent(Double.self, forKey: .bmRemotePercent)
+        bmUpNext = try c.decodeIfPresent(Bool.self, forKey: .bmUpNext)
     }
 
     /// How a BookMaster push names this book.
