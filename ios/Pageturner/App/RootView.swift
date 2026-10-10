@@ -61,14 +61,15 @@ struct RootView: View {
 
     @ViewBuilder
     private var shell: some View {
-        if #available(iOS 26, *) {
+        // the bottom accessory can be switched off from iOS 26.1
+        if #available(iOS 26.1, *) {
             modernShell
         } else {
             classicShell
         }
     }
 
-    @available(iOS 26, *)
+    @available(iOS 26.1, *)
     private var modernShell: some View {
         TabView(selection: $tab) {
             Tab("Library", systemImage: "books.vertical", value: AppTab.library) {
