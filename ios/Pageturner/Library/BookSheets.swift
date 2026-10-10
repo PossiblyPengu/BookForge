@@ -6,12 +6,17 @@ struct BookDetailSheet: View {
     let onOpen: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onFinish: () -> Void
+    let onRestart: () -> Void
     @State private var showNotes = false
     @State private var tint: Color = .ptAccent
 
+    private var isFinished: Bool { (book.progression ?? 0) >= 0.995 }
+
     private var openLabel: String {
         let p = book.progression ?? 0
-        if p > 0.001, p < 0.995 { return book.isAudio ? "Continue Listening" : "Continue Reading" }
+        if isFinished { return book.isAudio ? "Listen Again" : "Read Again" }
+        if p > 0.001 { return book.isAudio ? "Continue Listening" : "Continue Reading" }
         return book.isAudio ? "Listen" : "Read"
     }
 
@@ -89,6 +94,12 @@ struct BookDetailSheet: View {
                     }
                 }
                 Section {
+                    if !isFinished {
+                        Button(book.isAudio ? "Mark as Listened" : "Mark as Finished", action: onFinish)
+                    }
+                    if (book.progression ?? 0) > 0 {
+                        Button(book.isAudio ? "Listen from the Beginning" : "Start from the Beginning", action: onRestart)
+                    }
                     Button("Edit Details", action: onEdit)
                     if BookMaster.shared.isLinked {
                         Button("Comments & Suggestions") { showNotes = true }

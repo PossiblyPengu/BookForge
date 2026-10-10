@@ -14,7 +14,13 @@ struct BookMasterSection: View {
                 Section("BookMaster") {
                     Label(user.displayName ?? user.username, systemImage: "checkmark.seal.fill")
                         .foregroundStyle(.green)
-                    Text("Your reading progress and finished sessions go to BookMaster as you read and listen.")
+                    Toggle("Send progress and sessions", isOn: Binding(
+                        get: { bookMaster.syncEnabled },
+                        set: { bookMaster.syncEnabled = $0 }
+                    ))
+                    Text(bookMaster.syncEnabled
+                        ? "Your reading progress and finished sessions go to BookMaster as you read and listen."
+                        : "Paused. Nothing is sent while you read; comments, suggestions and quotes still work.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Button("Unlink BookMaster", role: .destructive) {

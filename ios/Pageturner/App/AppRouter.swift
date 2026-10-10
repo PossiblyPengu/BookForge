@@ -14,6 +14,10 @@ final class AppRouter {
     var detail: Book?
     var editing: Book?
     var showSettings = false
+    /// Books waiting on "Remove from Library?" — removing deletes their files.
+    var pendingDelete: [Book] = []
+
+    func askDelete(_ books: [Book]) { pendingDelete = books }
 
     /// Open a book: an audiobook goes to the player (and keeps playing when it
     /// is dismissed); anything else opens in the reader.

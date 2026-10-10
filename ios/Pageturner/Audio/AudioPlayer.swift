@@ -70,6 +70,7 @@ final class AudioPlayer: ObservableObject {
         if target > 1 { seek(to: target, resume: false) }
         configureSession()
         setUpNowPlaying()
+        AudioFocus.shared.register("audiobook") { [weak self] in self?.pause() }
         // a call or alarm stops the audio — pause too, so the sitting ends there
         // instead of counting the interruption as listening
         interruptionObserver = NotificationCenter.default.addObserver(
@@ -120,6 +121,7 @@ final class AudioPlayer: ObservableObject {
 
     func play() {
         guard player != nil else { return }
+        AudioFocus.shared.claim("audiobook")
         if sessionStart == nil, duration > 0 { sessionStart = (Date(), position / duration) }
         resumePlayback()
         isPlaying = true
@@ -224,6 +226,7 @@ final class AudioPlayer: ObservableObject {
     func close() {
         savePosition()
         pause()
+        AudioFocus.shared.unregister("audiobook")
         setSleepTimer(minutes: nil)
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
         timeObserver = nil

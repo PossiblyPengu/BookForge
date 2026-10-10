@@ -28,13 +28,21 @@ struct RootView: View {
             .sheet(item: $router.detail) { book in
                 BookDetailSheet(book: book, cover: library.cover(for: book)) {
                     router.detail = nil
-                    router.open(book, library: library)
+                    // "Read again" starts from the beginning, not the last page
+                    if (book.progression ?? 0) >= 0.995 { library.restart(book.id) }
+                    router.open(library.books.first { $0.id == book.id } ?? book, library: library)
                 } onEdit: {
                     router.detail = nil
                     // present the edit sheet after this one is fully dismissed
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { router.editing = book }
                 } onDelete: {
-                    library.delete(book)
+                    router.detail = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { router.askDelete([book]) }
+                } onFinish: {
+                    library.markFinished(book.id)
+                    router.detail = nil
+                } onRestart: {
+                    library.restart(book.id)
                     router.detail = nil
                 }
             }
@@ -53,8 +61,30 @@ struct RootView: View {
             } message: {
                 Text(bookMaster.notice ?? "")
             }
+            .confirmationDialog(
+                Self.deleteTitle(router.pendingDelete),
+                isPresented: Binding(
+                    get: { !router.pendingDelete.isEmpty },
+                    set: { if !$0 { router.pendingDelete = [] } }
+                ),
+                titleVisibility: .visible,
+                presenting: router.pendingDelete.isEmpty ? nil : router.pendingDelete
+            ) { books in
+                Button(books.count == 1 ? "Remove from Library" : "Remove \(books.count) Books", role: .destructive) {
+                    for book in books {
+                        if playback.bookID == book.id { playback.stop() }
+                        library.delete(book)
+                    }
+                }
+            } message: { _ in
+                Text("This also deletes the file from this device. Your BookMaster shelf isn’t touched.")
+            }
             // outermost, so the tabs and everything presented over them can read it
             .environment(router)
+    }
+
+    private static func deleteTitle(_ books: [Book]) -> String {
+        books.count == 1 ? "Remove “\(books[0].title)”?" : "Remove \(books.count) books?"
     }
 
     // MARK: Shells

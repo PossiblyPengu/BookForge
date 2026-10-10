@@ -74,6 +74,7 @@ final class ReadAloud: NSObject, ObservableObject {
         rate = settings.speechRate
         super.init()
         synthesizer.delegate = self
+        AudioFocus.shared.register("readaloud") { [weak self] in self?.pauseForOtherAudio() }
 
         // highlight the sentence being spoken
         if let decorable = navigator as? DecorableNavigator {
@@ -105,8 +106,14 @@ final class ReadAloud: NSObject, ObservableObject {
 
     // MARK: - Controls
 
+    /// An audiobook started: hold the narration where it is.
+    private func pauseForOtherAudio() {
+        if case .playing = synthesizer.state { synthesizer.pause() }
+    }
+
     /// Start from the first sentence on screen.
     func start() {
+        AudioFocus.shared.claim("readaloud")
         isActive = true
         Task { @MainActor in
             let start = await navigator?.firstVisibleElementLocator() ?? navigator?.currentLocation
@@ -116,7 +123,10 @@ final class ReadAloud: NSObject, ObservableObject {
     }
 
     func playPause() {
-        if case .stopped = synthesizer.state { start() } else { synthesizer.pauseOrResume() }
+        if case .stopped = synthesizer.state { start(); return }
+        // about to speak again (it was paused): take focus from anything else
+        if case .playing = synthesizer.state {} else { AudioFocus.shared.claim("readaloud") }
+        synthesizer.pauseOrResume()
     }
 
     func next() { synthesizer.next() }
@@ -124,6 +134,7 @@ final class ReadAloud: NSObject, ObservableObject {
 
     func stop() {
         synthesizer.stop()
+        AudioFocus.shared.unregister("readaloud")
         isActive = false
         setSleepTimer(minutes: nil)
         tearDownNowPlaying()

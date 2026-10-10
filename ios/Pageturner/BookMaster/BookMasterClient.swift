@@ -24,6 +24,21 @@ final class BookMaster {
 
     var isLinked: Bool { user != nil }
 
+    /// Whether reading progress, sessions and presence are sent while linked.
+    /// Off keeps the account linked (comments, suggestions and quotes still work)
+    /// but stops the automatic reporting. Stored in UserDefaults, observable.
+    var syncEnabled: Bool {
+        get {
+            access(keyPath: \.syncEnabled)
+            return UserDefaults.standard.object(forKey: "bm-sync-enabled") as? Bool ?? true
+        }
+        set {
+            withMutation(keyPath: \.syncEnabled) {
+                UserDefaults.standard.set(newValue, forKey: "bm-sync-enabled")
+            }
+        }
+    }
+
     private struct QueueEntry: Codable {
         var kind: String          // "progress" | "session" | "quote"
         var title: String         // progress de-dupe key
@@ -100,7 +115,7 @@ final class BookMaster {
         isAudio: Bool, rating: Int? = nil, force: Bool = false,
         pinned: @escaping (String) -> Void
     ) async {
-        guard let user else { return }
+        guard let user, syncEnabled else { return }
         let pct = (percent * 1000).rounded() / 10
         if !force {
             if let last = lastPush[bookKey] {
@@ -123,7 +138,7 @@ final class BookMaster {
         ref: BMBookRef, percentStart: Double, percentEnd: Double,
         minutes: Double, at: Date
     ) async {
-        guard let user else { return }
+        guard let user, syncEnabled else { return }
         let payload = BMSessionPush(
             username: user.username, book: ref,
             percentStart: (percentStart * 1000).rounded() / 10,
@@ -149,7 +164,7 @@ final class BookMaster {
 
     /// "I'm here" — never queued: a replayed beat lies about when you were there.
     func beat(place: String? = nil, leaving: Bool = false) async {
-        guard let user else { return }
+        guard let user, syncEnabled else { return }
         var json: [String: Any] = ["username": user.username]
         json["place"] = place ?? self.place
         if leaving { json["leaving"] = true }
@@ -312,7 +327,7 @@ final class BookMaster {
         flushing = true
         defer { flushing = false }
         while let head = queue.first {
-            guard let user else { return }
+            guard let user, syncEnabled else { return }
             // parked for a reader who has since left
             if Self.owner(of: head.body) != user.username {
                 queue.removeAll { $0.id == head.id }

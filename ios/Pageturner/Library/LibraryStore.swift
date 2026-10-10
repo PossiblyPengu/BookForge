@@ -331,6 +331,31 @@ final class LibraryStore: ObservableObject {
         if changed { save() }
     }
 
+    /// Finished: it leaves the Continue card and BookMaster shelves it as read.
+    /// The position is left alone, so reopening still lands where they stopped.
+    func markFinished(_ id: UUID) {
+        guard let i = books.firstIndex(where: { $0.id == id }) else { return }
+        books[i].progression = 1
+        save()
+        let book = books[i]
+        Task {
+            await BookMaster.shared.syncProgress(
+                bookKey: book.title, ref: book.bookMasterRef, percent: 1,
+                isAudio: book.isAudio, force: true,
+                pinned: { [weak self] pin in self?.updateBookMaster(id) { $0.bookmasterId = pin } })
+        }
+    }
+
+    /// Back to the start — for a re-read, or one abandoned part way.
+    func restart(_ id: UUID) {
+        guard let i = books.firstIndex(where: { $0.id == id }) else { return }
+        books[i].progression = 0
+        books[i].locatorJSON = nil
+        books[i].audioPosition = nil
+        books[i].lastOpenedAt = nil
+        save()
+    }
+
     /// Forget every BookMaster tie — after unlinking, or on a restored library.
     func clearBookMasterFields() {
         for i in books.indices {

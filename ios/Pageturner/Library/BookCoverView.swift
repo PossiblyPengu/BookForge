@@ -113,7 +113,7 @@ struct BookGrid: View {
                         Label("Edit Details", systemImage: "pencil")
                     }
                     Divider()
-                    Button(role: .destructive) { library.delete(book) } label: {
+                    Button(role: .destructive) { router.askDelete([book]) } label: {
                         Label("Remove from Library", systemImage: "trash")
                     }
                 }
