@@ -43,9 +43,20 @@ jobs:
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           echo "SDK: $SDK" | tee sdk-probe.txt
           xcodebuild -version | tee -a sdk-probe.txt
-          IFACE=$(find "$SDK/System/Library/Frameworks/SwiftUI.framework" -name "arm64-apple-ios.swiftinterface" | head -1)
-          echo "Interface: $IFACE" | tee -a sdk-probe.txt
-          grep -nE "glassEffect|GlassEffectContainer|struct Glass\b|tabBarMinimizeBehavior|TabBarMinimizeBehavior|tabViewBottomAccessory|ToolbarSpacer|scrollEdgeEffect|ScrollEdgeEffect|backgroundExtensionEffect|sharedBackgroundVisibility|searchToolbarBehavior|TabRole|struct GlassButtonStyle|GlassProminentButtonStyle|glassEffectID|glassEffectUnion|glassEffectTransition|ButtonBorderShape|safeAreaBar|buttonSizing|ToolbarContentBuilder" "$IFACE" | head -400 >> sdk-probe.txt || true
+          FW="$SDK/System/Library/Frameworks/SwiftUI.framework"
+          find "$FW" -maxdepth 4 | head -40 >> sdk-probe.txt
+          IFACE=$(find "$FW" -name "*.swiftinterface" | head -1)
+          echo "Interface: ${IFACE:-none}" | tee -a sdk-probe.txt
+          PAT="glassEffect|GlassEffectContainer|tabBarMinimizeBehavior|TabBarMinimizeBehavior|tabViewBottomAccessory|ToolbarSpacer|scrollEdgeEffect|ScrollEdgeEffect|backgroundExtensionEffect|sharedBackgroundVisibility|searchToolbarBehavior|GlassButtonStyle|GlassProminentButtonStyle|glassEffectID|glassEffectUnion|glassEffectTransition|safeAreaBar|buttonSizing"
+          if [ -n "$IFACE" ]; then
+            grep -nE "$PAT" "$IFACE" | head -400 >> sdk-probe.txt || true
+          else
+            # no textual interface: pull symbol names out of the module and the framework stub
+            for f in $(find "$FW" -name "*.swiftmodule" -o -name "*.tbd" -o -name "*.swiftdoc" | head -6); do
+              echo "== strings $f" >> sdk-probe.txt
+              strings -a "$f" | grep -E "$PAT" | sort -u | head -150 >> sdk-probe.txt || true
+            done
+          fi
           { echo '### SwiftUI SDK probe'; echo '```'; head -120 sdk-probe.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
         working-directory: ios
 
