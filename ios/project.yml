@@ -50,6 +50,11 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # BookMaster's pair flow comes home as pageturner://link?code=…
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.possiblypengu.pageturner
+            CFBundleURLSchemes:
+              - pageturner
         # read-aloud keeps playing with the screen locked
         UIBackgroundModes:
           - audio

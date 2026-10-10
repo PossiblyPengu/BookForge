@@ -49,6 +49,8 @@ struct Book: Identifiable, Codable, Hashable {
     var progression: Double?
     var bookmarks: [Bookmark] = []
     var highlights: [Highlight] = []
+    /// The BookMaster shelf row this book is pinned to, once a push has made one.
+    var bookmasterId: String?
 
     var ext: String { fileName.split(separator: ".").last.map(String.init)?.lowercased() ?? "" }
     var isAudio: Bool { Self.audioExtensions.contains(ext) }
@@ -94,6 +96,13 @@ extension Book {
         highlights = try c.decodeIfPresent([Highlight].self, forKey: .highlights) ?? []
         fileNames = try c.decodeIfPresent([String].self, forKey: .fileNames) ?? [fileName]
         trackTitles = try c.decodeIfPresent([String].self, forKey: .trackTitles) ?? []
+        bookmasterId = try c.decodeIfPresent(String.self, forKey: .bookmasterId)
+    }
+
+    /// How a BookMaster push names this book.
+    var bookMasterRef: BMBookRef {
+        BMBookRef(title: title, author: sendableAuthor(author), isbn: nil,
+                  openLibraryId: nil, userBookId: bookmasterId)
     }
 }
 

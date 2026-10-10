@@ -22,7 +22,7 @@ final class AudioPlayer: ObservableObject {
     @Published private(set) var coverImage: UIImage?
     @Published var notice: String?
 
-    private let book: Book
+    private var book: Book
     private let library: LibraryStore
     private let urls: [URL]
     private var player: AVPlayer?
@@ -33,6 +33,8 @@ final class AudioPlayer: ObservableObject {
     private var sleepDeadline: Date?
     private var lastSavedPosition: TimeInterval = -1
     private var artworkItem: MPMediaItemArtwork?
+    /// Where and when this listen began, for the BookMaster session push.
+    private var sessionStart: (at: Date, progression: Double)?
 
     init(book: Book, library: LibraryStore) {
         self.book = book
@@ -107,6 +109,7 @@ final class AudioPlayer: ObservableObject {
 
     func play() {
         guard player != nil else { return }
+        if sessionStart == nil, duration > 0 { sessionStart = (Date(), position / duration) }
         resumePlayback()
         isPlaying = true
         startTimeObserver()
@@ -124,6 +127,7 @@ final class AudioPlayer: ObservableObject {
         player?.pause()
         isPlaying = false
         savePosition()
+        endBookMasterSession()
         MPNowPlayingInfoCenter.default().playbackState = .paused
     }
 
@@ -232,6 +236,34 @@ final class AudioPlayer: ObservableObject {
         b.progression = duration > 0 ? position / duration : nil
         b.lastOpenedAt = Date()
         library.update(b)
+        guard let progression = b.progression else { return }
+        let ref = b.bookMasterRef
+        Task {
+            await BookMaster.shared.syncProgress(
+                bookKey: ref.title, ref: ref, percent: progression, isAudio: true,
+                pinned: { [weak self] id in self?.pin(id) })
+        }
+    }
+
+    private func pin(_ id: String) {
+        guard book.bookmasterId != id else { return }
+        book.bookmasterId = id
+        savePosition()
+    }
+
+    /// Tell BookMaster how far this listen got. Under half a percent is not a session.
+    private func endBookMasterSession() {
+        guard let start = sessionStart, duration > 0 else { return }
+        sessionStart = nil
+        let end = position / duration
+        guard (end - start.progression) * 100 >= 0.5 else { return }
+        let ref = book.bookMasterRef
+        let minutes = Date().timeIntervalSince(start.at) / 60
+        Task {
+            await BookMaster.shared.syncSession(
+                ref: ref, percentStart: start.progression, percentEnd: end,
+                minutes: minutes, at: Date())
+        }
     }
 
     // MARK: - Plumbing

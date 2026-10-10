@@ -5,6 +5,7 @@ struct LibraryView: View {
     @EnvironmentObject private var library: LibraryStore
     @State private var showImporter = false
     @State private var showBackupImporter = false
+    @State private var showBookMaster = false
     @State private var shareItem: ShareItem?
     @State private var backupMessage: String?
     @State private var openBook: Book?
@@ -42,6 +43,15 @@ struct LibraryView: View {
                     }
                 }
                 .sheet(item: $shareItem) { ShareSheet(items: [$0.url]) }
+                .sheet(isPresented: $showBookMaster) { BookMasterSettingsView() }
+                .alert("BookMaster", isPresented: Binding(
+                    get: { BookMaster.shared.notice != nil },
+                    set: { if !$0 { BookMaster.shared.notice = nil } }
+                )) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(BookMaster.shared.notice ?? "")
+                }
                 .alert("Backup", isPresented: Binding(
                     get: { backupMessage != nil },
                     set: { if !$0 { backupMessage = nil } }
@@ -142,6 +152,10 @@ struct LibraryView: View {
         }
         ToolbarItem(placement: .primaryAction) {
             Menu {
+                Button { showBookMaster = true } label: {
+                    Label("BookMaster", systemImage: "link")
+                }
+                Divider()
                 Button { exportBackup() } label: {
                     Label("Export Library Backup", systemImage: "square.and.arrow.up")
                 }

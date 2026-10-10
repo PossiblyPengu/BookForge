@@ -34,6 +34,8 @@ final class ReaderModel: ObservableObject {
     /// JSON — a disk write per page. Coalesced here and flushed on close.
     private var saveTask: Task<Void, Never>?
     private var currentLocator: Locator?
+    /// Where and when this sitting began, for the BookMaster session push.
+    private var sessionStart: (at: Date, progression: Double)?
     private var searchTask: Task<Void, Never>?
 
     init(book: Book, library: LibraryStore) {
@@ -325,6 +327,32 @@ final class ReaderModel: ObservableObject {
         saveTask?.cancel()
         saveTask = nil
         library.update(book)
+        endBookMasterSession()
+    }
+
+    /// Tell BookMaster how far this sitting got. A peek that moved under half
+    /// a percent is not a session.
+    private func endBookMasterSession() {
+        guard let start = sessionStart else { return }
+        sessionStart = nil
+        let end = book.progression ?? start.progression
+        guard (end - start.progression) * 100 >= 0.5 else { return }
+        let ref = book.bookMasterRef
+        let minutes = Date().timeIntervalSince(start.at) / 60
+        Task {
+            await BookMaster.shared.syncProgress(
+                bookKey: ref.title, ref: ref, percent: end, isAudio: false, force: true,
+                pinned: { [weak self] id in self?.pin(id) })
+            await BookMaster.shared.syncSession(
+                ref: ref, percentStart: start.progression, percentEnd: end,
+                minutes: minutes, at: Date())
+        }
+    }
+
+    private func pin(_ id: String) {
+        guard book.bookmasterId != id else { return }
+        book.bookmasterId = id
+        library.update(book)
     }
 }
 
@@ -337,6 +365,14 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
         book.progression = locator.locations.totalProgression
         isCurrentLocationBookmarked = bookmark(matching: locator) != nil
         scheduleSave()
+        if sessionStart == nil, let p = book.progression { sessionStart = (Date(), p) }
+        let ref = book.bookMasterRef
+        let progression = book.progression ?? 0
+        Task {
+            await BookMaster.shared.syncProgress(
+                bookKey: ref.title, ref: ref, percent: progression, isAudio: false,
+                pinned: { [weak self] id in self?.pin(id) })
+        }
     }
 
     func navigator(_ navigator: Navigator, presentError error: NavigatorError) {
