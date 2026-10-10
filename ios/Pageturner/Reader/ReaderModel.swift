@@ -94,7 +94,8 @@ final class ReaderModel: ObservableObject {
             canReadAloud = ReadAloud.canSpeak(publication)
             isSearchable = publication.isSearchable
             toc = (try? await publication.tableOfContents().get()) ?? []
-            if toc.isEmpty { toc = publication.readingOrder }
+            // a comic's reading order is every page — not a contents worth listing
+            if toc.isEmpty, !publication.conforms(to: .divina) { toc = publication.readingOrder }
             phase = .ready
         } catch {
             phase = .failed(error.localizedDescription)
@@ -352,12 +353,17 @@ final class ReaderModel: ObservableObject {
         saveTask?.cancel()
         saveTask = nil
         library.update(book)
-        endBookMasterSession()
     }
 
-    /// Tell BookMaster how far this sitting got. A peek that moved under half
-    /// a percent is not a session.
-    private func endBookMasterSession() {
+    /// A new sitting begins now, from wherever the book is open.
+    func beginSession() {
+        if sessionStart == nil, let p = book.progression { sessionStart = (Date(), p) }
+    }
+
+    /// Tell BookMaster how far this sitting got — called when the reader is
+    /// left or the app goes to the background, not on every save. A peek that
+    /// moved under half a percent is not a session.
+    func endSession() {
         guard let start = sessionStart else { return }
         sessionStart = nil
         let end = book.progression ?? start.progression
@@ -377,7 +383,7 @@ final class ReaderModel: ObservableObject {
     private func pin(_ id: String) {
         guard book.bookmasterId != id else { return }
         book.bookmasterId = id
-        library.update(book)
+        library.updateBookMaster(book.id) { $0.bookmasterId = id }
     }
 }
 
@@ -390,7 +396,7 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
         book.progression = locator.locations.totalProgression
         isCurrentLocationBookmarked = bookmark(matching: locator) != nil
         scheduleSave()
-        if sessionStart == nil, let p = book.progression { sessionStart = (Date(), p) }
+        beginSession()
         let ref = book.bookMasterRef
         let progression = book.progression ?? 0
         Task {

@@ -202,9 +202,16 @@ final class BackupStore {
     /// same backup twice must not duplicate it.
     private func restoreNative(_ rec: [String: Any], staged: Staged) throws {
         guard let data = try? JSONSerialization.data(withJSONObject: rec),
-              let book = try? JSONDecoder().decode(Book.self, from: data)
+              var book = try? JSONDecoder().decode(Book.self, from: data)
         else { throw BackupError.missingIndex }
         guard !library.books.contains(where: { $0.id == book.id }) else { return }
+        // a backup can come from another BookMaster account — its shelf pins
+        // are that reader's, so the next pull re-matches them for this one
+        book.bookmasterId = nil
+        book.bmStatus = nil
+        book.bmRating = nil
+        book.bmRemotePercent = nil
+        book.bmUpNext = nil
 
         let names = book.fileNames.isEmpty ? [book.fileName] : book.fileNames
         for name in names {

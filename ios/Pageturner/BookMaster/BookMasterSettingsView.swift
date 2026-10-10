@@ -4,6 +4,7 @@ import SwiftUI
 /// Link (or unlink) this device's BookMaster account.
 struct BookMasterSettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var library: LibraryStore
     @State private var working = false
     @State private var error: String?
     private let bookMaster = BookMaster.shared
@@ -20,7 +21,10 @@ struct BookMasterSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     Section {
-                        Button("Unlink BookMaster", role: .destructive) { bookMaster.unlink() }
+                        Button("Unlink BookMaster", role: .destructive) {
+                            bookMaster.unlink()
+                            library.clearBookMasterFields()
+                        }
                     }
                 } else {
                     Section {

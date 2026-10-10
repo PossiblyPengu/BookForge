@@ -91,7 +91,14 @@ extension Book {
         // — seconds now ≈ 1.7e9, ms ≈ 1.7e12, so 1e11 cleanly separates them
         func date(_ key: CodingKeys) -> Date? {
             guard let raw = try? c.decodeIfPresent(Double.self, forKey: key) else { return nil }
-            return Date(timeIntervalSince1970: raw > 1e11 ? raw / 1000 : raw)
+            if raw > 1e11 { return Date(timeIntervalSince1970: raw / 1000) }
+            // 2000-01-01 in 1970-based seconds. Earlier builds wrote dates as
+            // seconds since 2001 (JSONEncoder's default) and read them back as
+            // since 1970 — each save then moved them back 31 years. Anything
+            // under this can't be a real 1970-based date, so read it as 2001-based.
+            if raw >= 946_684_800 { return Date(timeIntervalSince1970: raw) }
+            if raw > 0 { return Date(timeIntervalSinceReferenceDate: raw) }
+            return nil   // drifted past repair
         }
         addedAt = date(.addedAt) ?? Date()
         lastOpenedAt = date(.lastOpenedAt)
@@ -269,7 +276,8 @@ final class LibraryStore: ObservableObject {
         do {
             let publication = try await Readium.shared.open(url: dest)
             if let title = publication.metadata.title, !title.isEmpty { book.title = title }
-            book.author = publication.metadata.authors.map(\.name).joined(separator: ", ")
+            // " & ", not ", ": a comma reads as "Last, First" to BookMaster
+            book.author = publication.metadata.authors.map(\.name).joined(separator: " & ")
             if let image = try? await publication.cover().get(),
                let jpeg = image.jpegData(compressionQuality: 0.85)
             {
@@ -285,9 +293,53 @@ final class LibraryStore: ObservableObject {
 
     // MARK: - Changes
 
+    /// Save a book the reader or player changed. Those hold their own copy of
+    /// the book, so the BookMaster fields — which only a push reply or a shelf
+    /// pull may change — are always kept from the stored one; writing back a
+    /// stale copy must not undo them. Use `updateBookMaster` to change them.
     func update(_ book: Book) {
         guard let i = books.firstIndex(where: { $0.id == book.id }) else { return }
+        var incoming = book
+        incoming.bookmasterId = books[i].bookmasterId
+        incoming.bmStatus = books[i].bmStatus
+        incoming.bmRating = books[i].bmRating
+        incoming.bmRemotePercent = books[i].bmRemotePercent
+        incoming.bmUpNext = books[i].bmUpNext
+        books[i] = incoming
+        save()
+    }
+
+    /// Change only the BookMaster fields of one book.
+    func updateBookMaster(_ id: UUID, _ change: (inout Book) -> Void) {
+        guard let i = books.firstIndex(where: { $0.id == id }) else { return }
+        var book = books[i]
+        change(&book)
+        guard book != books[i] else { return }
         books[i] = book
+        save()
+    }
+
+    /// Apply a whole shelf pull in one write.
+    func applyShelf(_ changes: [(UUID, (inout Book) -> Void)]) {
+        var changed = false
+        for (id, change) in changes {
+            guard let i = books.firstIndex(where: { $0.id == id }) else { continue }
+            var book = books[i]
+            change(&book)
+            if book != books[i] { books[i] = book; changed = true }
+        }
+        if changed { save() }
+    }
+
+    /// Forget every BookMaster tie — after unlinking, or on a restored library.
+    func clearBookMasterFields() {
+        for i in books.indices {
+            books[i].bookmasterId = nil
+            books[i].bmStatus = nil
+            books[i].bmRating = nil
+            books[i].bmRemotePercent = nil
+            books[i].bmUpNext = nil
+        }
         save()
     }
 
@@ -342,7 +394,9 @@ final class LibraryStore: ObservableObject {
     // MARK: - Persistence
 
     private func save() {
-        guard let data = try? JSONEncoder().encode(books) else { return }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        guard let data = try? encoder.encode(books) else { return }
         try? data.write(to: catalogueURL, options: .atomic)
     }
 }

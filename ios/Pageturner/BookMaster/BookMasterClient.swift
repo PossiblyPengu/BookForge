@@ -19,6 +19,8 @@ final class BookMaster {
     private(set) var user: BMUser?
     /// One-line message for the UI to show once (achievements, a dead link).
     var notice: String?
+    /// Where the reader is, in Pageturner's words: library, reader, player, settings.
+    var place = "library"
 
     var isLinked: Bool { user != nil }
 
@@ -26,6 +28,8 @@ final class BookMaster {
         var kind: String          // "progress" | "session" | "quote"
         var title: String         // progress de-dupe key
         var body: Data
+        /// Which entry a drain step means after its await; older files have none.
+        var id: UUID? = nil
     }
 
     private let defaults = UserDefaults.standard
@@ -46,7 +50,11 @@ final class BookMaster {
             user = try? JSONDecoder().decode(BMUser.self, from: data)
         }
         if let data = try? Data(contentsOf: queueURL) {
-            queue = (try? JSONDecoder().decode([QueueEntry].self, from: data)) ?? []
+            queue = ((try? JSONDecoder().decode([QueueEntry].self, from: data)) ?? []).map {
+                var entry = $0
+                entry.id = entry.id ?? UUID()
+                return entry
+            }
         }
     }
 
@@ -65,8 +73,13 @@ final class BookMaster {
         await flush()
     }
 
+    /// Forget the account and anything still parked for it — those pushes
+    /// belong to the reader who just left.
     func unlink() {
         setUser(nil)
+        queue.removeAll()
+        lastPush.removeAll()
+        try? FileManager.default.removeItem(at: queueURL)
     }
 
     private func setUser(_ value: BMUser?) {
@@ -115,7 +128,8 @@ final class BookMaster {
             username: user.username, book: ref,
             percentStart: (percentStart * 1000).rounded() / 10,
             percentEnd: (percentEnd * 1000).rounded() / 10,
-            durationMinutes: minutes >= 0.5 ? Int(minutes.rounded()) : nil,
+            // the bridge refuses a day or more — and a longer sitting was a screen left on
+            durationMinutes: minutes >= 0.5 ? min(Int(minutes.rounded()), 24 * 60) : nil,
             at: (at.timeIntervalSince1970 * 1000).rounded())
         guard let body = try? JSONEncoder().encode(payload) else { return }
         _ = await send(kind: "session", title: ref.title, body: body)
@@ -137,7 +151,7 @@ final class BookMaster {
     func beat(place: String? = nil, leaving: Bool = false) async {
         guard let user else { return }
         var json: [String: Any] = ["username": user.username]
-        if let place { json["place"] = place }
+        json["place"] = place ?? self.place
         if leaving { json["leaving"] = true }
         guard let body = try? JSONSerialization.data(withJSONObject: json) else { return }
         _ = try? await post("presence", body: body)
@@ -181,6 +195,12 @@ final class BookMaster {
         }
         if reveal { query["reveal"] = "1" }
         let (data, status) = try await get("comments", query: query)
+        if status == 404, ref.userBookId != nil, Self.errorMessage(data) != "Unknown reader" {
+            // the pinned shelf row is gone — look the book up by name instead
+            var unpinned = ref
+            unpinned.userBookId = nil
+            return try await fetchComments(ref: unpinned, reveal: reveal)
+        }
         guard (200..<300).contains(status) else {
             handleRefusal(status: status, data: data)
             throw BMError.server(status, Self.errorMessage(data))
@@ -210,7 +230,7 @@ final class BookMaster {
         if let pin = ref.userBookId { json["user_book_id"] = pin }
         for (k, v) in extra { json[k] = v }
         let body = try JSONSerialization.data(withJSONObject: json)
-        let (data, status) = try await post(path, body: body)
+        let (data, status) = try await postResolving(path, body: body)
         guard (200..<300).contains(status) else {
             handleRefusal(status: status, data: data)
             throw BMError.server(status, Self.errorMessage(data))
@@ -236,8 +256,13 @@ final class BookMaster {
     /// reply when the bridge accepted it, nil when parked or refused.
     private func send(kind: String, title: String, body: Data) async -> BMPushReply? {
         await flush()
+        // anything still parked goes first — a newer position must not overtake it
+        guard queue.isEmpty else {
+            enqueue(QueueEntry(kind: kind, title: title, body: body))
+            return nil
+        }
         do {
-            let (data, status) = try await post(kind, body: body)
+            let (data, status) = try await postResolving(kind, body: body)
             if Self.retriable(status) {
                 enqueue(QueueEntry(kind: kind, title: title, body: body))
                 return nil
@@ -257,11 +282,16 @@ final class BookMaster {
 
     /// `send` for pushes whose only answer that matters is success.
     private func sendRaw(kind: String, title: String, body: Data) async -> Bool {
+        await flush()
+        guard queue.isEmpty else {
+            enqueue(QueueEntry(kind: kind, title: title, body: body))
+            return true   // parked for later — report success
+        }
         do {
-            let (data, status) = try await post(kind, body: body)
+            let (data, status) = try await postResolving(kind, body: body)
             if Self.retriable(status) {
                 enqueue(QueueEntry(kind: kind, title: title, body: body))
-                return true   // parked for later — report success
+                return true
             }
             if !(200..<300).contains(status) {
                 handleRefusal(status: status, data: data)
@@ -282,10 +312,18 @@ final class BookMaster {
         flushing = true
         defer { flushing = false }
         while let head = queue.first {
+            guard let user else { return }
+            // parked for a reader who has since left
+            if Self.owner(of: head.body) != user.username {
+                queue.removeAll { $0.id == head.id }
+                saveQueue()
+                continue
+            }
             let result: (Data, Int)
-            do { result = try await post(head.kind, body: head.body) } catch { return }
+            do { result = try await postResolving(head.kind, body: head.body) } catch { return }
             if Self.retriable(result.1) { return }
-            queue.removeFirst()
+            // by identity: the queue may have changed while that was in flight
+            queue.removeAll { $0.id == head.id }
             saveQueue()
             if !(200..<300).contains(result.1) {
                 handleRefusal(status: result.1, data: result.0)
@@ -294,6 +332,8 @@ final class BookMaster {
     }
 
     private func enqueue(_ entry: QueueEntry) {
+        var entry = entry
+        if entry.id == nil { entry.id = UUID() }
         if entry.kind == "progress" {
             queue.removeAll { $0.kind == "progress" && $0.title == entry.title }
         }
@@ -312,10 +352,26 @@ final class BookMaster {
     private func handleRefusal(status: Int, data: Data) {
         guard status == 404, Self.errorMessage(data) == "Unknown reader" else { return }
         setUser(nil)
+        queue.removeAll()
+        try? FileManager.default.removeItem(at: queueURL)
         if !warnedBroken {
             warnedBroken = true
             notice = "BookMaster link broke — link again in Settings"
         }
+    }
+
+    /// A pinned shelf row that is gone (deleted on BookMaster, or pinned by a
+    /// reader who has since unlinked) answers 404 forever. Retry once without
+    /// the pin so the title and author re-resolve it; the reply carries the
+    /// right pin, which the caller stores.
+    private func postResolving(_ path: String, body: Data) async throws -> (Data, Int) {
+        let first = try await post(path, body: body)
+        guard first.1 == 404, Self.errorMessage(first.0) != "Unknown reader",
+              var json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+              json.removeValue(forKey: "user_book_id") != nil,
+              let retry = try? JSONSerialization.data(withJSONObject: json)
+        else { return first }
+        return try await post(path, body: retry)
     }
 
     private func announce(_ achievements: [BMAchievement]?) {
@@ -323,7 +379,14 @@ final class BookMaster {
         notice = "\(a.icon ?? "🏆") \(a.name ?? "Achievement earned")"
     }
 
-    private static func retriable(_ status: Int) -> Bool { (502...504).contains(status) }
+    /// Worth trying again later: the server or the path to it is struggling.
+    private static func retriable(_ status: Int) -> Bool {
+        status >= 500 || status == 408 || status == 429
+    }
+
+    private static func owner(of body: Data) -> String? {
+        (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["username"] as? String
+    }
 
     private static func errorMessage(_ data: Data) -> String? {
         (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String

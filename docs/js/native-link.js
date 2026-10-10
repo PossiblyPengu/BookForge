@@ -6,5 +6,10 @@
   const m = /[?&]bm-link=([^&#]+)/.exec(location.search);
   const standalone =
     navigator.standalone || window.matchMedia?.("(display-mode: standalone)").matches;
-  if (m && !standalone) location.replace(`pageturner://link?code=${m[1]}`);
+  if (!m || standalone) return;
+  // Take the code out of the address first: the web app's own link handler
+  // runs from this same page and would otherwise spend the one-time code
+  // before the native app can.
+  history.replaceState(null, "", location.pathname + location.hash);
+  location.replace(`pageturner://link?code=${m[1]}`);
 })();

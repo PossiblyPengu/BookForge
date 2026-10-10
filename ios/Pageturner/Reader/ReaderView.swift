@@ -5,6 +5,7 @@ import SwiftUI
 struct ReaderView: View {
     @StateObject private var model: ReaderModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showContents = false
     @State private var showSettings = false
     @State private var showSearch = false
@@ -32,7 +33,21 @@ struct ReaderView: View {
             .animation(.default, value: model.showChrome)
             .task { await model.open() }
             .onChange(of: model.settings) { _ in model.applySettings() }
-            .onDisappear { model.flushSave(); model.stopReadAloud() }
+            .onAppear { BookMaster.shared.place = "reader" }
+            .onDisappear {
+                model.flushSave()
+                model.endSession()
+                model.stopReadAloud()
+                BookMaster.shared.place = "library"
+            }
+            // a sitting ends when the app leaves the screen — not whenever it is next opened
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .background: model.flushSave(); model.endSession()
+                case .active: model.beginSession()
+                default: break
+                }
+            }
             .sheet(isPresented: $showContents) { contentsSheet }
             .sheet(isPresented: $showSettings) { settingsSheet }
             .sheet(isPresented: $showSearch) { searchSheet }

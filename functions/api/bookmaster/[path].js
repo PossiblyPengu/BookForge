@@ -63,14 +63,21 @@ export const onRequest = async ({ request, env, params }) => {
   const url = new URL(`${BM(env)}/api/${upstreamPath}`);
   if (isGet) new URL(request.url).searchParams.forEach((v, k) => url.searchParams.set(k, v));
 
-  const upstream = await fetch(url, {
-    method,
-    headers: {
-      authorization: `Bearer ${env.PAGETURNER_SECRET}`,
-      ...(isGet ? {} : { "content-type": "application/json" }),
-    },
-    body: isGet ? undefined : await request.text(),
-  });
+  const body = isGet ? undefined : await request.text();
+  let upstream;
+  try {
+    upstream = await fetch(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${env.PAGETURNER_SECRET}`,
+        ...(isGet ? {} : { "content-type": "application/json" }),
+      },
+      body,
+    });
+  } catch {
+    // 502 is the answer clients park a push on and try again later
+    return json(502, { error: "BookMaster can't be reached" });
+  }
   return new Response(upstream.body, {
     status: upstream.status,
     headers: { "content-type": upstream.headers.get("content-type") || "application/json" },

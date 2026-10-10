@@ -29,6 +29,7 @@ final class AudioPlayer: ObservableObject {
     private var trackOffsets: [TimeInterval] = []
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    private var interruptionObserver: NSObjectProtocol?
     private var sleepTimer: Timer?
     private var sleepDeadline: Date?
     private var lastSavedPosition: TimeInterval = -1
@@ -69,6 +70,16 @@ final class AudioPlayer: ObservableObject {
         if target > 1 { seek(to: target, resume: false) }
         configureSession()
         setUpNowPlaying()
+        // a call or alarm stops the audio — pause too, so the sitting ends there
+        // instead of counting the interruption as listening
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: raw) == .began
+            else { return }
+            Task { @MainActor in self?.pause() }
+        }
     }
 
     private func load(track index: Int) {
@@ -96,7 +107,7 @@ final class AudioPlayer: ObservableObject {
             // finished: clamp at the end, persist, stop
             pause()
             position = duration
-            savePosition()
+            savePosition(force: true)
             return
         }
         load(track: next)
@@ -126,7 +137,7 @@ final class AudioPlayer: ObservableObject {
     func pause() {
         player?.pause()
         isPlaying = false
-        savePosition()
+        savePosition(force: true)
         endBookMasterSession()
         MPNowPlayingInfoCenter.default().playbackState = .paused
     }
@@ -218,6 +229,8 @@ final class AudioPlayer: ObservableObject {
         timeObserver = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil
+        if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
+        interruptionObserver = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
         let center = MPRemoteCommandCenter.shared()
@@ -230,7 +243,7 @@ final class AudioPlayer: ObservableObject {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    private func savePosition() {
+    private func savePosition(force: Bool = false) {
         var b = book
         b.audioPosition = position
         b.progression = duration > 0 ? position / duration : nil
@@ -240,7 +253,7 @@ final class AudioPlayer: ObservableObject {
         let ref = b.bookMasterRef
         Task {
             await BookMaster.shared.syncProgress(
-                bookKey: ref.title, ref: ref, percent: progression, isAudio: true,
+                bookKey: ref.title, ref: ref, percent: progression, isAudio: true, force: force,
                 pinned: { [weak self] id in self?.pin(id) })
         }
     }
@@ -248,7 +261,7 @@ final class AudioPlayer: ObservableObject {
     private func pin(_ id: String) {
         guard book.bookmasterId != id else { return }
         book.bookmasterId = id
-        savePosition()
+        library.updateBookMaster(book.id) { $0.bookmasterId = id }
     }
 
     /// Tell BookMaster how far this listen got. Under half a percent is not a session.

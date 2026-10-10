@@ -14,6 +14,7 @@ struct TogetherView: View {
                     partnerSection(together.partner)
                     if !together.nudges.isEmpty { nudgeSection(together.nudges) }
                     if !together.notices.isEmpty { noticeSection(together.notices) }
+                    if let error { Section { Text(error).foregroundStyle(.red) } }
                 } else if loading {
                     ProgressView().frame(maxWidth: .infinity)
                 } else if let error {

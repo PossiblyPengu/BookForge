@@ -13,6 +13,10 @@ final class BookMasterLinker: NSObject, ASWebAuthenticationPresentationContextPr
     static let scheme = "pageturner"
 
     private var session: ASWebAuthenticationSession?
+    /// True only while this app has a pair flow open. A `pageturner://link`
+    /// URL that arrives any other time — say from a web page — didn't come
+    /// from a link the reader started, so it must not link their device.
+    private(set) var pending = false
 
     /// The code carried by a `pageturner://link?code=…` URL, if it is one.
     static func code(from url: URL) -> String? {
@@ -23,6 +27,8 @@ final class BookMasterLinker: NSObject, ASWebAuthenticationPresentationContextPr
     }
 
     func link() async throws {
+        pending = true
+        defer { pending = false }
         var parts = URLComponents(string: "https://bookmaster.pages.dev/link/pageturner")!
         parts.queryItems = [URLQueryItem(name: "from", value: "https://pageturner.pages.dev")]
         let start = parts.url!

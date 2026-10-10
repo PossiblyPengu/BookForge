@@ -94,15 +94,21 @@ extension BookMaster {
               (200..<300).contains(status),
               let reply = try? JSONDecoder().decode(BMShelfReply.self, from: data)
         else { return }
-        for var book in library.books {
+        var changes: [(UUID, (inout Book) -> Void)] = []
+        for book in library.books {
             guard let row = BMShelf.match(book, in: reply.books) else { continue }
-            let before = book
-            book.bookmasterId = book.bookmasterId ?? row.userBookId
-            book.bmStatus = row.status
-            book.bmRating = row.rating
-            book.bmRemotePercent = row.percent
-            book.bmUpNext = row.upNext != nil
-            if book != before { library.update(book) }
+            let shelf = (id: row.userBookId, status: row.status, rating: row.rating,
+                         percent: row.percent, upNext: row.upNext != nil)
+            changes.append((book.id, { b in
+                // the matched row wins: a stale pin (deleted there, or left by
+                // another reader) is replaced, a good one comes back unchanged
+                b.bookmasterId = shelf.id
+                b.bmStatus = shelf.status
+                b.bmRating = shelf.rating
+                b.bmRemotePercent = shelf.percent
+                b.bmUpNext = shelf.upNext
+            }))
         }
+        library.applyShelf(changes)
     }
 }
