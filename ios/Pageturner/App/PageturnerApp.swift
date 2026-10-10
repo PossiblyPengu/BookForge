@@ -27,6 +27,7 @@ struct PageturnerApp: App {
             Task {
                 switch phase {
                 case .active:
+                    await FolderWatcher.shared.scan(library: library)
                     await BookMaster.shared.flush()
                     await BookMaster.shared.pullShelf(into: library)
                     await BookMaster.shared.beat(place: "library")

@@ -49,7 +49,8 @@ final class ReaderModel: ObservableObject {
             self.publication = publication
             let initial = book.locatorJSON.flatMap { try? Locator(jsonString: $0) }
 
-            if publication.conforms(to: .epub) {
+            // comics (cbz) are opened by the EPUB navigator too — the CBZ one is deprecated
+            if publication.conforms(to: .epub) || publication.conforms(to: .divina) {
                 var config = EPUBNavigatorViewController.Configuration(
                     preferences: settings.epubPreferences
                 )

@@ -157,6 +157,17 @@ final class BookMaster {
         return try JSONDecoder().decode(BMTogether.self, from: data)
     }
 
+    /// Streaks, totals, goal progress and recent achievements.
+    func fetchOverview() async throws -> BMOverview {
+        guard let user else { throw BMError.notLinked }
+        let (data, status) = try await get("overview", query: ["username": user.username])
+        guard (200..<300).contains(status) else {
+            handleRefusal(status: status, data: data)
+            throw BMError.server(status, Self.errorMessage(data))
+        }
+        return try JSONDecoder().decode(BMOverview.self, from: data)
+    }
+
     /// The shared thread on a book, gated the way BookMaster gates it: a note
     /// left further on than you are arrives sealed unless `reveal` is set.
     func fetchComments(ref: BMBookRef, reveal: Bool = false) async throws -> BMThread {

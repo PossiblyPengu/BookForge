@@ -208,3 +208,35 @@ struct BMThread: Decodable {
     var comments: [BMComment]
     var you: String?
 }
+
+// MARK: - Overview (stats)
+
+struct BMStats: Decodable {
+    var currentStreak: Double
+    var longestStreak: Double
+    var booksFinished: Double
+    var minutesRead: Double
+    var quotesSaved: Double
+}
+
+struct BMGoal: Decodable, Identifiable {
+    var id: String?
+    var type: String
+    var target: Double?
+    var current: Double
+    var progress: Double
+
+    var stableId: String { id ?? type }
+}
+
+struct BMEarned: Decodable, Identifiable, Hashable {
+    var id: String
+    var name: String
+    var icon: String?
+}
+
+struct BMOverview: Decodable {
+    var stats: BMStats
+    var goals: [BMGoal]
+    var recentAchievements: [BMEarned]
+}

@@ -7,6 +7,8 @@ struct LibraryView: View {
     @State private var showBackupImporter = false
     @State private var showBookMaster = false
     @State private var showTogether = false
+    @State private var showStats = false
+    @State private var showFolderPicker = false
     @State private var shareItem: ShareItem?
     @State private var backupMessage: String?
     @State private var openBook: Book?
@@ -14,6 +16,9 @@ struct LibraryView: View {
     @State private var editBook: Book?
     @State private var query = ""
     @AppStorage("librarySort") private var sortOrder = LibraryStore.SortOrder.recent.rawValue
+
+    /// Comic archives have no system type — match them by extension.
+    private static let comicTypes = ["cbz"].compactMap { UTType(filenameExtension: $0) }
 
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 18)]
 
@@ -28,7 +33,7 @@ struct LibraryView: View {
                 .toolbar { toolbar }
                 .fileImporter(
                     isPresented: $showImporter,
-                    allowedContentTypes: [.epub, .pdf, .audio],
+                    allowedContentTypes: [.epub, .pdf, .audio] + Self.comicTypes,
                     allowsMultipleSelection: true
                 ) { result in
                     if case let .success(urls) = result {
@@ -43,9 +48,15 @@ struct LibraryView: View {
                         restoreBackup(url)
                     }
                 }
+                .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
+                    if case let .success(url) = result {
+                        Task { await FolderWatcher.shared.watch(url, library: library) }
+                    }
+                }
                 .sheet(item: $shareItem) { ShareSheet(items: [$0.url]) }
                 .sheet(isPresented: $showBookMaster) { BookMasterSettingsView() }
                 .sheet(isPresented: $showTogether) { TogetherView() }
+                .sheet(isPresented: $showStats) { StatsView() }
                 .alert("BookMaster", isPresented: Binding(
                     get: { BookMaster.shared.notice != nil },
                     set: { if !$0 { BookMaster.shared.notice = nil } }
@@ -161,6 +172,18 @@ struct LibraryView: View {
                     Button { showTogether = true } label: {
                         Label("Together", systemImage: "person.2")
                     }
+                    Button { showStats = true } label: {
+                        Label("Reading Stats", systemImage: "chart.bar")
+                    }
+                }
+                if FolderWatcher.shared.isWatching {
+                    Button(role: .destructive) { FolderWatcher.shared.stop() } label: {
+                        Label("Stop Watching “\(FolderWatcher.shared.folderName ?? "")”", systemImage: "folder.badge.minus")
+                    }
+                } else {
+                    Button { showFolderPicker = true } label: {
+                        Label("Watch a Folder…", systemImage: "folder.badge.plus")
+                    }
                 }
                 Divider()
                 Button { exportBackup() } label: {
@@ -189,7 +212,7 @@ struct LibraryView: View {
                 .font(.system(size: 52))
                 .foregroundStyle(.secondary)
             Text("No books yet").font(.title3.weight(.semibold))
-            Text("Add EPUB, PDF, or audiobook files from Files, or use “Open in Pageturner” from another app.")
+            Text("Add EPUB, PDF, CBZ comic, or audiobook files from Files, or use “Open in Pageturner” from another app.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
