@@ -36,6 +36,27 @@ jobs:
       - name: Generate Xcode project
         run: cd ios && xcodegen
 
+      # Liquid Glass lives in the iOS 26 SDK; dump the real signatures so the
+      # UI code is written against them rather than against memory.
+      - name: Probe SwiftUI SDK
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "SDK: $SDK" | tee sdk-probe.txt
+          xcodebuild -version | tee -a sdk-probe.txt
+          IFACE=$(find "$SDK/System/Library/Frameworks/SwiftUI.framework" -name "arm64-apple-ios.swiftinterface" | head -1)
+          echo "Interface: $IFACE" | tee -a sdk-probe.txt
+          grep -nE "glassEffect|GlassEffectContainer|struct Glass\b|tabBarMinimizeBehavior|TabBarMinimizeBehavior|tabViewBottomAccessory|ToolbarSpacer|scrollEdgeEffect|ScrollEdgeEffect|backgroundExtensionEffect|sharedBackgroundVisibility|searchToolbarBehavior|TabRole|struct GlassButtonStyle|GlassProminentButtonStyle|glassEffectID|glassEffectUnion|glassEffectTransition|ButtonBorderShape|safeAreaBar|buttonSizing|ToolbarContentBuilder" "$IFACE" | head -400 >> sdk-probe.txt || true
+          { echo '### SwiftUI SDK probe'; echo '```'; head -120 sdk-probe.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        working-directory: ios
+
+      - name: Upload SDK probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-probe
+          path: ios/sdk-probe.txt
+          if-no-files-found: ignore
+
       - name: Build unsigned app
         run: |
           set -o pipefail
