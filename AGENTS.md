@@ -23,3 +23,24 @@ layout (`data.json` + `files/` + `covers/`; iOS books carry
   the 3.x API changed a lot between releases (e.g. `EPUBNavigatorViewController`
   takes `config:` not `httpServer:`; TTS rate goes through `AVTTSEngineDelegate`).
 - Relevant docs live in the readium/swift-toolkit repo under `docs/Guides/`.
+- This machine has no Swift toolchain, so the only compile check is the macOS
+  runner. Push, then read the run's result before pushing again — the workflow
+  cancels an in-progress run on the same branch, so back-to-back pushes never
+  report. Compiler errors are in the job log (`grep "error: "`).
+- Deployment target is iOS 17. Stores that predate it (`LibraryStore`,
+  `ReaderModel`, `AudioPlayer`) are `ObservableObject`; newer code
+  (`BookMaster`, `FolderWatcher`) uses `@Observable`.
+
+### BookMaster link (`ios/Pageturner/BookMaster/`)
+
+- `BookMasterClient` mirrors `docs/js/bookmaster.js`: pushes to
+  `https://pageturner.pages.dev/api/bookmaster/<route>`; the Pages Function holds
+  `PAGETURNER_SECRET`. Route names must be in that function's `ROUTES` set.
+- Payloads follow BookMaster's `functions/_lib/routes/pageturner.ts`: ids are
+  strings, `at` on a session is milliseconds (a number), percents are 0–100.
+- Offline: progress is de-duplicated per title, sessions and quotes always queue,
+  oldest first, a 4xx is dropped. Presence beats are never queued.
+- Linking: `ASWebAuthenticationSession` → bookmaster.pages.dev/link/pageturner →
+  `pageturner.pages.dev/?bm-link=<code>` → `docs/js/native-link.js` redirects to
+  `pageturner://link?code=<code>`. Keep that script (and its precache entry in
+  `docs/sw.js`) for as long as the site is deployed.

@@ -1,5 +1,48 @@
 # Pageturner
 
+An e-reader and audiobook player for iOS, linked to [BookMaster](https://bookmaster.pages.dev).
+Everything runs on the device — books, covers, positions and the library live in the app.
+
+## The iOS app
+
+A native SwiftUI app (iOS 17+) built on the [Readium](https://readium.org) toolkit. It lives in `ios/`.
+
+- **Reading:** EPUB, PDF and CBZ comics, with themes, fonts and sizes; in-book search; bookmarks and highlights
+- **Listening:** multi-file audiobooks (M4B/M4A/MP3/FLAC/OGG/OPUS/WAV) with speed, sleep timer and lock-screen controls; read-aloud with Apple's voices (install the Enhanced or Premium ones in Settings → Accessibility → Spoken Content)
+- **Library:** search, sort, covers, metadata lookup (Google Books + Open Library); import from Files or "Open in Pageturner"; **Watch a Folder…** auto-imports whatever lands in a Files folder
+- **BookMaster:** link once and your progress and finished sessions go to BookMaster as you read or listen; see the other reader, accept their suggestions, comment on a book, send a passage as a quote, and see your streaks and goals. Pushes made offline are queued and replayed in order.
+- **Backup:** export the whole library to one zip and restore it here — also restores a backup made by the old web app
+
+### Install (sideload)
+
+The app isn't on the App Store. CI builds an unsigned IPA on every change to `ios/`:
+
+1. On GitHub open **Actions → iOS IPA**, pick the latest green run and download the **Pageturner-ipa** artifact; unzip it to get `Pageturner.ipa`.
+2. Install it with [AltStore](https://altstore.io), [SideStore](https://sidestore.io) or [Sideloadly](https://sideloadly.io), signing with your Apple ID.
+3. A free Apple ID signs for 7 days — keep AltStore or SideStore running to refresh it automatically.
+
+To link BookMaster, open the library's ⋯ menu → **BookMaster** → **Link BookMaster**.
+
+### Build
+
+There is no Xcode project in the repo; it is generated from `ios/project.yml`:
+
+```bash
+brew install xcodegen && cd ios && xcodegen   # then open Pageturner.xcodeproj
+```
+
+On a Mac without signing set up, the CI workflow (`.github/workflows/ios.yml`) is the reference build.
+
+### How BookMaster is reached
+
+The app never holds BookMaster's bridge secret. Its calls go to a Pages Function at
+`https://pageturner.pages.dev/api/bookmaster/*` (`functions/api/bookmaster/[path].js`),
+which adds the secret and forwards to BookMaster. Linking runs BookMaster's pair flow in an
+in-app browser sheet and returns through `pageturner://link?code=…`
+(`docs/js/native-link.js` hands the code from the web origin to the app).
+
+## The web app (being retired)
+
 An offline-capable, installable e-reader and audiobook player PWA. Everything runs locally in the browser — no server required.
 
 ## Features
