@@ -15,50 +15,57 @@ struct ReaderView: View {
     }
 
     var body: some View {
-        content
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if model.showChrome, model.phase == .ready { header }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if let readAloud = model.readAloud, readAloud.isActive {
-                    ReadAloudBar(
-                        readAloud: readAloud,
-                        rate: model.settings.speechRate,
-                        onRate: { model.cycleRate() },
-                        onStop: { model.stopReadAloud() }
-                    )
+        ZStack {
+            content
+            if model.phase == .ready {
+                VStack(spacing: 0) {
+                    if model.showChrome { header.transition(.move(edge: .top).combined(with: .opacity)) }
+                    Spacer(minLength: 0)
+                    if let readAloud = model.readAloud, readAloud.isActive {
+                        ReadAloudBar(
+                            readAloud: readAloud,
+                            rate: model.settings.speechRate,
+                            onRate: { model.cycleRate() },
+                            onStop: { model.stopReadAloud() }
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else if model.showChrome {
+                        footer.transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
             }
-            .statusBarHidden(!model.showChrome)
-            .animation(.default, value: model.showChrome)
-            .task { await model.open() }
-            .onChange(of: model.settings) { _ in model.applySettings() }
-            .onAppear { BookMaster.shared.place = "reader" }
-            .onDisappear {
-                model.flushSave()
-                model.endSession()
-                model.stopReadAloud()
-                BookMaster.shared.place = "library"
+        }
+        .statusBarHidden(!model.showChrome)
+        .animation(.smooth(duration: 0.25), value: model.showChrome)
+        .animation(.smooth(duration: 0.25), value: model.readAloud?.isActive)
+        .task { await model.open() }
+        .onChange(of: model.settings) { _ in model.applySettings() }
+        .onAppear { BookMaster.shared.place = "reader" }
+        .onDisappear {
+            model.flushSave()
+            model.endSession()
+            model.stopReadAloud()
+            BookMaster.shared.place = "library"
+        }
+        // a sitting ends when the app leaves the screen — not whenever it is next opened
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background: model.flushSave(); model.endSession()
+            case .active: model.beginSession()
+            default: break
             }
-            // a sitting ends when the app leaves the screen — not whenever it is next opened
-            .onChange(of: scenePhase) { _, phase in
-                switch phase {
-                case .background: model.flushSave(); model.endSession()
-                case .active: model.beginSession()
-                default: break
-                }
-            }
-            .sheet(isPresented: $showContents) { contentsSheet }
-            .sheet(isPresented: $showSettings) { settingsSheet }
-            .sheet(isPresented: $showSearch) { searchSheet }
-            .alert("Pageturner", isPresented: Binding(
-                get: { model.notice != nil },
-                set: { if !$0 { model.notice = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(model.notice ?? "")
-            }
+        }
+        .sheet(isPresented: $showContents) { contentsSheet }
+        .sheet(isPresented: $showSettings) { settingsSheet }
+        .sheet(isPresented: $showSearch) { searchSheet }
+        .alert("Pageturner", isPresented: Binding(
+            get: { model.notice != nil },
+            set: { if !$0 { model.notice = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.notice ?? "")
+        }
     }
 
     @ViewBuilder
@@ -89,54 +96,90 @@ struct ReaderView: View {
         }
     }
 
+    /// Back, the title, and the page's tools — floating on glass over the page.
     private var header: some View {
-        HStack(spacing: 14) {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.left")
-                    .frame(width: 32, height: 32)
-            }
-            Spacer()
-            VStack(spacing: 1) {
-                Text(model.book.title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                if !model.book.author.isEmpty {
-                    Text(model.book.author)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+        PTGlassGroup(spacing: 10) {
+            HStack(spacing: 10) {
+                PTIconButton(systemImage: "chevron.left", label: "Back to library") { dismiss() }
+
+                VStack(spacing: 0) {
+                    Text(model.book.title)
+                        .font(.footnote.weight(.semibold))
                         .lineLimit(1)
+                    if let chapter = model.chapterTitle ?? (model.book.author.isEmpty ? nil : model.book.author) {
+                        Text(chapter)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
-            }
-            Spacer()
-            if model.canReadAloud {
-                Button { model.toggleReadAloud() } label: {
-                    Image(systemName: model.readAloud != nil ? "speaker.wave.2.fill" : "speaker.wave.2")
-                        .frame(width: 32, height: 32)
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .ptGlassCapsule()
+                .accessibilityElement(children: .combine)
+
+                HStack(spacing: 0) {
+                    if model.isSearchable {
+                        toolButton("magnifyingglass", label: "Search in book") { showSearch = true }
+                    }
+                    toolButton(
+                        model.isCurrentLocationBookmarked ? "bookmark.fill" : "bookmark",
+                        label: model.isCurrentLocationBookmarked ? "Remove bookmark" : "Add bookmark"
+                    ) { model.toggleBookmark() }
+                    toolButton("list.bullet", label: "Contents, bookmarks and highlights") { showContents = true }
                 }
+                .padding(.horizontal, 4)
+                .ptGlassCapsule()
             }
-            if model.isSearchable {
-                Button { showSearch = true } label: {
-                    Image(systemName: "magnifyingglass")
-                        .frame(width: 32, height: 32)
-                }
-            }
-            Button { model.toggleBookmark() } label: {
-                Image(systemName: model.isCurrentLocationBookmarked ? "bookmark.fill" : "bookmark")
-                    .frame(width: 32, height: 32)
-            }
-            Button { showContents = true } label: {
-                Image(systemName: "list.bullet")
-                    .frame(width: 32, height: 32)
-            }
-            Button { showSettings = true } label: {
-                Image(systemName: "textformat.size")
-                    .frame(width: 32, height: 32)
-            }
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity)
-        .background(.regularMaterial)
+    }
+
+    /// Text settings, how far along you are, and read aloud.
+    private var footer: some View {
+        PTGlassGroup(spacing: 10) {
+            HStack(spacing: 10) {
+                PTIconButton(systemImage: "textformat.size", label: "Reading settings") { showSettings = true }
+
+                HStack(spacing: 10) {
+                    Text("\(Int(((model.book.progression ?? 0) * 100).rounded()))%")
+                        .font(.footnote.weight(.semibold))
+                        .monospacedDigit()
+                    ProgressView(value: min(max(model.book.progression ?? 0, 0), 1))
+                        .tint(.ptAccent)
+                }
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .ptGlassCapsule()
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Progress")
+                .accessibilityValue("\(Int(((model.book.progression ?? 0) * 100).rounded())) percent")
+
+                if model.canReadAloud {
+                    PTIconButton(
+                        systemImage: model.readAloud != nil ? "speaker.wave.2.fill" : "speaker.wave.2",
+                        label: "Read aloud"
+                    ) { model.toggleReadAloud() }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 4)
+        }
+    }
+
+    private func toolButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .medium))
+                .frame(width: 42, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .accessibilityLabel(label)
     }
 
     private var contentsSheet: some View {
@@ -287,45 +330,59 @@ private struct ReadAloudBar: View {
     let onStop: () -> Void
 
     var body: some View {
-        HStack(spacing: 26) {
-            Button { readAloud.previous() } label: {
-                Image(systemName: "backward.fill")
+        HStack(spacing: 4) {
+            barButton("backward.fill", label: "Previous sentence") { readAloud.previous() }
+            barButton(readAloud.isPlaying ? "pause.fill" : "play.fill", label: readAloud.isPlaying ? "Pause" : "Play", large: true) {
+                readAloud.playPause()
             }
-            Button { readAloud.playPause() } label: {
-                Image(systemName: readAloud.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title2)
-            }
-            Button { readAloud.next() } label: {
-                Image(systemName: "forward.fill")
-            }
+            barButton("forward.fill", label: "Next sentence") { readAloud.next() }
+
             Button(action: onRate) {
                 Text(String(format: "%.3g×", rate))
-                    .font(.subheadline.monospacedDigit())
-                    .frame(minWidth: 40)
+                    .font(.subheadline.weight(.medium).monospacedDigit())
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Speaking speed")
+
             Menu {
-                Button("Sleep: Off") { readAloud.setSleepTimer(minutes: nil) }
+                Button("Off") { readAloud.setSleepTimer(minutes: nil) }
                 ForEach([5, 10, 15, 20, 30, 45, 60], id: \.self) { minutes in
-                    Button("\(minutes) min") { readAloud.setSleepTimer(minutes: minutes) }
+                    Button("\(minutes) minutes") { readAloud.setSleepTimer(minutes: minutes) }
                 }
             } label: {
-                if let left = readAloud.sleepRemaining {
-                    // ceil — "5:00 left" shows 5m until it drops under 4:00
-                    Text("\(Int(left / 60) + 1)m")
-                        .font(.subheadline.monospacedDigit())
-                        .frame(minWidth: 30)
-                } else {
-                    Image(systemName: "moon")
+                Group {
+                    if let left = readAloud.sleepRemaining {
+                        // ceil — "5:00 left" shows 5m until it drops under 4:00
+                        Text("\(Int(left / 60) + 1)m").font(.subheadline.monospacedDigit())
+                    } else {
+                        Image(systemName: "moon")
+                    }
                 }
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
             }
             .accessibilityLabel("Sleep timer")
-            Button(action: onStop) {
-                Image(systemName: "xmark")
-            }
+
+            barButton("xmark", label: "Stop reading aloud", action: onStop)
         }
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
-        .background(.regularMaterial)
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 10)
+        .ptGlassCapsule()
+        .padding(.horizontal, 12)
+        .padding(.bottom, 4)
+    }
+
+    private func barButton(_ symbol: String, label: String, large: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(large ? .title2 : .body)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }
 

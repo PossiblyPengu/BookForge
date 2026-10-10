@@ -21,6 +21,8 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var readAloud: ReadAloud?
     @Published var notice: String?
     @Published private(set) var isCurrentLocationBookmarked = false
+    /// The chapter the reader is in, for the title chip. Nil for comics and PDFs without an outline.
+    @Published private(set) var chapterTitle: String?
     @Published private(set) var searchInFlight = false
     @Published private(set) var searchResults: [Locator] = []
 
@@ -181,7 +183,7 @@ final class ReaderModel: ObservableObject {
     /// The TOC is an outline — a bookmark's chapter is the deepest entry whose
     /// file matches the locator's href (fragments ignored, last match wins
     /// because the spine is ordered).
-    private func chapterTitle(for locator: Locator) -> String? {
+    func chapterTitle(for locator: Locator) -> String? {
         var flat: [ReadiumShared.Link] = []
         func flatten(_ links: [ReadiumShared.Link]) {
             for link in links {
@@ -395,6 +397,7 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
         book.locatorJSON = try? locator.jsonString()
         book.progression = locator.locations.totalProgression
         isCurrentLocationBookmarked = bookmark(matching: locator) != nil
+        chapterTitle = self.chapterTitle(for: locator)
         scheduleSave()
         beginSession()
         let ref = book.bookMasterRef
