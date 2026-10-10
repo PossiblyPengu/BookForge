@@ -43,20 +43,13 @@ jobs:
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           echo "SDK: $SDK" | tee sdk-probe.txt
           xcodebuild -version | tee -a sdk-probe.txt
-          FW="$SDK/System/Library/Frameworks/SwiftUI.framework"
-          find "$FW" -maxdepth 4 | head -40 >> sdk-probe.txt
-          IFACE=$(find "$FW" -name "*.swiftinterface" | head -1)
-          echo "Interface: ${IFACE:-none}" | tee -a sdk-probe.txt
-          PAT="glassEffect|GlassEffectContainer|tabBarMinimizeBehavior|TabBarMinimizeBehavior|tabViewBottomAccessory|ToolbarSpacer|scrollEdgeEffect|ScrollEdgeEffect|backgroundExtensionEffect|sharedBackgroundVisibility|searchToolbarBehavior|GlassButtonStyle|GlassProminentButtonStyle|glassEffectID|glassEffectUnion|glassEffectTransition|safeAreaBar|buttonSizing"
-          if [ -n "$IFACE" ]; then
-            grep -nE "$PAT" "$IFACE" | head -400 >> sdk-probe.txt || true
-          else
-            # no textual interface: pull symbol names out of the module and the framework stub
-            for f in $(find "$FW" -name "*.swiftmodule" -o -name "*.tbd" -o -name "*.swiftdoc" | head -6); do
-              echo "== strings $f" >> sdk-probe.txt
-              strings -a "$f" | grep -E "$PAT" | sort -u | head -150 >> sdk-probe.txt || true
-            done
-          fi
+          PAT="glassEffect|GlassEffectContainer|struct Glass\\b|GlassEffectTransition|glassEffectUnion|tabBarMinimizeBehavior|tabViewBottomAccessory|TabViewBottomAccessoryPlacement|ToolbarSpacer|scrollEdgeEffect|backgroundExtensionEffect|sharedBackgroundVisibility|searchToolbarBehavior|TabRole|struct Tab<|safeAreaBar|buttonSizing|DefaultGlassEffectShape|ConcentricRectangle|containerCornerOffset|struct ButtonBorderShape"
+          for NAME in SwiftUICore SwiftUI; do
+            FW="$SDK/System/Library/Frameworks/$NAME.framework"
+            IFACE=$(find "$FW" -name "arm64e-apple-ios.swiftinterface" | head -1)
+            echo "== $NAME interface: ${IFACE:-none}" >> sdk-probe.txt
+            [ -n "$IFACE" ] && grep -nE "$PAT" "$IFACE" | grep -vE "_opaqueReturnTypeOf|Sendable|_makeToolbar" | head -300 >> sdk-probe.txt || true
+          done
           { echo '### SwiftUI SDK probe'; echo '```'; head -120 sdk-probe.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
         working-directory: ios
 
