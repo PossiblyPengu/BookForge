@@ -8,6 +8,8 @@ struct BookCoverView: View {
     let cover: UIImage?
     var showsBadges = true
     var corner: CGFloat = 10
+    /// nil outside select mode; true/false draws the tick.
+    var selected: Bool?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -20,6 +22,15 @@ struct BookCoverView: View {
         }
         .aspectRatio(2 / 3, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            if let selected {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(selected ? Color.ptAccent : Color.white)
+                    .background(Circle().fill(Color.black.opacity(selected ? 0 : 0.25)))
+                    .padding(6)
+            }
+        }
         .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
         .accessibilityHidden(true)
     }
@@ -78,6 +89,8 @@ struct BookCoverView: View {
 /// The cover grid shared by the library and search.
 struct BookGrid: View {
     let books: [Book]
+    /// Set in select mode: taps tick books instead of opening them.
+    var selection: Binding<Set<UUID>>?
     @EnvironmentObject private var library: LibraryStore
     @Environment(AppRouter.self) private var router
 
@@ -86,9 +99,18 @@ struct BookGrid: View {
     var body: some View {
         LazyVGrid(columns: columns, spacing: 24) {
             ForEach(books) { book in
-                Button { router.open(book, library: library) } label: {
+                Button {
+                    if let selection {
+                        if selection.wrappedValue.contains(book.id) { selection.wrappedValue.remove(book.id) }
+                        else { selection.wrappedValue.insert(book.id) }
+                    } else {
+                        router.open(book, library: library)
+                    }
+                } label: {
                     VStack(alignment: .leading, spacing: 6) {
-                        BookCoverView(book: book, cover: library.cover(for: book))
+                        BookCoverView(
+                            book: book, cover: library.cover(for: book),
+                            selected: selection.map { $0.wrappedValue.contains(book.id) })
                         Text(book.title)
                             .font(.footnote.weight(.semibold))
                             .lineLimit(2)
@@ -106,15 +128,21 @@ struct BookGrid: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(accessibilityLabel(for: book))
                 .contextMenu {
-                    Button { router.detail = book } label: {
-                        Label("Book Info", systemImage: "info.circle")
-                    }
-                    Button { router.editing = book } label: {
-                        Label("Edit Details", systemImage: "pencil")
-                    }
-                    Divider()
-                    Button(role: .destructive) { router.askDelete([book]) } label: {
-                        Label("Remove from Library", systemImage: "trash")
+                    // no menu while ticking books
+                    if selection == nil {
+                        Button { router.detail = book } label: {
+                            Label("Book Info", systemImage: "info.circle")
+                        }
+                        Button { router.openShelves([book.id]) } label: {
+                            Label("Shelves…", systemImage: "books.vertical")
+                        }
+                        Button { router.editing = book } label: {
+                            Label("Edit Details", systemImage: "pencil")
+                        }
+                        Divider()
+                        Button(role: .destructive) { router.askDelete([book]) } label: {
+                            Label("Remove from Library", systemImage: "trash")
+                        }
                     }
                 }
             }

@@ -5,3 +5,4 @@ Sources/bmcheck/BookModel.swift
 Sources/bmcheck/LibraryStub.swift
 Sources/bmcheck/TextBook.swift
 Sources/bmcheck/ZipWriter.swift
+Sources/bmcheck/BookText.swift

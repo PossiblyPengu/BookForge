@@ -113,6 +113,7 @@ func runData() {
     check("author: different people disagree", !BMShelf.authorsAgree("Stephen King", "Frank Herbert"))
     check("author: missing never decides", BMShelf.authorsAgree("", "Frank Herbert") && BMShelf.authorsAgree("Frank Herbert", nil))
 
+    runBookText()
     runTextBook()
 }
 
@@ -254,6 +255,18 @@ func run() async {
         check("stats decode", o.stats.currentStreak >= 0 && o.stats.minutesRead >= 12, "\(o.stats)")
         check("quotes counted", o.stats.quotesSaved >= 1, "\(o.stats.quotesSaved)")
     } catch { check("overview decodes", false, "\(error)") }
+
+    // ----------------------------------------------------- catalogue search
+    section("Catalogue search")
+    let hits = await bm.searchCatalogue(title: "Dune", author: "Frank Herbert")
+    if let top = hits.first {
+        check("the shelf answers first, with the pin", top.userBookId == pin && top.source == "shelf", "\(top)")
+        check("the hit decodes its catalogue fields", top.title == "Dune" && top.bookId != nil, "\(top)")
+    } else {
+        // the route also asks Open Library; with no outbound network the local server errors
+        let raw = sh("curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8789/api/bookmaster/search?username=pengu&title=Dune'")
+        print("  SKIP  catalogue search (server answered \(raw) — probably no outbound network for Open Library)")
+    }
 
     // ----------------------------------------------------------------- shelf
     section("Shelf pull")

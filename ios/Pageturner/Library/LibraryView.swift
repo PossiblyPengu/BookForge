@@ -8,10 +8,21 @@ struct LibraryView: View {
     @State private var showImporter = false
     @State private var filter: Filter = .all
     @AppStorage("librarySort") private var sortOrder = LibraryStore.SortOrder.recent.rawValue
+    @AppStorage("libraryShelf") private var shelfKey = LibraryView.allKey
+
+    // select mode
+    @State private var selecting = false
+    @State private var selected: Set<UUID> = []
+    @State private var finding: (done: Int, total: Int)?
+    @State private var findResult: String?
 
     /// Comics and Markdown have no system type everywhere — match them by extension.
     private static let extraTypes = ["cbz", "md", "markdown"].compactMap { UTType(filenameExtension: $0) }
     private static let pickerTypes: [UTType] = [.epub, .pdf, .audio, .plainText, .html, .zip] + extraTypes
+
+    /// Built-in shelf filters carry a "~" a shelf name can't start with.
+    private static let allKey = "~all"
+    private static let upNextKey = "~upnext"
 
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All", books = "Books", audiobooks = "Audiobooks"
@@ -22,12 +33,35 @@ struct LibraryView: View {
         LibraryStore.SortOrder(rawValue: sortOrder) ?? .recent
     }
 
-    private var shelf: [Book] {
-        let sorted = library.sortedBooks(order: order, query: "")
+    private var shelfKeys: [String] {
+        let upNext = library.books.contains { $0.bmUpNext == true }
+        return [Self.allKey] + (upNext ? [Self.upNextKey] : []) + library.shelves
+    }
+
+    /// The chosen shelf, unless it has since been deleted or emptied of its reason to exist.
+    private var activeShelfKey: String {
+        shelfKeys.contains(shelfKey) ? shelfKey : Self.allKey
+    }
+
+    private func shelfLabel(_ key: String) -> String {
+        switch key {
+        case Self.allKey: return "All"
+        case Self.upNextKey: return "Up next"
+        default: return key
+        }
+    }
+
+    private var visible: [Book] {
+        var list = library.sortedBooks(order: order, query: "")
+        switch activeShelfKey {
+        case Self.allKey: break
+        case Self.upNextKey: list = list.filter { $0.bmUpNext == true }
+        default: list = list.filter { $0.collections.contains(activeShelfKey) }
+        }
         switch filter {
-        case .all: return sorted
-        case .books: return sorted.filter { !$0.isAudio }
-        case .audiobooks: return sorted.filter { $0.isAudio }
+        case .all: return list
+        case .books: return list.filter { !$0.isAudio }
+        case .audiobooks: return list.filter { $0.isAudio }
         }
     }
 
@@ -47,8 +81,12 @@ struct LibraryView: View {
                     content
                 }
             }
-            .navigationTitle("Library")
+            .navigationTitle(selecting ? "\(selected.count) Selected" : "Library")
             .toolbar { toolbar }
+            .safeAreaInset(edge: .bottom) {
+                if selecting { selectionBar }
+            }
+            .overlay { if let finding { findingCard(finding) } }
             .fileImporter(
                 isPresented: $showImporter,
                 allowedContentTypes: Self.pickerTypes,
@@ -66,13 +104,28 @@ struct LibraryView: View {
             } message: {
                 Text(library.lastError ?? "")
             }
+            .alert("Find Details", isPresented: Binding(
+                get: { findResult != nil },
+                set: { if !$0 { findResult = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(findResult ?? "")
+            }
+            // books removed elsewhere (the confirmation lives at the root) drop out of the selection
+            .onChange(of: library.books) { _, books in
+                selected = selected.intersection(Set(books.map(\.id)))
+                if books.isEmpty { selecting = false }
+            }
         }
     }
+
+    // MARK: Content
 
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                if let book = continueBook {
+                if !selecting, let book = continueBook {
                     ContinueCard(book: book, cover: library.cover(for: book)) {
                         router.open(book, library: library)
                     }
@@ -82,19 +135,45 @@ struct LibraryView: View {
                 }
                 .pickerStyle(.segmented)
 
-                if shelf.isEmpty {
+                if !selecting { shelfChips }
+
+                if visible.isEmpty {
                     ContentUnavailableView(
                         filter == .audiobooks ? "No Audiobooks" : "No Books",
                         systemImage: filter == .audiobooks ? "headphones" : "book.closed")
                         .padding(.top, 40)
                 } else {
-                    BookGrid(books: shelf)
+                    BookGrid(books: visible, selection: selecting ? $selected : nil)
                 }
             }
             .padding(.horizontal, 18)
             .padding(.bottom, 24)
         }
         .ptSoftScrollEdges()
+    }
+
+    /// "All", "Up next" (books BookMaster has queued) and the reader's own shelves.
+    @ViewBuilder
+    private var shelfChips: some View {
+        if shelfKeys.count > 1 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(shelfKeys, id: \.self) { key in
+                        let active = key == activeShelfKey
+                        Button { shelfKey = key } label: {
+                            Text(shelfLabel(key))
+                                .font(.subheadline.weight(.medium))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(active ? Color.ptAccent : Color(.tertiarySystemFill), in: Capsule())
+                                .foregroundStyle(active ? Color.white : Color.primary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(active ? .isSelected : [])
+                    }
+                }
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -113,33 +192,119 @@ struct LibraryView: View {
         }
     }
 
+    // MARK: Toolbar
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Menu {
-                Picker("Sort", selection: $sortOrder) {
-                    ForEach(LibraryStore.SortOrder.allCases) { o in
-                        Text(o.label).tag(o.rawValue)
-                    }
+        if selecting {
+            ToolbarItem(placement: .topBarLeading) {
+                let all = selected.count == visible.count && !visible.isEmpty
+                Button(all ? "Deselect All" : "Select All") {
+                    selected = all ? [] : Set(visible.map(\.id))
                 }
-            } label: {
-                Image(systemName: "arrow.up.arrow.down")
             }
-            .accessibilityLabel("Sort books")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { showImporter = true } label: {
-                if library.importing { ProgressView() } else { Image(systemName: "plus") }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    selecting = false
+                    selected = []
+                }
+                .fontWeight(.semibold)
             }
-            .disabled(library.importing)
-            .accessibilityLabel("Add books")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { router.showSettings = true } label: {
-                Image(systemName: "gearshape")
+        } else {
+            ToolbarItem(placement: .topBarLeading) {
+                Menu {
+                    Picker("Sort", selection: $sortOrder) {
+                        ForEach(LibraryStore.SortOrder.allCases) { o in
+                            Text(o.label).tag(o.rawValue)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
+                .accessibilityLabel("Sort books")
             }
-            .accessibilityLabel("Settings")
+            if !library.books.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { selecting = true } label: {
+                        Image(systemName: "checkmark.circle")
+                    }
+                    .accessibilityLabel("Select books")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showImporter = true } label: {
+                    if library.importing { ProgressView() } else { Image(systemName: "plus") }
+                }
+                .disabled(library.importing)
+                .accessibilityLabel("Add books")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { router.showSettings = true } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Settings")
+            }
         }
+    }
+
+    // MARK: Select mode
+
+    private var selectionBar: some View {
+        HStack(spacing: 4) {
+            barButton("Shelves", "books.vertical") { router.openShelves(Array(selected)) }
+            barButton("Find Details", "sparkle.magnifyingglass") { findDetails() }
+            barButton("Remove", "trash") {
+                router.askDelete(library.books.filter { selected.contains($0.id) })
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .ptGlassCapsule()
+        .padding(.bottom, 6)
+        .disabled(selected.isEmpty || finding != nil)
+    }
+
+    private func barButton(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: symbol).font(.system(size: 18, weight: .medium))
+                Text(title).font(.caption2)
+            }
+            .frame(minWidth: 84, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Look each ticked book up online and fill in what it's missing.
+    private func findDetails() {
+        let ids = Array(selected)
+        guard !ids.isEmpty else { return }
+        finding = (0, ids.count)
+        Task {
+            var updated = 0
+            for (n, id) in ids.enumerated() {
+                if await MetadataLookup.autoApply(to: id, library: library) { updated += 1 }
+                finding = (n + 1, ids.count)
+            }
+            finding = nil
+            findResult = updated == 0
+                ? "No new details turned up for \(ids.count == 1 ? "that book" : "those books")."
+                : "Updated \(updated) of \(ids.count) book\(ids.count == 1 ? "" : "s")."
+        }
+    }
+
+    private func findingCard(_ progress: (done: Int, total: Int)) -> some View {
+        VStack(spacing: 10) {
+            ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
+                .tint(.ptAccent)
+            Text("Finding details… \(progress.done) of \(progress.total)")
+                .font(.subheadline)
+        }
+        .padding(20)
+        .frame(maxWidth: 280)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .transition(.opacity)
     }
 }
 

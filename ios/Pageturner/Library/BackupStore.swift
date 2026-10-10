@@ -50,7 +50,9 @@ final class BackupStore {
             ($0.id.uuidString, library.coverURL(for: $0))
         }
         let bookData = books.compactMap { b -> [String: Any]? in
-            guard let d = try? JSONEncoder().encode(b),
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .secondsSince1970
+            guard let d = try? encoder.encode(b),
                   var o = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
             else { return nil }
             // Web-compatible fields so this backup also restores into the
@@ -62,6 +64,12 @@ final class BackupStore {
             o["fileKey"] = b.fileName
             o["fileKeys"] = names
             o["hasCover"] = fm.fileExists(atPath: library.coverURL(for: b).path)
+            // the web app's names for the same details
+            if let blurb = b.bookDescription { o["desc"] = blurb }
+            var identifiers: [String: String] = [:]
+            if let isbn = b.isbn { o["isbn"] = isbn; identifiers[isbn.count == 10 ? "isbn10" : "isbn13"] = isbn }
+            if let olid = b.openLibraryId { identifiers["open_library"] = olid }
+            if !identifiers.isEmpty { o["identifiers"] = identifiers }
             o["addedAt"] = Int(b.addedAt.timeIntervalSince1970 * 1000)
             if let lo = b.lastOpenedAt {
                 o["lastOpenedAt"] = Int(lo.timeIntervalSince1970 * 1000)
@@ -266,6 +274,13 @@ final class BackupStore {
         if book.progression == nil {
             book.progression = rec["progression"] as? Double
         }
+        // the details the web app kept: blurb, year, ISBN, Open Library id, shelves
+        if let blurb = rec["desc"] as? String, !blurb.isEmpty { book.bookDescription = blurb }
+        if let year = rec["year"] as? String, !year.isEmpty { book.year = year }
+        let ids = rec["identifiers"] as? [String: Any] ?? [:]
+        book.isbn = ISBN.best(of: [rec["isbn"], ids["isbn13"], ids["isbn10"]].compactMap { $0 as? String })
+        book.openLibraryId = ids["open_library"] as? String
+        book.collections = (rec["collections"] as? [String]) ?? []
         if let coverID = rec["id"] as? String,
            let cover = staged.covers[coverID] ?? staged.covers[coverID + ".jpg"]
         {

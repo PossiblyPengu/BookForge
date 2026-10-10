@@ -58,6 +58,16 @@ struct Book: Identifiable, Codable, Hashable {
     var bmRating: Int?
     var bmRemotePercent: Double?
     var bmUpNext: Bool?
+    /// A blurb for the detail page — from the EPUB's own metadata or an online lookup.
+    var bookDescription: String?
+    var year: String?
+    var isbn: String?
+    /// Open Library work id ("OL45804W") — what BookMaster keeps on its catalogue rows.
+    var openLibraryId: String?
+    /// Names of the shelves this book is on.
+    var collections: [String] = []
+    /// When the "pick up where BookMaster has you" offer was last declined for this book.
+    var resumeDismissedAt: Date?
 
     var ext: String { fileName.split(separator: ".").last.map(String.init)?.lowercased() ?? "" }
     var isAudio: Bool { Self.audioExtensions.contains(ext) }
@@ -115,12 +125,18 @@ extension Book {
         bmRating = try c.decodeIfPresent(Int.self, forKey: .bmRating)
         bmRemotePercent = try c.decodeIfPresent(Double.self, forKey: .bmRemotePercent)
         bmUpNext = try c.decodeIfPresent(Bool.self, forKey: .bmUpNext)
+        bookDescription = try c.decodeIfPresent(String.self, forKey: .bookDescription)
+        year = try c.decodeIfPresent(String.self, forKey: .year)
+        isbn = try c.decodeIfPresent(String.self, forKey: .isbn)
+        openLibraryId = try c.decodeIfPresent(String.self, forKey: .openLibraryId)
+        collections = try c.decodeIfPresent([String].self, forKey: .collections) ?? []
+        resumeDismissedAt = date(.resumeDismissedAt)
     }
 
     /// How a BookMaster push names this book.
     var bookMasterRef: BMBookRef {
-        BMBookRef(title: title, author: sendableAuthor(author), isbn: nil,
-                  openLibraryId: nil, userBookId: bookmasterId)
+        BMBookRef(title: title, author: sendableAuthor(author), isbn: isbn,
+                  openLibraryId: openLibraryId, userBookId: bookmasterId)
     }
 }
 
@@ -129,6 +145,8 @@ extension Book {
 @MainActor
 final class LibraryStore: ObservableObject {
     @Published private(set) var books: [Book] = []
+    /// Shelves (the web app's "collections") in the order they were made.
+    @Published private(set) var shelves: [String] = UserDefaults.standard.stringArray(forKey: "shelves") ?? []
     @Published var importing = false
     @Published var lastError: String?
 
@@ -183,7 +201,7 @@ final class LibraryStore: ObservableObject {
 
     /// What a zip may carry. HTML and text are left out on purpose: a zip of a
     /// website or a folder of notes shouldn't become hundreds of "books".
-    private static let archiveExtensions: Set<String> = ["epub", "pdf", "cbz"].union(Book.audioExtensions)
+    private static let archiveExtensions = Set(["epub", "pdf", "cbz"]).union(Book.audioExtensions)
 
     func importFiles(_ urls: [URL]) async {
         importing = true
@@ -366,6 +384,19 @@ final class LibraryStore: ObservableObject {
             if let title = publication.metadata.title, !title.isEmpty { book.title = title }
             // " & ", not ", ": a comma reads as "Last, First" to BookMaster
             book.author = publication.metadata.authors.map(\.name).joined(separator: " & ")
+            if let blurb = publication.metadata.description, !blurb.isEmpty {
+                let text = BookText.plain(fromHTML: blurb)
+                if !text.isEmpty { book.bookDescription = text }
+            }
+            if let published = publication.metadata.published {
+                // UTC: a date at midnight UTC must not read as the previous year in the Americas
+                var calendar = Calendar(identifier: .gregorian)
+                calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+                book.year = String(calendar.component(.year, from: published))
+            }
+            if let identifier = publication.metadata.identifier, let isbn = ISBN.normalize(identifier) {
+                book.isbn = isbn
+            }
             if let image = try? await publication.cover().get(),
                let jpeg = image.jpegData(compressionQuality: 0.85)
             {
@@ -419,6 +450,68 @@ final class LibraryStore: ObservableObject {
         if changed { save() }
     }
 
+    // MARK: - Shelves
+
+    private func saveShelves() { UserDefaults.standard.set(shelves, forKey: "shelves") }
+
+    /// Make a shelf; returns its name as stored, or the existing one when the
+    /// name is taken (case-insensitively). Blank names are refused.
+    @discardableResult
+    func addShelf(_ raw: String) -> String? {
+        // "~" marks the built-in filters ("All", "Up next") in the library's chip row
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines).drop(while: { $0 == "~" })
+        let clean = String(name).trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty, clean.count <= 40 else { return nil }
+        if let existing = shelves.first(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) { return existing }
+        shelves.append(clean)
+        saveShelves()
+        return clean
+    }
+
+    func renameShelf(_ old: String, to raw: String) {
+        let new = raw.trimmingCharacters(in: .whitespaces)
+        guard let i = shelves.firstIndex(of: old), !new.isEmpty, new.count <= 40, !new.hasPrefix("~"),
+              !shelves.contains(where: { $0 != old && $0.caseInsensitiveCompare(new) == .orderedSame })
+        else { return }
+        shelves[i] = new
+        for j in books.indices {
+            books[j].collections = books[j].collections.map { $0 == old ? new : $0 }
+        }
+        saveShelves()
+        save()
+    }
+
+    func deleteShelf(_ name: String) {
+        shelves.removeAll { $0 == name }
+        for j in books.indices { books[j].collections.removeAll { $0 == name } }
+        saveShelves()
+        save()
+    }
+
+    /// Put books on a shelf, or take them off it.
+    func setShelf(_ name: String, on ids: [UUID], member: Bool) {
+        let wanted = Set(ids)
+        for j in books.indices where wanted.contains(books[j].id) {
+            let has = books[j].collections.contains(name)
+            if member, !has { books[j].collections.append(name) }
+            if !member, has { books[j].collections.removeAll { $0 == name } }
+        }
+        save()
+    }
+
+    enum ShelfState { case none, some, all }
+
+    func state(of name: String, among ids: [UUID]) -> ShelfState {
+        let wanted = Set(ids)
+        let mine = books.filter { wanted.contains($0.id) }
+        let on = mine.filter { $0.collections.contains(name) }.count
+        if on == 0 { return .none }
+        return on == mine.count ? .all : .some
+    }
+
+    /// A cover file changed on disk — views read covers by path, so nudge them to look again.
+    func coverChanged() { objectWillChange.send() }
+
     /// Finished: it leaves the Continue card and BookMaster shelves it as read.
     /// The position is left alone, so reopening still lands where they stopped.
     func markFinished(_ id: UUID) {
@@ -465,6 +558,8 @@ final class LibraryStore: ObservableObject {
 
     /// Inserts a book brought back by backup restore (files already copied).
     func addRestored(_ book: Book) {
+        for name in book.collections where !shelves.contains(name) { shelves.append(name) }
+        saveShelves()
         books.insert(book, at: 0)
         save()
     }

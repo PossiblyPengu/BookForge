@@ -16,6 +16,9 @@ final class AppRouter {
     var showSettings = false
     /// Books waiting on "Remove from Library?" — removing deletes their files.
     var pendingDelete: [Book] = []
+    var shelfTarget: ShelfTarget?
+
+    func openShelves(_ ids: [UUID]) { shelfTarget = ShelfTarget(bookIDs: ids) }
 
     func askDelete(_ books: [Book]) { pendingDelete = books }
 

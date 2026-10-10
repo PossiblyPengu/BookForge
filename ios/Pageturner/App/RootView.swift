@@ -38,6 +38,9 @@ struct RootView: View {
                 } onDelete: {
                     router.detail = nil
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { router.askDelete([book]) }
+                } onShelves: {
+                    router.detail = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { router.openShelves([book.id]) }
                 } onFinish: {
                     library.markFinished(book.id)
                     router.detail = nil
@@ -49,9 +52,14 @@ struct RootView: View {
             .sheet(item: $router.editing) { book in
                 BookEditSheet(book: book) { updated in
                     library.update(updated)
+                    // a lookup that named a BookMaster shelf row pins the book to it
+                    if let pin = updated.bookmasterId, pin != book.bookmasterId {
+                        library.updateBookMaster(book.id) { $0.bookmasterId = pin }
+                    }
                     router.editing = nil
                 }
             }
+            .sheet(item: $router.shelfTarget) { ShelvesSheet(target: $0) }
             .sheet(isPresented: $router.showSettings) { SettingsView() }
             .alert("BookMaster", isPresented: Binding(
                 get: { bookMaster.notice != nil },

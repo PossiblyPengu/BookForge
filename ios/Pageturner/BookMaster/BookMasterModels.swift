@@ -240,3 +240,26 @@ struct BMOverview: Decodable {
     var goals: [BMGoal]
     var recentAchievements: [BMEarned]
 }
+
+// MARK: - Catalogue search
+
+/// One hit from BookMaster's own search: a book already on this reader's shelf
+/// (it carries its shelf pin) or a catalogue match annotated with the ids it
+/// resolves to — so applying it can never push a duplicate row.
+struct BMSearchBook: Decodable, Hashable {
+    var title: String
+    var author: String?
+    var coverUrl: String?
+    var totalPages: Int?
+    var year: String?
+    var isbn: String?
+    var openLibraryId: String?
+    var userBookId: String?
+    var bookId: String?
+    var status: String?
+    var source: String?
+}
+
+struct BMSearchReply: Decodable {
+    var books: [BMSearchBook]
+}

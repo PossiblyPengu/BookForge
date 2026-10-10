@@ -197,6 +197,21 @@ final class BookMaster {
         return try JSONDecoder().decode(BMOverview.self, from: data)
     }
 
+    /// BookMaster's own catalogue search: the reader's shelf first, then Open
+    /// Library annotated with BookMaster's ids. Empty when not linked or offline.
+    func searchCatalogue(title: String, author: String) async -> [BMSearchBook] {
+        guard let user else { return [] }
+        let name = title.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return [] }
+        let q = [name, author].filter { !$0.isEmpty }.joined(separator: " ")
+        guard let (data, status) = try? await get("search", query: [
+            "username": user.username, "title": name, "author": author, "q": q,
+        ]), (200..<300).contains(status),
+              let reply = try? JSONDecoder().decode(BMSearchReply.self, from: data)
+        else { return [] }
+        return reply.books
+    }
+
     /// The shared thread on a book, gated the way BookMaster gates it: a note
     /// left further on than you are arrives sealed unless `reveal` is set.
     func fetchComments(ref: BMBookRef, reveal: Bool = false) async throws -> BMThread {

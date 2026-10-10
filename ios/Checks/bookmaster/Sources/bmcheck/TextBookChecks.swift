@@ -27,6 +27,30 @@ private func paragraphs(_ text: String, count: Int, width: Int = 60) -> String {
 }
 
 @MainActor
+func runBookText() {
+    section("ISBN and descriptions")
+    check("ISBN-13 with hyphens", ISBN.normalize("978-0-306-40615-7") == "9780306406157")
+    check("ISBN-10", ISBN.normalize("0306406152") == "0306406152")
+    check("ISBN-10 ending in X", ISBN.normalize("0-8044-2957-X") == "080442957X")
+    check("a urn:isbn: identifier", ISBN.normalize("urn:isbn:9780306406157") == "9780306406157")
+    check("'ISBN ' prefix", ISBN.normalize("ISBN 978-0-306-40615-7") == "9780306406157")
+    check("a wrong check digit is refused", ISBN.normalize("9780306406158") == nil)
+    check("a uuid identifier is not an ISBN", ISBN.normalize("urn:uuid:12345678-1234-1234-1234-123456789012") == nil)
+    check("the wrong length is refused", ISBN.normalize("12345") == nil)
+    check("best prefers a valid 13", ISBN.best(of: ["0306406152", "9780306406157", "bogus"]) == "9780306406157")
+    check("best falls back to a 10", ISBN.best(of: ["0306406152"]) == "0306406152")
+    check("HTML to text: tags, breaks, entities",
+          BookText.plain(fromHTML: "<p>A &amp; B</p><p>Second<br/>line <b>bold</b></p>") == "A & B\n\nSecond\nline bold",
+          BookText.plain(fromHTML: "<p>A &amp; B</p><p>Second<br/>line <b>bold</b></p>"))
+    check("plain text passes through", BookText.plain(fromHTML: "Just text.") == "Just text.")
+    check("year from a full date", BookText.year(from: "2021-03-04") == "2021")
+    check("year from a month and year", BookText.year(from: "March 2021") == "2021")
+    check("no year", BookText.year(from: "n.d.") == nil)
+    check("BookMaster search hits decode, with nulls",
+          (try? JSONDecoder().decode(BMSearchReply.self, from: Data(#"{"books":[{"title":"Dune","author":null,"coverUrl":null,"totalPages":null,"year":"1965","isbn":"9780441172719","openLibraryId":"OL45804W","userBookId":"ub1","bookId":"b1","status":"reading","source":"shelf"},{"title":"X","source":"bookmaster"}]}"#.utf8)))?.books.count == 2)
+}
+
+@MainActor
 func runTextBook() {
     func convert(_ s: String, _ f: TextBook.Format, _ name: String = "My_File") -> TextBook.Converted? {
         TextBook.convert(Data(s.utf8), format: f, fallbackTitle: name, now: Date(timeIntervalSince1970: 1_760_000_000))

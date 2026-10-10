@@ -6,10 +6,12 @@ struct BookDetailSheet: View {
     let onOpen: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onShelves: () -> Void
     let onFinish: () -> Void
     let onRestart: () -> Void
     @State private var showNotes = false
     @State private var tint: Color = .ptAccent
+    @State private var descriptionExpanded = false
 
     private var isFinished: Bool { (book.progression ?? 0) >= 0.995 }
 
@@ -67,8 +69,32 @@ struct BookDetailSheet: View {
                     .padding(.vertical, 8)
                     .listRowBackground(Color.clear)
                 }
+                if let blurb = book.bookDescription, !blurb.isEmpty {
+                    Section {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(blurb)
+                                .font(.subheadline)
+                                .lineLimit(descriptionExpanded ? nil : 5)
+                            if blurb.count > 240 {
+                                Button(descriptionExpanded ? "Less" : "More") {
+                                    withAnimation { descriptionExpanded.toggle() }
+                                }
+                                .font(.subheadline.weight(.medium))
+                            }
+                        }
+                    }
+                }
+                if book.author.isEmpty {
+                    Section {
+                        Label("The author is missing.", systemImage: "info.circle")
+                            .foregroundStyle(.secondary)
+                        Button("Find Details", action: onEdit)
+                    }
+                }
                 Section {
                     LabeledContent("File", value: book.fileName)
+                    if let year = book.year { LabeledContent("Year", value: year) }
+                    if let isbn = book.isbn { LabeledContent("ISBN", value: isbn) }
                     LabeledContent("Added", value: book.addedAt.formatted(date: .abbreviated, time: .omitted))
                     if let opened = book.lastOpenedAt {
                         LabeledContent("Last opened", value: opened.formatted(date: .abbreviated, time: .shortened))
@@ -100,6 +126,7 @@ struct BookDetailSheet: View {
                     if (book.progression ?? 0) > 0 {
                         Button(book.isAudio ? "Listen from the Beginning" : "Start from the Beginning", action: onRestart)
                     }
+                    Button(book.collections.isEmpty ? "Add to a Shelf…" : "Shelves: \(book.collections.joined(separator: ", "))", action: onShelves)
                     Button("Edit Details", action: onEdit)
                     if BookMaster.shared.isLinked {
                         Button("Comments & Suggestions") { showNotes = true }
@@ -121,6 +148,11 @@ struct BookDetailSheet: View {
 struct BookEditSheet: View {
     @State private var title: String
     @State private var author: String
+    @State private var year: String
+    @State private var isbn: String
+    @State private var summary: String
+    @State private var pin: String?
+    @State private var openLibraryId: String?
     @State private var searching = false
     @State private var candidates: [MetadataCandidate]?
     @State private var pickedCover: URL?
@@ -132,6 +164,11 @@ struct BookEditSheet: View {
     init(book: Book, onSave: @escaping (Book) -> Void) {
         _title = State(initialValue: book.title)
         _author = State(initialValue: book.author)
+        _year = State(initialValue: book.year ?? "")
+        _isbn = State(initialValue: book.isbn ?? "")
+        _summary = State(initialValue: book.bookDescription ?? "")
+        _pin = State(initialValue: book.bookmasterId)
+        _openLibraryId = State(initialValue: book.openLibraryId)
         original = book
         self.onSave = onSave
     }
@@ -139,19 +176,32 @@ struct BookEditSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Title", text: $title)
-                TextField("Author", text: $author)
+                Section {
+                    TextField("Title", text: $title)
+                    TextField("Author", text: $author)
+                    TextField("Year", text: $year)
+                        .keyboardType(.numberPad)
+                    TextField("ISBN", text: $isbn)
+                        .keyboardType(.numbersAndPunctuation)
+                        .autocorrectionDisabled()
+                }
+                Section("Description") {
+                    TextField("A few lines about the book", text: $summary, axis: .vertical)
+                        .lineLimit(3...10)
+                }
 
                 Section("Lookup") {
                     if searching {
                         HStack {
                             ProgressView()
-                            Text("Searching Google Books + Open Library…")
+                            Text(BookMaster.shared.isLinked
+                                ? "Searching BookMaster, Google Books and Open Library…"
+                                : "Searching Google Books and Open Library…")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                     } else {
-                        Button("Find Metadata Online") { lookup() }
+                        Button("Find Details Online") { lookup() }
                     }
                     if let candidates {
                         if candidates.isEmpty {
@@ -211,9 +261,16 @@ struct BookEditSheet: View {
         }
     }
 
+    /// Take everything the match knows; blanks in the match leave the field alone.
     private func apply(_ candidate: MetadataCandidate) {
         title = candidate.title
         author = candidate.authors
+        if !candidate.year.isEmpty { year = candidate.year }
+        if !candidate.summary.isEmpty { summary = candidate.summary }
+        if let isbn = candidate.isbn { self.isbn = isbn }
+        if let olid = candidate.openLibraryId { openLibraryId = olid }
+        // a shelf row the match names is the one to push to — never a guess
+        if let id = candidate.bookmasterId { pin = id }
         pickedCover = candidate.coverURL
     }
 
@@ -221,6 +278,14 @@ struct BookEditSheet: View {
         var book = original
         book.title = title.trimmingCharacters(in: .whitespaces)
         book.author = author.trimmingCharacters(in: .whitespaces)
+        let trimmedYear = year.trimmingCharacters(in: .whitespaces)
+        book.year = trimmedYear.isEmpty ? nil : trimmedYear
+        let trimmedSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        book.bookDescription = trimmedSummary.isEmpty ? nil : trimmedSummary
+        // an ISBN that doesn't check out is kept out of BookMaster matching
+        book.isbn = ISBN.normalize(isbn)
+        book.openLibraryId = openLibraryId
+        book.bookmasterId = pin
         onSave(book)
         if let pickedCover {
             Task { await MetadataLookup.applyCover(from: pickedCover, to: book, library: library) }
