@@ -17,6 +17,16 @@ extension Color {
     })
 }
 
+extension Color {
+    /// 0xRRGGBB.
+    init(rgb: Int) {
+        self.init(
+            red: Double((rgb >> 16) & 0xFF) / 255,
+            green: Double((rgb >> 8) & 0xFF) / 255,
+            blue: Double(rgb & 0xFF) / 255)
+    }
+}
+
 // MARK: - Glass behind a floating control
 
 extension View {

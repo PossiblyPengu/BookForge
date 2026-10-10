@@ -3,15 +3,43 @@ import ReadiumNavigator
 
 /// Reading appearance and read-aloud preferences, shared by every book.
 struct ReaderSettings: Codable, Equatable {
+    /// The same five page palettes as the web reader (docs/js/reader.js), so a
+    /// book looks the same on either. The raw values of the first three are what
+    /// earlier builds saved.
     enum ThemeChoice: String, Codable, CaseIterable, Identifiable {
-        case paper, sepia, night
+        case paper, sepia, gray, night, black
         var id: String { rawValue }
         var label: String { rawValue.capitalized }
+
+        /// Page and text colour as 0xRRGGBB.
+        var background: Int {
+            switch self {
+            case .paper: return 0xFBF8F2
+            case .sepia: return 0xF4ECD9
+            case .gray: return 0x4B4B4E
+            case .night: return 0x131311
+            case .black: return 0x000000
+            }
+        }
+
+        var text: Int {
+            switch self {
+            case .paper: return 0x1D1A14
+            case .sepia: return 0x3A2F1D
+            case .gray: return 0xECEBE7
+            case .night: return 0xE8E4DA
+            case .black: return 0xCFCBC2
+            }
+        }
+
+        /// Whether the page is dark — the reader's own chrome follows it.
+        var isDark: Bool { self == .gray || self == .night || self == .black }
+
         var readium: Theme {
             switch self {
             case .paper: return .light
             case .sepia: return .sepia
-            case .night: return .dark
+            case .gray, .night, .black: return .dark
             }
         }
     }
@@ -71,6 +99,8 @@ struct ReaderSettings: Codable, Equatable {
     var epubPreferences: EPUBPreferences {
         var p = EPUBPreferences()
         p.theme = theme.readium
+        p.backgroundColor = Color(rawValue: theme.background)
+        p.textColor = Color(rawValue: theme.text)
         p.fontSize = fontSize
         p.scroll = scroll
         p.pageMargins = margins

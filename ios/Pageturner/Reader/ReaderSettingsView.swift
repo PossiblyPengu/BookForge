@@ -7,13 +7,7 @@ struct ReaderSettingsView: View {
     var body: some View {
         Form {
             Section("Theme") {
-                Picker("Theme", selection: $settings.theme) {
-                    ForEach(ReaderSettings.ThemeChoice.allCases) {
-                        Text($0.label).tag($0)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                ThemePicker(theme: $settings.theme)
             }
 
             Section("Type") {
@@ -67,6 +61,42 @@ struct ReaderSettingsView: View {
               let voice = AVSpeechSynthesisVoice(identifier: id)
         else { return "Automatic" }
         return voice.name
+    }
+}
+
+/// The five page palettes as little "Aa" tiles, in the colours they will have.
+private struct ThemePicker: View {
+    @Binding var theme: ReaderSettings.ThemeChoice
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(ReaderSettings.ThemeChoice.allCases) { choice in
+                let selected = theme == choice
+                Button { theme = choice } label: {
+                    VStack(spacing: 6) {
+                        Text("Aa")
+                            .font(.system(.title3, design: .serif).weight(.semibold))
+                            .foregroundStyle(Color(rgb: choice.text))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                            .background(Color(rgb: choice.background), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(
+                                        selected ? Color.ptAccent : Color.secondary.opacity(0.35),
+                                        lineWidth: selected ? 3 : 1))
+                        Text(choice.label)
+                            .font(.caption2)
+                            .foregroundStyle(selected ? Color.primary : Color.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(choice.label)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

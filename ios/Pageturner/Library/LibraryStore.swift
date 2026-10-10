@@ -24,6 +24,41 @@ struct Bookmark: Identifiable, Codable, Hashable {
     }
 }
 
+/// Dates in library.json and in backups. The catalogue is written as seconds since
+/// 1970 (and the web app's backups as milliseconds), but earlier builds wrote and
+/// read Foundation's default — seconds since 2001 — and a mismatch between the two
+/// moved every date forward 31 years with each save.
+enum StoredDate {
+    /// 2001-01-01 minus 1970-01-01, in seconds: how far one mismatched save moves a date.
+    private static let referenceGap: TimeInterval = 978_307_200
+
+    static func read(_ raw: Double?, now: Date = Date()) -> Date? {
+        guard let raw, raw.isFinite else { return nil }
+        // seconds now ≈ 1.7e9, milliseconds ≈ 1.7e12, so 1e11 cleanly separates them
+        var date: Date
+        if raw > 1e11 {
+            date = Date(timeIntervalSince1970: raw / 1000)
+        } else if raw >= 946_684_800 {
+            // 2000-01-01 in 1970-based seconds: anything under it can't be a real
+            // 1970-based date, so it is read as an early build's 2001-based one
+            date = Date(timeIntervalSince1970: raw)
+        } else if raw > 0 {
+            date = Date(timeIntervalSinceReferenceDate: raw)
+        } else {
+            return nil
+        }
+        // nothing in the library was made in the future — a date that is was moved on by
+        // whole gaps, so walk it back
+        let limit = now.addingTimeInterval(86_400)
+        var walks = 0
+        while date > limit, walks < 12 {
+            date = date.addingTimeInterval(-referenceGap)
+            walks += 1
+        }
+        return date > limit ? nil : date
+    }
+}
+
 struct Book: Identifiable, Codable, Hashable {
     /// Extensions AVPlayer handles directly (m4b/m4a are MPEG-4 audio).
     static let audioExtensions: Set<String> = [
@@ -80,12 +115,55 @@ struct Highlight: Identifiable, Codable, Hashable {
     /// The selected text, shown in the list.
     var text: String
     var createdAt: Date
+    /// A `HighlightColor` raw value. Nil is the standard yellow — what a highlight
+    /// made before colours existed has.
+    var color: String?
+    /// The reader's own note on the passage.
+    var note: String?
+    /// The chapter it was in and how far through the book (0…1), noted when it
+    /// was made — for the export, and to list highlights in reading order.
+    var chapter: String?
+    var progression: Double?
 
-    init(id: UUID = UUID(), locatorJSON: String, text: String, createdAt: Date = Date()) {
+    init(
+        id: UUID = UUID(), locatorJSON: String, text: String, createdAt: Date = Date(),
+        color: String? = nil, note: String? = nil, chapter: String? = nil, progression: Double? = nil
+    ) {
         self.id = id
         self.locatorJSON = locatorJSON
         self.text = text
         self.createdAt = createdAt
+        self.color = color
+        self.note = note
+        self.chapter = chapter
+        self.progression = progression
+    }
+}
+
+extension Bookmark {
+    /// `createdAt` is read the way the catalogue's other dates are — the default
+    /// decoder would take seconds since 1970 as seconds since 2001.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        locatorJSON = try c.decode(String.self, forKey: .locatorJSON)
+        progression = try c.decodeIfPresent(Double.self, forKey: .progression)
+        createdAt = StoredDate.read(try? c.decodeIfPresent(Double.self, forKey: .createdAt)) ?? Date()
+    }
+}
+
+extension Highlight {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        locatorJSON = try c.decode(String.self, forKey: .locatorJSON)
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        createdAt = StoredDate.read(try? c.decodeIfPresent(Double.self, forKey: .createdAt)) ?? Date()
+        color = try c.decodeIfPresent(String.self, forKey: .color)
+        note = try c.decodeIfPresent(String.self, forKey: .note)
+        chapter = try c.decodeIfPresent(String.self, forKey: .chapter)
+        progression = try c.decodeIfPresent(Double.self, forKey: .progression)
     }
 }
 
@@ -98,18 +176,8 @@ extension Book {
         title = try c.decode(String.self, forKey: .title)
         author = try c.decode(String.self, forKey: .author)
         fileName = try c.decode(String.self, forKey: .fileName)
-        // backups interoperate with the web build, which stores ms-since-1970
-        // — seconds now ≈ 1.7e9, ms ≈ 1.7e12, so 1e11 cleanly separates them
         func date(_ key: CodingKeys) -> Date? {
-            guard let raw = try? c.decodeIfPresent(Double.self, forKey: key) else { return nil }
-            if raw > 1e11 { return Date(timeIntervalSince1970: raw / 1000) }
-            // 2000-01-01 in 1970-based seconds. Earlier builds wrote dates as
-            // seconds since 2001 (JSONEncoder's default) and read them back as
-            // since 1970 — each save then moved them back 31 years. Anything
-            // under this can't be a real 1970-based date, so read it as 2001-based.
-            if raw >= 946_684_800 { return Date(timeIntervalSince1970: raw) }
-            if raw > 0 { return Date(timeIntervalSinceReferenceDate: raw) }
-            return nil   // drifted past repair
+            StoredDate.read(try? c.decodeIfPresent(Double.self, forKey: key))
         }
         addedAt = date(.addedAt) ?? Date()
         lastOpenedAt = date(.lastOpenedAt)

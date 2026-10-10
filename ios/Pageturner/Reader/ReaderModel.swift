@@ -3,6 +3,15 @@ import ReadiumNavigator
 import ReadiumShared
 import SwiftUI
 
+/// A footnote or endnote the reader tapped — shown in a sheet instead of jumping to it.
+struct Footnote: Identifiable {
+    let id = UUID()
+    let text: String
+    /// What it was called where it was cited: "3", "†".
+    let label: String?
+    let link: ReadiumShared.Link
+}
+
 @MainActor
 final class ReaderModel: ObservableObject {
     enum Phase: Equatable {
@@ -25,6 +34,11 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var chapterTitle: String?
     @Published private(set) var searchInFlight = false
     @Published private(set) var searchResults: [Locator] = []
+    /// Where a "Back" button would return to after a jump.
+    @Published private(set) var history = JumpHistory()
+    @Published var footnote: Footnote?
+    /// The highlight whose colour and note are being edited.
+    @Published var editingHighlight: Highlight?
 
     private let library: LibraryStore
     private var publication: Publication?
@@ -39,6 +53,14 @@ final class ReaderModel: ObservableObject {
     /// Where and when this sitting began, for the BookMaster session push.
     private var sessionStart: (at: Date, progression: Double)?
     private var searchTask: Task<Void, Never>?
+    /// Where the reader was when this app began a jump, and the location before
+    /// the latest one — together they tell a jump's origin however the two
+    /// callbacks (jumped / location changed) happen to be ordered.
+    private var pendingOrigin: Locator?
+    private var previousLocator: Locator?
+    /// Set while "Back" is navigating, so returning isn't recorded as a jump.
+    private var returning = false
+    static let highlightGroup = "user-highlights"
 
     init(book: Book, library: LibraryStore) {
         self.book = book
@@ -130,6 +152,9 @@ final class ReaderModel: ObservableObject {
         }).store(in: &inputTokens)
 
         applyHighlights()
+        (navigator as? DecorableNavigator)?.observeDecorationInteractions(inGroup: Self.highlightGroup) { [weak self] event in
+            self?.highlightActivated(event.decoration.id)
+        }
     }
 
     func toggleChrome() {
@@ -138,12 +163,84 @@ final class ReaderModel: ObservableObject {
 
     func go(to link: ReadiumShared.Link) {
         guard let navigator else { return }
-        Task { _ = await navigator.go(to: link) }
+        navigate { await navigator.go(to: link) }
     }
 
     func go(to locator: Locator) {
         guard let navigator else { return }
-        Task { _ = await navigator.go(to: locator, options: NavigatorGoOptions(animated: true)) }
+        navigate { await navigator.go(to: locator, options: NavigatorGoOptions(animated: true)) }
+    }
+
+    /// The scrubber: jump to a point `progression` (0…1) through the book.
+    func go(toProgression progression: Double) {
+        guard let publication, let navigator else { return }
+        navigate {
+            guard let target = await publication.locate(progression: min(max(progression, 0), 0.999)) else { return false }
+            return await navigator.go(to: target, options: NavigatorGoOptions(animated: false))
+        }
+    }
+
+    /// A jump the reader asked for: where they are now is the way back. (The
+    /// navigator reports the jump itself from inside `go`, so the origin only
+    /// needs to stand until it returns.)
+    private func navigate(_ jump: @escaping () async -> Bool) {
+        pendingOrigin = currentLocator
+        Task {
+            _ = await jump()
+            pendingOrigin = nil
+        }
+    }
+
+    // MARK: - Back
+
+    /// A jump was made (the contents, a search hit, a link in the page, the
+    /// scrubber): remember where the reader was, so Back can return.
+    fileprivate func recordJump(to target: Locator) {
+        guard !returning else { return }
+        // Read aloud follows the narration with jumps of its own; only a jump the
+        // reader asked for counts then
+        let own = pendingOrigin
+        let reading = readAloud?.isActive == true
+        guard let origin = own ?? (reading ? nil : origin(ofJumpTo: target)),
+              let from = spot(origin), let landed = spot(target)
+        else { return }
+        history.record(origin: from, landed: landed)
+    }
+
+    /// The origin of a jump the navigator made on its own (a link in the page):
+    /// the current location — or, when it has already moved on to the target
+    /// by the time this is told, the one before.
+    private func origin(ofJumpTo target: Locator) -> Locator? {
+        guard let current = currentLocator else { return nil }
+        let moved = current.href == target.href
+            && abs((current.locations.progression ?? 0) - (target.locations.progression ?? 0)) < 0.02
+        return moved ? (previousLocator ?? current) : current
+    }
+
+    private func spot(_ locator: Locator) -> JumpHistory.Spot? {
+        guard let json = try? locator.jsonString() else { return nil }
+        return JumpHistory.Spot(
+            locatorJSON: json, href: locator.href.string,
+            progression: locator.locations.totalProgression ?? 0)
+    }
+
+    func goBack() {
+        guard let spot = history.goBack(),
+              let locator = try? Locator(jsonString: spot.locatorJSON),
+              let navigator
+        else { return }
+        returning = true
+        Task {
+            _ = await navigator.go(to: locator, options: NavigatorGoOptions(animated: true))
+            returning = false
+        }
+    }
+
+    func dismissBack() { history.clear() }
+
+    /// "Back to 45%" — what the chip says.
+    var backLabel: String? {
+        history.back.map { "\(Int((min(max($0.progression, 0), 1) * 100).rounded()))%" }
     }
 
     // MARK: - Bookmarks
@@ -247,7 +344,6 @@ final class ReaderModel: ObservableObject {
 
     // MARK: - Highlights
 
-    /// "Highlight" in the selection menu — stores the locator and repaints.
     /// Send the selected passage to BookMaster as a quote on this book.
     private func quoteSelection() {
         guard let selectable = navigator as? SelectableNavigator,
@@ -264,6 +360,8 @@ final class ReaderModel: ObservableObject {
         }
     }
 
+    /// "Highlight" in the selection menu — stores the locator, notes where in the
+    /// book it was, and repaints.
     private func highlightSelection() {
         guard let selectable = navigator as? SelectableNavigator,
               let selection = selectable.currentSelection,
@@ -271,7 +369,9 @@ final class ReaderModel: ObservableObject {
         else { return }
         book.highlights.append(Highlight(
             locatorJSON: json,
-            text: selection.locator.text.highlight ?? ""
+            text: selection.locator.text.highlight ?? "",
+            chapter: chapterTitle(for: selection.locator),
+            progression: selection.locator.locations.totalProgression
         ))
         applyHighlights()
         selectable.clearSelection()
@@ -280,6 +380,7 @@ final class ReaderModel: ObservableObject {
 
     func removeHighlight(_ highlight: Highlight) {
         book.highlights.removeAll { $0.id == highlight.id }
+        if editingHighlight?.id == highlight.id { editingHighlight = nil }
         applyHighlights()
         flushSave()
     }
@@ -287,6 +388,53 @@ final class ReaderModel: ObservableObject {
     func goToHighlight(_ highlight: Highlight) {
         guard let locator = try? Locator(jsonString: highlight.locatorJSON) else { return }
         go(to: locator)
+    }
+
+    /// A tap on a highlight in the page opens its editor.
+    private func highlightActivated(_ decorationID: String) {
+        let prefix = "user-highlight-"
+        guard decorationID.hasPrefix(prefix),
+              let id = UUID(uuidString: String(decorationID.dropFirst(prefix.count))),
+              let highlight = book.highlights.first(where: { $0.id == id })
+        else { return }
+        editingHighlight = highlight
+    }
+
+    /// Save a highlight's colour and note from the editor.
+    func updateHighlight(_ id: UUID, color: HighlightColor, note: String) {
+        guard let i = book.highlights.firstIndex(where: { $0.id == id }) else { return }
+        book.highlights[i].color = color == .standard ? nil : color.rawValue
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        book.highlights[i].note = trimmed.isEmpty ? nil : trimmed
+        applyHighlights()
+        flushSave()
+    }
+
+    /// Send a highlight to BookMaster as a quote.
+    func quoteHighlight(_ highlight: Highlight) {
+        let text = highlight.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        let ref = book.bookMasterRef
+        Task {
+            let ok = await BookMaster.shared.postQuote(ref: ref, content: text, percent: highlight.progression)
+            notice = ok ? "Quote sent to BookMaster" : "Couldn’t send the quote"
+        }
+    }
+
+    /// The book's highlights and notes as Markdown.
+    func highlightsMarkdown() -> String {
+        HighlightExport.markdown(title: book.title, author: book.author, highlights: book.highlights)
+    }
+
+    /// The Markdown written to a temporary file, for the share sheet.
+    func highlightsFile() -> URL? {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(HighlightExport.fileName(for: book.title))
+        do {
+            try highlightsMarkdown().write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
+        }
     }
 
     /// Re-applies every saved highlight to the document (the decorations group
@@ -298,10 +446,10 @@ final class ReaderModel: ObservableObject {
             return Decoration(
                 id: "user-highlight-\(h.id.uuidString)",
                 locator: locator,
-                style: .highlight(tint: .systemYellow)
+                style: .highlight(tint: HighlightColor(saved: h.color).uiColor)
             )
         }
-        decorable.apply(decorations: decorations, in: "user-highlights")
+        decorable.apply(decorations: decorations, in: Self.highlightGroup)
     }
 
     // MARK: - Read aloud
@@ -343,6 +491,11 @@ final class ReaderModel: ObservableObject {
     func cycleRate() {
         let steps: [Double] = [0.75, 1, 1.25, 1.5, 1.75, 2]
         settings.speechRate = steps.first { $0 > settings.speechRate + 0.001 } ?? steps[0]
+    }
+
+    func goToFootnote(_ note: Footnote) {
+        footnote = nil
+        go(to: note.link)
     }
 
     /// Persist the position soon-ish rather than instantly, and immediately
@@ -397,8 +550,25 @@ final class ReaderModel: ObservableObject {
 // MARK: - Navigator delegates
 
 extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
+    func navigator(_ navigator: Navigator, didJumpTo locator: Locator) {
+        recordJump(to: locator)
+    }
+
+    /// A footnote or endnote reference: show the note in a sheet instead of
+    /// jumping to the end of the chapter and losing the place.
+    func navigator(_ navigator: Navigator, shouldNavigateToNoteAt link: ReadiumShared.Link, content: String, referrer: String?) -> Bool {
+        let text = BookText.plain(fromHTML: content).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return true }   // nothing to show — follow the link as usual
+        let label = referrer.map { BookText.plain(fromHTML: $0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        footnote = Footnote(text: text, label: (label?.isEmpty ?? true) ? nil : label, link: link)
+        return false
+    }
+
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
+        previousLocator = currentLocator
         currentLocator = locator
+        // reading on from where a jump landed lets the way back go
+        if history.back != nil { history.readOn(to: locator.locations.totalProgression ?? book.progression ?? 0) }
         book.locatorJSON = try? locator.jsonString()
         book.progression = locator.locations.totalProgression
         isCurrentLocationBookmarked = bookmark(matching: locator) != nil

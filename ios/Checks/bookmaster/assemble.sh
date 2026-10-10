@@ -12,6 +12,8 @@ cp "$SRC/Import/ZipWriter.swift" "$OUT/ZipWriter.swift"
 cp "$SRC/Library/BookText.swift" "$OUT/BookText.swift"
 cp "$SRC/Library/ResumeOffer.swift" "$OUT/ResumeOffer.swift"
 cp "$SRC/Audio/AudioChapter.swift" "$OUT/AudioChapter.swift"
+cp "$SRC/Reader/JumpHistory.swift" "$OUT/JumpHistory.swift"
+cp "$SRC/Library/HighlightExport.swift" "$OUT/HighlightExport.swift"
 cp "$SRC/Notifications/NotificationPlan.swift" "$OUT/NotificationPlan.swift"
 python3 - "$SRC" "$OUT" <<'PY'
 import sys

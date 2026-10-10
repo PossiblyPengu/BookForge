@@ -136,4 +136,113 @@ func runLogic() {
     check("…and all of them are remembered", pile.seen.count == 5)
     let three = NotificationPlan.plan(nudges: (1...3).map { nudge("q\($0)") }, notices: [], seen: [])
     check("three is still three", three.items.count == 3)
+
+    section("Back history after a jump")
+    func spot(_ href: String, _ p: Double) -> JumpHistory.Spot { .init(locatorJSON: "{\"href\":\"\(href)\"}", href: href, progression: p) }
+    var h = JumpHistory()
+    check("nothing to go back to at first", h.back == nil)
+    check("a jump far away is remembered", h.record(origin: spot("ch1.xhtml", 0.10), landed: spot("notes.xhtml", 0.95)))
+    check("…and Back returns to where you were", h.back == spot("ch1.xhtml", 0.10))
+    check("a hop inside one file under 1% is not", !JumpHistory().recordedCopy(origin: spot("a", 0.500), landed: spot("a", 0.505)))
+    check("a hop to another file is, however short", JumpHistory().recordedCopy(origin: spot("a", 0.500), landed: spot("b", 0.502)))
+    check("going back pops it", h.goBack() == spot("ch1.xhtml", 0.10) && h.back == nil)
+    check("going back with nothing there is nil", h.goBack() == nil)
+
+    var g = JumpHistory()
+    g.record(origin: spot("a", 0.10), landed: spot("b", 0.90))
+    g.readOn(to: 0.90)   // the landing
+    g.readOn(to: 0.93)
+    check("reading a little past the landing keeps the way back", g.back != nil)
+    g.readOn(to: 0.985)
+    check("reading well past it (over 8%) drops the way back", g.back == nil)
+    var g2 = JumpHistory()
+    g2.record(origin: spot("a", 0.50), landed: spot("b", 0.10))
+    g2.readOn(to: 0.10)
+    g2.readOn(to: 0.01)
+    check("reading backwards past it counts too", g2.back == nil)
+    var g3 = JumpHistory()
+    g3.record(origin: spot("a", 0.10), landed: spot("b", 0.90))
+    g3.readOn(to: 0.90)
+    g3.record(origin: spot("b", 0.90), landed: spot("c", 0.30))
+    check("two jumps stack: Back goes to the newest origin first", g3.back == spot("b", 0.90))
+    check("…then the one before", { _ = g3.goBack(); return g3.back == spot("a", 0.10) }())
+    var g4 = JumpHistory()
+    g4.record(origin: spot("a", 0.10), landed: spot("b", 0.90))
+    check("jumping again from near the same origin does not stack a duplicate", !g4.record(origin: spot("a", 0.105), landed: spot("c", 0.60)) && g4.entries.count == 1)
+    var g5 = JumpHistory()
+    for i in 0..<40 { g5.record(origin: spot("f\(i)", Double(i) / 100), landed: spot("z", 0.99)) }
+    check("the history is capped", g5.entries.count == JumpHistory.capacity, "\(g5.entries.count)")
+    check("…keeping the newest", g5.back == spot("f39", 0.39))
+    g5.clear()
+    check("clear forgets everything", g5.back == nil)
+
+    section("Highlight export")
+    func hl(_ text: String, _ p: Double?, note: String? = nil, chapter: String? = nil, at: Double = 0) -> Highlight {
+        Highlight(locatorJSON: "{}", text: text, createdAt: Date(timeIntervalSince1970: 1_700_000_000 + at),
+                  color: nil, note: note, chapter: chapter, progression: p)
+    }
+    let md = HighlightExport.markdown(title: "Dune", author: "Frank Herbert", highlights: [
+        hl("Second", 0.50, note: "remember this", chapter: "Book Two"),
+        hl("First\nacross two lines", 0.10, chapter: "Book One"),
+        hl("   ", nil),
+        hl("No place, older", nil, at: 1),
+        hl("No place, newer", nil, at: 2),
+    ])
+    check("title and author lead", md.hasPrefix("# Dune\n\n*Frank Herbert*\n"), String(md.prefix(40)))
+    check("reading order, not creation order", (md.range(of: "First")?.lowerBound ?? md.endIndex) < (md.range(of: "Second")?.lowerBound ?? md.startIndex))
+    check("ones with no place go last, oldest first", (md.range(of: "No place, older")?.lowerBound ?? md.startIndex) < (md.range(of: "No place, newer")?.lowerBound ?? md.startIndex)
+          && (md.range(of: "Second")?.lowerBound ?? md.endIndex) < (md.range(of: "No place, older")?.lowerBound ?? md.startIndex))
+    check("a blank highlight is skipped", !md.contains(">    "))
+    check("a multi-line passage is one quote block", md.contains("> First\n> across two lines"))
+    check("a note is included", md.contains("**Note:** remember this"))
+    check("chapter and percent", md.contains("*Book One · 10%*") && md.contains("*Book Two · 50%*"), md)
+    check("it ends with a newline", md.hasSuffix("\n"))
+    check("no author, no author line", !HighlightExport.markdown(title: "T", author: "", highlights: []).contains("**"))
+    check("a note on a highlight with no text still exports", HighlightExport.markdown(title: "T", author: "", highlights: [hl("", 0.2, note: "just a note")]).contains("**Note:** just a note"))
+    check("file name", HighlightExport.fileName(for: "Dune") == "Dune – Highlights.md")
+    check("file name drops what a file system dislikes", HighlightExport.fileName(for: "A/B: C?") == "A B C – Highlights.md", HighlightExport.fileName(for: "A/B: C?"))
+    check("file name for an empty title", HighlightExport.fileName(for: "  ") == "Book – Highlights.md")
+    check("colours: unknown falls back to yellow", HighlightColor(saved: "mauve") == .yellow && HighlightColor(saved: nil) == .yellow)
+    check("colours: saved ones come back", HighlightColor(saved: "pink") == .pink && HighlightColor.allCases.count == 5)
+
+    section("Dates on bookmarks and highlights")
+    let nowDate = Date()
+    var book = Book(id: UUID(), title: "T", author: "A", fileName: "x.epub", fileNames: ["x.epub"], addedAt: nowDate)
+    let made = Date(timeIntervalSince1970: nowDate.timeIntervalSince1970 - 86_400 * 3)
+    book.highlights = [Highlight(locatorJSON: "{}", text: "x", createdAt: made)]
+    book.bookmarks = [Bookmark(title: "b", locatorJSON: "{}", progression: 0.2, createdAt: made)]
+    // what the app does: write seconds since 1970, read with the default decoder — repeatedly
+    func cycle(_ b: Book) -> Book {
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .secondsSince1970
+        let data = try! enc.encode([b])
+        return try! JSONDecoder().decode([Book].self, from: data)[0]
+    }
+    var cycled = book
+    for _ in 0..<4 { cycled = cycle(cycled) }
+    check("a highlight's date survives four save/load cycles", abs(cycled.highlights[0].createdAt.timeIntervalSince(made)) < 2, "\(cycled.highlights[0].createdAt)")
+    check("so does a bookmark's", abs(cycled.bookmarks[0].createdAt.timeIntervalSince(made)) < 2, "\(cycled.bookmarks[0].createdAt)")
+    check("new highlight fields survive", {
+        var b = book
+        b.highlights[0].color = "green"; b.highlights[0].note = "n"; b.highlights[0].chapter = "C"; b.highlights[0].progression = 0.4
+        let r = cycle(b).highlights[0]
+        return r.color == "green" && r.note == "n" && r.chapter == "C" && r.progression == 0.4
+    }())
+    // a drifted date (each mismatched save moved it a whole 31-year gap on) is walked back
+    let drifted = made.timeIntervalSince1970 + 978_307_200 * 2
+    check("a date drifted forward by two gaps is walked back", abs((StoredDate.read(drifted)?.timeIntervalSince(made)) ?? 9e9) < 2)
+    check("a date from an early build (2001-based) is read right", abs((StoredDate.read(made.timeIntervalSinceReferenceDate)?.timeIntervalSince(made)) ?? 9e9) < 2)
+    check("the web's milliseconds are read right", abs((StoredDate.read(made.timeIntervalSince1970 * 1000)?.timeIntervalSince(made)) ?? 9e9) < 2)
+    check("zero and junk are no date", StoredDate.read(0) == nil && StoredDate.read(-5) == nil && StoredDate.read(.nan) == nil && StoredDate.read(nil) == nil)
+    let old = #"[{"id":"\#(UUID().uuidString)","title":"T","author":"A","fileName":"x.epub","addedAt":\#(nowDate.timeIntervalSinceReferenceDate),"highlights":[{"id":"\#(UUID().uuidString)","locatorJSON":"{}","text":"old","createdAt":\#(made.timeIntervalSinceReferenceDate)}]}]"#
+    let legacy = try? JSONDecoder().decode([Book].self, from: Data(old.utf8))
+    check("a highlight from before colours decodes (no colour, no note)", legacy?.first?.highlights.first?.color == nil && legacy?.first?.highlights.first?.note == nil && legacy?.first?.highlights.first?.text == "old")
+    check("…with its early-build date repaired", abs((legacy?.first?.highlights.first?.createdAt.timeIntervalSince(made)) ?? 9e9) < 2)
+}
+
+private extension JumpHistory {
+    /// `record` on a throwaway copy, to ask "would it be kept?" in one expression.
+    func recordedCopy(origin: Spot, landed: Spot) -> Bool {
+        var copy = self
+        return copy.record(origin: origin, landed: landed)
+    }
 }

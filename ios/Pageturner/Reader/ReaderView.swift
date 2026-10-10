@@ -9,18 +9,33 @@ struct ReaderView: View {
     @State private var showContents = false
     @State private var showSettings = false
     @State private var showSearch = false
+    /// The scrubber's value while the finger is on it (or until the page catches up).
+    @State private var scrubbing: Double?
+    @State private var dragging = false
+    @State private var exportFile: ShareItem?
+    @State private var copied = false
 
     init(book: Book, library: LibraryStore) {
         _model = StateObject(wrappedValue: ReaderModel(book: book, library: library))
     }
 
     var body: some View {
+        // grouped, so no one expression is a long chain the compiler has to solve at once
+        sheets(lifecycle(layout))
+            // the chrome, the sheets and the status bar take the page's own light or dark
+            .preferredColorScheme(model.settings.theme.isDark ? .dark : .light)
+    }
+
+    private var layout: some View {
         ZStack {
             content
             if model.phase == .ready {
-                VStack(spacing: 0) {
+                VStack(spacing: 8) {
                     if model.showChrome { header.transition(.move(edge: .top).combined(with: .opacity)) }
                     Spacer(minLength: 0)
+                    if let label = model.backLabel {
+                        backChip(label)
+                    }
                     if let readAloud = model.readAloud, readAloud.isActive {
                         ReadAloudBar(
                             readAloud: readAloud,
@@ -38,34 +53,60 @@ struct ReaderView: View {
         .statusBarHidden(!model.showChrome)
         .animation(.smooth(duration: 0.25), value: model.showChrome)
         .animation(.smooth(duration: 0.25), value: model.readAloud?.isActive)
-        .task { await model.open() }
-        .onChange(of: model.settings) { _ in model.applySettings() }
-        .onAppear { BookMaster.shared.place = "reader" }
-        .onDisappear {
-            model.flushSave()
-            model.endSession()
-            model.stopReadAloud()
-            BookMaster.shared.place = "library"
-        }
-        // a sitting ends when the app leaves the screen — not whenever it is next opened
-        .onChange(of: scenePhase) { _, phase in
-            switch phase {
-            case .background: model.flushSave(); model.endSession()
-            case .active: model.beginSession()
-            default: break
+        .animation(.smooth(duration: 0.25), value: model.backLabel)
+    }
+
+    /// Opening, saving, and the sitting that BookMaster is told about.
+    private func lifecycle<V: View>(_ content: V) -> some View {
+        content
+            .task { await model.open() }
+            .onChange(of: model.settings) { _ in model.applySettings() }
+            .onAppear { BookMaster.shared.place = "reader" }
+            .onDisappear {
+                model.flushSave()
+                model.endSession()
+                model.stopReadAloud()
+                BookMaster.shared.place = "library"
             }
-        }
-        .sheet(isPresented: $showContents) { contentsSheet }
-        .sheet(isPresented: $showSettings) { settingsSheet }
-        .sheet(isPresented: $showSearch) { searchSheet }
-        .alert("Pageturner", isPresented: Binding(
-            get: { model.notice != nil },
-            set: { if !$0 { model.notice = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.notice ?? "")
-        }
+            // a sitting ends when the app leaves the screen — not whenever it is next opened
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .background: model.flushSave(); model.endSession()
+                case .active: model.beginSession()
+                default: break
+                }
+            }
+            // once the page has caught up with the scrubber it lets go
+            .onChange(of: model.book.progression) { _, _ in
+                if !dragging { scrubbing = nil }
+            }
+    }
+
+    private func sheets<V: View>(_ content: V) -> some View {
+        content
+            .sheet(isPresented: $showContents) { contentsSheet }
+            .sheet(isPresented: $showSettings) { settingsSheet }
+            .sheet(isPresented: $showSearch) { searchSheet }
+            .sheet(item: $model.footnote) { note in
+                FootnoteSheet(note: note) { model.goToFootnote(note) }
+            }
+            .sheet(item: $model.editingHighlight) { highlight in
+                HighlightEditorSheet(
+                    highlight: highlight,
+                    canQuote: BookMaster.shared.isLinked,
+                    onSave: { color, note in model.updateHighlight(highlight.id, color: color, note: note) },
+                    onDelete: { model.removeHighlight(highlight) },
+                    onQuote: { model.quoteHighlight(highlight) }
+                )
+            }
+            .alert("Pageturner", isPresented: Binding(
+                get: { model.notice != nil },
+                set: { if !$0 { model.notice = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(model.notice ?? "")
+            }
     }
 
     @ViewBuilder
@@ -144,19 +185,32 @@ struct ReaderView: View {
                 PTIconButton(systemImage: "textformat.size", label: "Reading settings") { showSettings = true }
 
                 HStack(spacing: 10) {
-                    Text("\(Int(((model.book.progression ?? 0) * 100).rounded()))%")
+                    Text("\(Int((shownProgress * 100).rounded()))%")
                         .font(.footnote.weight(.semibold))
                         .monospacedDigit()
-                    ProgressView(value: min(max(model.book.progression ?? 0, 0), 1))
-                        .tint(.ptAccent)
+                        .frame(minWidth: 36, alignment: .leading)
+                    Slider(
+                        value: Binding(get: { shownProgress }, set: { scrubbing = $0 }),
+                        in: 0...1,
+                        onEditingChanged: { editing in
+                            dragging = editing
+                            guard !editing, let target = scrubbing else { return }
+                            model.go(toProgression: target)
+                            // if the page never reports back, let go anyway
+                            Task {
+                                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                                if !dragging { scrubbing = nil }
+                            }
+                        }
+                    )
+                    .tint(.ptAccent)
+                    .accessibilityLabel("Position in book")
+                    .accessibilityValue("\(Int((shownProgress * 100).rounded())) percent")
                 }
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
                 .ptGlassCapsule()
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Progress")
-                .accessibilityValue("\(Int(((model.book.progression ?? 0) * 100).rounded())) percent")
 
                 if model.canReadAloud {
                     PTIconButton(
@@ -168,6 +222,36 @@ struct ReaderView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
         }
+    }
+
+    private var shownProgress: Double {
+        min(max(scrubbing ?? model.book.progression ?? 0, 0), 1)
+    }
+
+    /// "Back to 45%" — after a jump, one tap returns to where the reader was.
+    private func backChip(_ label: String) -> some View {
+        HStack(spacing: 0) {
+            Button { model.goBack() } label: {
+                Label("Back to \(label)", systemImage: "arrow.uturn.backward")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.leading, 16)
+                    .padding(.trailing, 10)
+                    .frame(height: 40)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Button { model.dismissBack() } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 38, height: 40)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .foregroundStyle(.primary)
+        .ptGlassCapsule(interactive: true)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private func toolButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
@@ -192,27 +276,12 @@ struct ReaderView: View {
                 } else {
                     List {
                         if !model.book.highlights.isEmpty {
-                            Section("Highlights") {
+                            Section {
                                 ForEach(model.book.highlights.sorted { $0.createdAt > $1.createdAt }) { hl in
-                                    Button {
-                                        showContents = false
-                                        model.goToHighlight(hl)
-                                    } label: {
-                                        Label {
-                                            Text(hl.text.isEmpty ? "Highlight" : hl.text)
-                                                .lineLimit(2)
-                                                .foregroundStyle(.primary)
-                                        } icon: {
-                                            Image(systemName: "highlighter")
-                                                .foregroundStyle(.yellow)
-                                        }
-                                    }
-                                    .swipeActions {
-                                        Button(role: .destructive) { model.removeHighlight(hl) } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
-                                    }
+                                    highlightRow(hl)
                                 }
+                            } header: {
+                                highlightsHeader
                             }
                         }
                         if !model.book.bookmarks.isEmpty {
@@ -263,8 +332,80 @@ struct ReaderView: View {
                     Button("Done") { showContents = false }
                 }
             }
+            .sheet(item: $exportFile) { item in
+                ShareSheet(items: [item.url])
+                    .presentationDetents([.medium, .large])
+            }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func highlightRow(_ hl: Highlight) -> some View {
+        Button {
+            showContents = false
+            model.goToHighlight(hl)
+        } label: {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(hl.text.isEmpty ? "Highlight" : hl.text)
+                        .lineLimit(2)
+                        .foregroundStyle(.primary)
+                    if let note = hl.note, !note.isEmpty {
+                        Text(note)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+            } icon: {
+                Image(systemName: (hl.note ?? "").isEmpty ? "highlighter" : "note.text")
+                    .foregroundStyle(HighlightColor(saved: hl.color).color)
+            }
+        }
+        .swipeActions {
+            Button(role: .destructive) { model.removeHighlight(hl) } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .leading) {
+            Button {
+                // the editor is a sheet too — let this one go first
+                showContents = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { model.editingHighlight = hl }
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            .tint(.ptAccent)
+        }
+    }
+
+    /// "Highlights" with a share / copy menu for the whole list as Markdown.
+    private var highlightsHeader: some View {
+        HStack {
+            Text("Highlights")
+            Spacer()
+            Menu {
+                Button {
+                    if let url = model.highlightsFile() { exportFile = ShareItem(url: url) }
+                } label: {
+                    Label("Share as Markdown…", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    UIPasteboard.general.string = model.highlightsMarkdown()
+                    copied = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        copied = false
+                    }
+                } label: {
+                    Label("Copy as Text", systemImage: "doc.on.doc")
+                }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "square.and.arrow.up")
+                    .font(.subheadline)
+            }
+            .accessibilityLabel("Export highlights")
+        }
     }
 
     private var searchSheet: some View {
