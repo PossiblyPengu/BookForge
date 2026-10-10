@@ -184,3 +184,27 @@ struct BMTogether: Decodable {
     var nudges: [BMNudge]
     var notices: [BMNotice]
 }
+
+// MARK: - Comments
+
+struct BMComment: Decodable, Identifiable, Hashable {
+    var id: String
+    /// Nil while sealed: a note left further on than the reader has got.
+    var content: String?
+    var displayName: String
+    var userId: String
+    var atPercent: Double?
+    var ahead: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, content, ahead
+        case displayName = "display_name"
+        case userId = "user_id"
+        case atPercent = "at_percent"
+    }
+}
+
+struct BMThread: Decodable {
+    var comments: [BMComment]
+    var you: String?
+}

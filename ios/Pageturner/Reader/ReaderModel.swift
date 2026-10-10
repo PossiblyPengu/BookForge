@@ -55,12 +55,19 @@ final class ReaderModel: ObservableObject {
                 )
                 // custom action on the selection menu — handled by
                 // ReaderContainerViewController in the responder chain
-                config.editingActions = EditingAction.defaultActions + [
+                var actions = EditingAction.defaultActions + [
                     EditingAction(
                         title: "Highlight",
                         action: #selector(ReaderContainerViewController.highlightSelection)
                     ),
                 ]
+                if BookMaster.shared.isLinked {
+                    actions.append(EditingAction(
+                        title: "Quote",
+                        action: #selector(ReaderContainerViewController.quoteSelection)
+                    ))
+                }
+                config.editingActions = actions
                 let nav = try EPUBNavigatorViewController(
                     publication: publication,
                     initialLocation: initial,
@@ -101,6 +108,7 @@ final class ReaderModel: ObservableObject {
         // container puts our selection-action selectors in the responder chain
         let container = ReaderContainerViewController(contentController: controller)
         container.onHighlightSelection = { [weak self] in self?.highlightSelection() }
+        container.onQuoteSelection = { [weak self] in self?.quoteSelection() }
         navigatorController = container
 
         let adapter = DirectionalNavigationAdapter(animatedTransition: true)
@@ -231,6 +239,22 @@ final class ReaderModel: ObservableObject {
     // MARK: - Highlights
 
     /// "Highlight" in the selection menu — stores the locator and repaints.
+    /// Send the selected passage to BookMaster as a quote on this book.
+    private func quoteSelection() {
+        guard let selectable = navigator as? SelectableNavigator,
+              let selection = selectable.currentSelection,
+              let text = selection.locator.text.highlight?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty
+        else { return }
+        let ref = book.bookMasterRef
+        let progression = selection.locator.locations.totalProgression
+        selectable.clearSelection()
+        Task {
+            let ok = await BookMaster.shared.postQuote(ref: ref, content: text, percent: progression)
+            notice = ok ? "Quote sent to BookMaster" : "Couldn’t send the quote"
+        }
+    }
+
     private func highlightSelection() {
         guard let selectable = navigator as? SelectableNavigator,
               let selection = selectable.currentSelection,

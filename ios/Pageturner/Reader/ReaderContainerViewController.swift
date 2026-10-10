@@ -7,6 +7,7 @@ import UIKit
 /// selectors are reachable.
 final class ReaderContainerViewController: UIViewController {
     var onHighlightSelection: (() -> Void)?
+    var onQuoteSelection: (() -> Void)?
 
     private let contentController: UIViewController
 
@@ -31,5 +32,10 @@ final class ReaderContainerViewController: UIViewController {
     /// read off the navigator when this fires.
     @objc func highlightSelection() {
         onHighlightSelection?()
+    }
+
+    /// "Quote" item — sends the selection to BookMaster as a quote.
+    @objc func quoteSelection() {
+        onQuoteSelection?()
     }
 }

@@ -288,6 +288,7 @@ private struct BookDetailSheet: View {
     let onOpen: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
+    @State private var showNotes = false
 
     private static func statusLabel(_ status: String) -> String {
         switch status {
@@ -355,11 +356,15 @@ private struct BookDetailSheet: View {
                 Section {
                     Button("Open Book", action: onOpen)
                     Button("Edit Details", action: onEdit)
+                    if BookMaster.shared.isLinked {
+                        Button("Comments & Suggestions") { showNotes = true }
+                    }
                     Button("Remove from Library", role: .destructive, action: onDelete)
                 }
             }
             .navigationTitle("Book Info")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showNotes) { BookNotesView(book: book) }
         }
         .presentationDetents([.medium, .large])
     }

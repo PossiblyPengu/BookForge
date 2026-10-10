@@ -157,6 +157,56 @@ final class BookMaster {
         return try JSONDecoder().decode(BMTogether.self, from: data)
     }
 
+    /// The shared thread on a book, gated the way BookMaster gates it: a note
+    /// left further on than you are arrives sealed unless `reveal` is set.
+    func fetchComments(ref: BMBookRef, reveal: Bool = false) async throws -> BMThread {
+        guard let user else { throw BMError.notLinked }
+        var query = ["username": user.username]
+        if let pin = ref.userBookId {
+            query["ub"] = pin
+        } else {
+            query["title"] = ref.title
+            query["author"] = ref.author
+        }
+        if reveal { query["reveal"] = "1" }
+        let (data, status) = try await get("comments", query: query)
+        guard (200..<300).contains(status) else {
+            handleRefusal(status: status, data: data)
+            throw BMError.server(status, Self.errorMessage(data))
+        }
+        return try JSONDecoder().decode(BMThread.self, from: data)
+    }
+
+    /// A note for whoever else has this book.
+    func postComment(ref: BMBookRef, content: String) async throws {
+        try await conversational("comment", ref: ref, extra: ["content": content])
+    }
+
+    /// "Read this next" — offer the book to the other reader.
+    @discardableResult
+    func suggest(ref: BMBookRef, note: String?) async throws -> String? {
+        var extra: [String: Any] = [:]
+        if let note, !note.isEmpty { extra["note"] = note }
+        let data = try await conversational("nudge", ref: ref, extra: extra)
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["to"] as? String
+    }
+
+    /// A POST that isn't worth queueing: conversational, cheap to retry by hand.
+    @discardableResult
+    private func conversational(_ path: String, ref: BMBookRef, extra: [String: Any]) async throws -> Data {
+        guard let user else { throw BMError.notLinked }
+        var json: [String: Any] = ["username": user.username, "title": ref.title, "author": ref.author]
+        if let pin = ref.userBookId { json["user_book_id"] = pin }
+        for (k, v) in extra { json[k] = v }
+        let body = try JSONSerialization.data(withJSONObject: json)
+        let (data, status) = try await post(path, body: body)
+        guard (200..<300).contains(status) else {
+            handleRefusal(status: status, data: data)
+            throw BMError.server(status, Self.errorMessage(data))
+        }
+        return data
+    }
+
     /// Accept a suggestion onto the want-to-read shelf, or dismiss it.
     func answerNudge(id: String, accept: Bool) async throws {
         guard let user else { throw BMError.notLinked }
