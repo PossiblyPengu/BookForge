@@ -76,6 +76,22 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee xcodebuild.log
 
+      # The Readium sources the build resolved, so the UI code can be written
+      # against the real 3.x signatures instead of memory (read them from the artifact).
+      - name: Archive Readium sources
+        if: always()
+        run: |
+          D=$(find ios/build/SourcePackages/checkouts -maxdepth 1 -name "swift-toolkit" | head -1)
+          if [ -n "$D" ]; then tar czf readium-src.tgz -C "$D" Sources docs; ls -la readium-src.tgz; fi
+
+      - name: Upload Readium sources
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: readium-src
+          path: readium-src.tgz
+          if-no-files-found: ignore
+
       # xcodebuild's output is not turned into annotations, so a failed build
       # otherwise shows up as a bare "exit code 65". Put the diagnostics where
       # they can be read without downloading anything.
