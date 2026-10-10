@@ -1,9 +1,13 @@
-# BookMaster contract check
+# BookMaster contract check, and the app's logic
 
 Compiles the app's **real** BookMaster Swift sources (`ios/Pageturner/BookMaster/*`
 and the `Book` model) on Linux or macOS, and drives them against a live local
 BookMaster — so a change to either side that breaks the wire shows up here,
-not on a phone.
+not on a phone. The same target also compiles and runs the app's UIKit-free logic —
+`assemble.sh` lists the files — so rules that need no device get checked here:
+the text→EPUB converter, ISBN and description cleaning, audiobook chapters, the
+"continue from BookMaster?" offer, the notification plan, the Back history, highlight
+export, reading stats and streaks, and the date round-trip of the catalogue.
 
 ```
 Swift client  ->  Pageturner Pages Function (:8789)  ->  BookMaster (:8788)  ->  local D1
@@ -14,7 +18,8 @@ sessions, quotes and presence; suggestions and comments (including sealed notes)
 stats; shelf matching; recovery from a dead shelf pin; and the offline queue —
 BookMaster is stopped mid-run, three pushes are parked in order, BookMaster comes
 back, and they arrive in order with the newest position winning. A second block
-(no servers needed) covers dates, old library files, authors and title matching.
+(no servers needed, ~200 checks) covers dates, old library files, authors and title
+matching, and the logic above.
 
 ## Run it
 

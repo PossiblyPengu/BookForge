@@ -7,12 +7,30 @@ Everything runs on the device — books, covers, positions and the library live 
 
 A native SwiftUI app (iOS 17+) built on the [Readium](https://readium.org) toolkit. It lives in `ios/`.
 
-- **Reading:** EPUB, PDF and CBZ comics, with themes, fonts and sizes; in-book search; bookmarks and highlights
-- **Listening:** multi-file audiobooks (M4B/M4A/MP3/FLAC/OGG/OPUS/WAV) with speed, sleep timer and lock-screen controls; read-aloud with Apple's voices (install the Enhanced or Premium ones in Settings → Accessibility → Spoken Content)
-- **Library:** a Continue card, All / Books / Audiobooks, search, sort, covers (designed jackets when there's no art), metadata lookup (Google Books + Open Library); import from Files or "Open in Pageturner"; **Watch a Folder…** in Settings auto-imports whatever lands in a Files folder
-- **Liquid Glass:** built for iOS 26 — a tab bar that shrinks as you scroll, a mini player docked above it, floating glass controls in the reader and the player. Earlier versions (iOS 17+) get plain materials.
-- **BookMaster:** link once and your progress and finished sessions go to BookMaster as you read or listen; see the other reader, accept their suggestions, comment on a book, send a passage as a quote, and see your streaks and goals. Pushes made offline are queued and replayed in order.
+- **Reading:** EPUB, PDF and CBZ comics, plus plain text, Markdown and HTML (converted to EPUB on import).
+  Five page themes in the web reader's palettes (Paper, Sepia, Gray, Night, Black — the chrome follows the page), fonts, sizes, spacing and margins;
+  in-book search; a draggable position scrubber; footnotes and endnotes open in a sheet instead of throwing you to the end of the chapter,
+  and any jump — contents, search hit, link, scrubber — leaves a **Back** chip; bookmarks; highlights in five colours with notes (tap one to edit it),
+  exported as Markdown; select text → Look Up / Translate / Share like any iOS reader
+- **Listening:** multi-file audiobooks (M4B/M4A/MP3/FLAC/OGG/OPUS/WAV) with chapters (an m4b's embedded markers, or a file each), a chapter list,
+  previous/next chapter, time left in the chapter, speed, sleep timer and lock-screen controls; read-aloud with Apple's voices (install the Enhanced or Premium ones in
+  Settings → Accessibility → Spoken Content). Read-aloud and an audiobook never talk over each other
+- **Library:** a Continue card, All / Books / Audiobooks, **shelves** (named collections), an **Up next** shelf from BookMaster, search, sort, a **select mode** for
+  bulk shelves / find details / remove, covers (designed jackets when there's no art), book details with description, year and ISBN, metadata lookup
+  (BookMaster, Google Books and Open Library), mark as finished / start over; import from Files, a **zip of books**, or "Open in Pageturner";
+  **Watch a Folder…** in Settings auto-imports whatever lands in a Files folder
+- **Liquid Glass:** built for iOS 26 — a tab bar that shrinks as you scroll, a mini player docked above it, floating glass controls in the reader and the player.
+  Earlier versions (iOS 17+) get plain materials.
+- **BookMaster:** link once and your progress and finished sessions go to BookMaster as you read or listen (with a switch to pause that without unlinking);
+  see the other reader, accept their suggestions, comment on a book, send a passage as a quote, and see your streaks and goals. When BookMaster has you further on
+  than this phone, opening the book asks whether to jump there. New suggestions can arrive as notifications. Books are matched by ISBN / Open Library id as well as title.
+  Pushes made offline are queued and replayed in order.
+- **Stats:** time read and listened, streaks and a two-week chart from the phone itself — no account needed; BookMaster's numbers join them when linked
+- **Siri, Shortcuts and Spotlight:** "Continue reading in Pageturner", "Open *Dune* in Pageturner"; every book is a Spotlight result (switch it off in Settings)
 - **Backup:** export the whole library to one zip and restore it here — also restores a backup made by the old web app
+
+Not in the app, on purpose: a Home Screen widget (it needs an app extension and an App Group, which free-Apple-ID sideloading doesn't reliably provision),
+CarPlay (needs an Apple entitlement), real push notifications (same), MOBI/AZW3/FB2/CBR, and the web app's neural voices.
 
 ### Install (sideload)
 
@@ -74,18 +92,7 @@ Open the deployed site in **Safari** → Share → **Add to Home Screen**.
 
 ## Native iOS app
 
-`ios/` contains a native SwiftUI reader built on the Readium Swift toolkit
-(pinned to 3.11.0): Files/share-sheet import, EPUB/PDF reading with
-themes/fonts, in-book search, bookmarks and text highlights, read-aloud via
-Apple's speech synthesizer (voice/rate control, sleep timer, lock-screen
-controls), an AVPlayer audiobook player with multi-track books and Now
-Playing integration, library search/sort, metadata editing with online
-lookup (Google Books + Open Library), and backup export/restore as a zip
-that the PWA can also read. The Xcode project is generated, not committed
-(`cd ios && xcodegen`), and `.github/workflows/ios.yml` builds an unsigned
-`Pageturner.ipa` on every change — install it with
-AltStore/SideStore/Sideloadly. The PWA remains the primary install route;
-the native app tracks toward feature parity.
+See **The iOS app** above. The web app stays deployed until the IPA has been tried on a device.
 
 ## Usage
 

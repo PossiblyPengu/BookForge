@@ -29,6 +29,14 @@ struct NowPlayingView: View {
         .background(backdrop)
         .onAppear { BookMaster.shared.place = "player" }
         .onDisappear { BookMaster.shared.place = "library" }
+        #if DEBUG
+        // CI simulator run: show the chapter list (Debug/DebugScenario.swift)
+        .task {
+            guard UserDefaults.standard.string(forKey: "PTDebugPlayerSheet") == "chapters" else { return }
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            showChapters = true
+        }
+        #endif
         .task(id: player.coverImage == nil) {
             if let color = player.coverImage?.averageColor { tint = Color(color) }
         }

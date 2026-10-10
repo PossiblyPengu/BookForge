@@ -80,6 +80,20 @@ struct ReaderView: View {
             .onChange(of: model.book.progression) { _, _ in
                 if !dragging { scrubbing = nil }
             }
+            #if DEBUG
+            // CI simulator run: put a sheet up once the book has opened (Debug/DebugScenario.swift)
+            .task {
+                guard let sheet = DebugScenario.readerSheet else { return }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                switch sheet {
+                case "contents": showContents = true
+                case "settings": showSettings = true
+                case "search": showSearch = true
+                case "hidechrome": model.toggleChrome()
+                default: break
+                }
+            }
+            #endif
     }
 
     private func sheets<V: View>(_ content: V) -> some View {

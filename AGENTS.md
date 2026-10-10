@@ -2,56 +2,88 @@
 
 ## iOS app (`ios/`)
 
-`ios/` contains **Pageturner**, a native SwiftUI EPUB/PDF reader built on the
-Readium Swift toolkit (pinned to 3.11.0). Features: Files/share-sheet import,
-library grid with search/sort, EPUB navigator with themes/fonts, PDF
-navigator, in-book search, bookmarks and text highlights (Readium
-decorations + a custom EditingAction), read-aloud via Apple's speech
-synthesizer (voice/rate, sleep timer, lock-screen controls), an AVPlayer
-audiobook player for multi-track m4b/mp3/etc, metadata editing with online
-lookup, and zip backup export/restore compatible with the PWA's backup
-layout (`data.json` + `files/` + `covers/`; iOS books carry
-`platform: "ios"`, web records are mapped on restore).
+`ios/` contains **Pageturner**, a native SwiftUI reader and audiobook player built on the
+Readium Swift toolkit (pinned to 3.11.0), linked to BookMaster. It replaces the PWA in `docs/`
+(which stays deployed until the IPA has been tried on a device). See `README.md` for the feature
+list and `ios/DESIGN.md` for the Liquid Glass design rules.
+
+### Building and checking
 
 - There is no Mac on this machine — builds run on GitHub Actions macOS runners.
-  `.github/workflows/ios.yml` installs XcodeGen, generates the project from
-  `ios/project.yml`, builds unsigned (`CODE_SIGNING_ALLOWED=NO`), and uploads
-  `Pageturner.ipa` as a build artifact. Install the IPA with AltStore/SideStore/
-  Sideloadly.
-- The Xcode project is generated, not committed: `cd ios && xcodegen`.
-- When touching Readium calls, verify signatures against the toolkit source —
-  the 3.x API changed a lot between releases (e.g. `EPUBNavigatorViewController`
-  takes `config:` not `httpServer:`; TTS rate goes through `AVTTSEngineDelegate`).
-- Relevant docs live in the readium/swift-toolkit repo under `docs/Guides/`.
-- This machine has no Swift toolchain, so the only compile check is the macOS
-  runner. Push, then read the run's result before pushing again — the workflow
-  cancels an in-progress run on the same branch, so back-to-back pushes never
-  report. Compiler errors are in the job log (`grep "error: "`).
-- Deployment target is iOS 17. Stores that predate it (`LibraryStore`,
-  `ReaderModel`, `AudioPlayer`) are `ObservableObject`; newer code
-  (`BookMaster`, `FolderWatcher`) uses `@Observable`.
+  `.github/workflows/ios.yml` installs XcodeGen, generates the project from `ios/project.yml`,
+  builds Release unsigned (`CODE_SIGNING_ALLOWED=NO`) and uploads `Pageturner.ipa` (artifact
+  `Pageturner-ipa`). Install it with AltStore/SideStore/Sideloadly. The Xcode project is generated,
+  not committed: `cd ios && xcodegen`.
+- Push, then read the run's result before pushing again — the workflow cancels an in-progress run
+  on the same branch, so back-to-back pushes never report. Compiler errors are in the job log
+  (`grep "error: "`); the job summary also lists diagnostics.
+- `.github/workflows/ios-sim.yml` is the nearest thing to looking at the app: a **Debug** build in the
+  iOS Simulator, launched once per screen (`ios/scripts/simulator-shots.sh`) and photographed; the
+  `simulator-screens` artifact holds PNGs, the app's log and any crash report. The launch arguments
+  (`-PTDebugScreen`, `-PTDebugSeed`, `-PTDebugReaderSheet`) are read by `Debug/DebugScenario.swift`,
+  which is `#if DEBUG` only — none of it is in the IPA. Download with
+  `gh api repos/<owner>/<repo>/actions/artifacts/<id>/zip`.
+- `ios/Checks/bookmaster/` compiles the app's **real** pure-logic sources (BookMaster client and
+  models, the `Book` model, text→EPUB converter, chapters, resume offer, notification plan, jump
+  history, highlight export, reading stats) on Linux with a Swift 6 toolchain and runs them: against a
+  live local BookMaster (`run.sh`, needs a BookMaster checkout, `wrangler`, `python3`) or alone
+  (`run.sh data`, ~200 checks, no servers). Anything that can be written without UIKit/Readium should
+  be, so it can be checked there; `assemble.sh` lists the files it copies.
+- When touching Readium calls, verify signatures against the toolkit source — the 3.x API changed a lot
+  between releases. The `Archive Readium sources` CI step uploads the resolved checkout as the
+  `readium-src` artifact.
+- Deployment target is iOS 17. Stores that predate it (`LibraryStore`, `ReaderModel`, `AudioPlayer`,
+  `ReadingLog`) are `ObservableObject`; newer code (`BookMaster`, `FolderWatcher`, `Notifier`,
+  `AppRouter`, `PlaybackCoordinator`, `IntentRouter`) uses `@Observable`.
+
+### Gotchas that have cost a build
+
+- A long chain of view modifiers (sheets, alerts, onChange…) can exceed the type checker
+  ("unable to type-check this expression in reasonable time"). Split it into helper functions that each
+  take and return `some View` — see `RootView` (`screens`/`bookSheets`/`alerts`/`routing`) and `ReaderView`.
+- `[String].union` doesn't exist: build a `Set([...])` first.
+- `AnyURL ==` is deprecated: use `isEquivalentTo`. `ReadiumShared.PDFDocument` is a protocol that clashes
+  with PDFKit's class — write `PDFKit.PDFDocument`. `Link` and `Color` clash with SwiftUI's: write
+  `ReadiumShared.Link`; keep Readium's `Color` in files that don't import SwiftUI.
+- `tabViewBottomAccessory(isEnabled:)` is iOS 26.1; the plain `tabViewBottomAccessory` is 26.0.
+- `.backgroundTask` is a *Scene* modifier, not a View one.
+- Catalogue dates are seconds since 1970 on disk but `JSONDecoder`'s default reads 2001-based, which
+  moved dates forward 31 years per save. Anything with a `Date` inside `Book` decodes it through
+  `StoredDate.read` (see the `Book`, `Bookmark` and `Highlight` decoders).
+- Foundation `Process` can hang on Linux; `pkill -f <pattern>` can match its own command line.
 
 ### UI structure (Liquid Glass; see `ios/DESIGN.md`)
 
-- `Design/Glass.swift` is the only place that touches `glassEffect` / `GlassEffectContainer`
-  and the `.glass` button styles — call its `ptGlass`, `PTGlassGroup`, `ptButtonStyle` helpers,
-  never `#available(iOS 26, *)` at a call site. Glass is for controls floating over content, not content.
+- `Design/Glass.swift` is the only place that touches `glassEffect` / `GlassEffectContainer` and the
+  `.glass` button styles — call its `ptGlass`, `PTGlassGroup`, `ptButtonStyle` helpers, never
+  `#available(iOS 26, *)` at a call site. Glass is for controls floating over content, not content.
 - `App/RootView.swift` is the tab shell (iOS 26.1+: glass `TabView` with `tabViewBottomAccessory`;
-  older: plain tabs with the mini player as an inset). `App/AppRouter.swift` decides what presents
-  over the tabs (reader, book sheets, settings).
-- Audiobooks play through `Audio/PlaybackCoordinator.swift`; `NowPlayingView` and `MiniPlayer` observe it.
-- `tabViewBottomAccessory(isEnabled:)` is iOS 26.1; the plain `tabViewBottomAccessory` is 26.0.
+  older: plain tabs with the mini player as an inset). `App/AppRouter.swift` decides what presents over
+  the tabs (reader, book sheets, settings, the "continue from BookMaster?" prompt).
+- Audiobooks play through `Audio/PlaybackCoordinator.swift`; `NowPlayingView` and `MiniPlayer` observe
+  it. Chapters (`Audio/AudioChapter.swift`) are an m4b's embedded markers or one per file.
+- The reader (`Reader/`): `ReaderModel` owns the Readium navigator; `JumpHistory` drives the Back chip;
+  highlights live on the `Book` (colour, note, chapter, progression) and are painted as decorations;
+  `HighlightExport` writes them as Markdown. PDFs are searched by Readium itself (its PDF parser
+  registers a content search service).
 
 ### BookMaster link (`ios/Pageturner/BookMaster/`)
 
 - `BookMasterClient` mirrors `docs/js/bookmaster.js`: pushes to
-  `https://pageturner.pages.dev/api/bookmaster/<route>`; the Pages Function holds
-  `PAGETURNER_SECRET`. Route names must be in that function's `ROUTES` set.
-- Payloads follow BookMaster's `functions/_lib/routes/pageturner.ts`: ids are
-  strings, `at` on a session is milliseconds (a number), percents are 0–100.
-- Offline: progress is de-duplicated per title, sessions and quotes always queue,
-  oldest first, a 4xx is dropped. Presence beats are never queued.
+  `https://pageturner.pages.dev/api/bookmaster/<route>`; the Pages Function holds `PAGETURNER_SECRET`.
+  Route names must be in that function's `ROUTES` set.
+- Payloads follow BookMaster's `functions/_lib/routes/pageturner.ts`: ids are strings, `at` on a session
+  is milliseconds (a number), percents are 0–100.
+- Offline: progress is de-duplicated per title, sessions and quotes always queue, oldest first, a 4xx is
+  dropped. Presence beats are never queued. Only a push reply or a shelf pull may change a book's `bm*`
+  fields (`LibraryStore.updateBookMaster` / `applyShelf`); `update()` always keeps the stored ones.
 - Linking: `ASWebAuthenticationSession` → bookmaster.pages.dev/link/pageturner →
   `pageturner.pages.dev/?bm-link=<code>` → `docs/js/native-link.js` redirects to
-  `pageturner://link?code=<code>`. Keep that script (and its precache entry in
-  `docs/sw.js`) for as long as the site is deployed.
+  `pageturner://link?code=<code>`. Keep that script (and its precache entry in `docs/sw.js`) for as long
+  as the site is deployed — and deploy the site, or the link can't complete on a device.
+- Notifications are **local** (`Notifications/`): a sideloaded app has no push entitlement, so iOS's
+  background refresh (best effort, its schedule) asks BookMaster for new suggestions and posts them.
+- Siri/Shortcuts (`Intents/`) and Spotlight (`Library/SpotlightIndexer.swift`) hand requests to the shell
+  through `IntentRouter`, which holds them until the first screen exists.
+- Not built, on purpose: a Home Screen widget (app extension + App Group, which free-Apple-ID signing
+  doesn't reliably provide) and CarPlay (entitlement).

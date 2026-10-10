@@ -35,6 +35,10 @@ struct RootView: View {
                 intents.request = nil
                 handle(request)
             }
+            #if DEBUG
+            // CI simulator run: launch arguments choose a screen (Debug/DebugScenario.swift)
+            .task { await DebugScenario.run(library: library, router: router) { tab = $0 } }
+            #endif
     }
 
     private func handle(_ request: IntentRouter.Request) {

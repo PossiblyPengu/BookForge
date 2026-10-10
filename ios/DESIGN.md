@@ -30,8 +30,8 @@ it: floating reader chrome, the mini player, the library's hero card.
 ```
 TabView                       (iOS 26: minimises on scroll, mini player docks above it)
 ├─ Library      NavigationStack: Continue hero · filter (All / Books / Audiobooks) · cover grid
-├─ Together     (when linked) partner, suggestions, notices
-├─ Stats        (when linked)
+├─ Together     (when linked) partner, suggestions, notices — badge = suggestions waiting
+├─ Stats        this phone's time and streaks; BookMaster's numbers join them when linked
 └─ Search       role: .search — library search, books and audiobooks
 tabViewBottomAccessory:  mini player (audiobook or read-aloud) → tap opens Now Playing sheet
 Settings:  gear in the Library toolbar → sheet (BookMaster, watched folder, backup, voices)
@@ -52,8 +52,12 @@ Settings:  gear in the Library toolbar → sheet (BookMaster, watched folder, ba
 
 A ✅ B ✅ C ✅ D ✅ E ✅ F ✅ (see git history on `claude/native-overhaul`).
 
-Not done: a draggable position scrubber in the reader (needs the book's page-position list), cover-tinted
-backdrops for the reader, and a device pass — none of this has been looked at on a screen.
+Since then: the reader's footer carries a draggable position scrubber, the reader's chrome follows the page's
+light/dark theme (`preferredColorScheme`), and a **Back** chip floats above the footer after a jump.
+
+Not done: cover-tinted backdrops for the reader. A device pass is still owed — the CI simulator run
+(`.github/workflows/ios-sim.yml`) photographs every screen from a Debug build, which is the nearest thing to
+looking at it, but it is not a device.
 
 - **A** `Design/Glass.swift` helpers; SDK probe confirms the API names.
 - **B** App shell: `TabView`, Settings sheet, playback hoisted out of the full-screen
