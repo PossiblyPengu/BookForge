@@ -26,6 +26,8 @@ struct NowPlayingView: View {
         }
         .padding(.bottom, 12)
         .background(backdrop)
+        .onAppear { BookMaster.shared.place = "player" }
+        .onDisappear { BookMaster.shared.place = "library" }
         .task(id: player.coverImage == nil) {
             if let color = player.coverImage?.averageColor { tint = Color(color) }
         }

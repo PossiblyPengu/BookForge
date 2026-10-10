@@ -2,6 +2,8 @@ import SwiftUI
 
 /// Reading streaks, totals and goals, as BookMaster keeps them.
 struct StatsView: View {
+    /// Inside a tab: no Done button, the tab bar is the way out.
+    var embedded = false
     @Environment(\.dismiss) private var dismiss
     @State private var overview: BMOverview?
     @State private var error: String?
@@ -48,12 +50,16 @@ struct StatsView: View {
                 }
             }
             .navigationTitle("Reading Stats")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(embedded ? .large : .inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                if !embedded {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                }
             }
             .refreshable { await load() }
             .task { await load() }
+            .onAppear { if embedded { BookMaster.shared.place = "stats" } }
+            .onDisappear { if embedded { BookMaster.shared.place = "library" } }
         }
     }
 

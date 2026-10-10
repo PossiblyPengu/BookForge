@@ -2,6 +2,8 @@ import SwiftUI
 
 /// The other reader, what they are on, and the suggestions waiting for you.
 struct TogetherView: View {
+    /// Inside a tab: no Done button, the tab bar is the way out.
+    var embedded = false
     @Environment(\.dismiss) private var dismiss
     @State private var together: BMTogether?
     @State private var error: String?
@@ -22,9 +24,11 @@ struct TogetherView: View {
                 }
             }
             .navigationTitle("Together")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(embedded ? .large : .inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                if !embedded {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                }
             }
             .refreshable { await load() }
             .task { await load() }

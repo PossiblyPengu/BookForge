@@ -7,7 +7,7 @@ struct PageturnerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            LibraryView()
+            RootView()
                 .environmentObject(library)
                 // "Open in Pageturner" from Files, Mail, the share sheet…
                 // and `pageturner://link?code=…`, BookMaster's pair flow coming home.
