@@ -6,6 +6,7 @@ struct LibraryView: View {
     @State private var showImporter = false
     @State private var showBackupImporter = false
     @State private var showBookMaster = false
+    @State private var showTogether = false
     @State private var shareItem: ShareItem?
     @State private var backupMessage: String?
     @State private var openBook: Book?
@@ -44,6 +45,7 @@ struct LibraryView: View {
                 }
                 .sheet(item: $shareItem) { ShareSheet(items: [$0.url]) }
                 .sheet(isPresented: $showBookMaster) { BookMasterSettingsView() }
+                .sheet(isPresented: $showTogether) { TogetherView() }
                 .alert("BookMaster", isPresented: Binding(
                     get: { BookMaster.shared.notice != nil },
                     set: { if !$0 { BookMaster.shared.notice = nil } }
@@ -154,6 +156,11 @@ struct LibraryView: View {
             Menu {
                 Button { showBookMaster = true } label: {
                     Label("BookMaster", systemImage: "link")
+                }
+                if BookMaster.shared.isLinked {
+                    Button { showTogether = true } label: {
+                        Label("Together", systemImage: "person.2")
+                    }
                 }
                 Divider()
                 Button { exportBackup() } label: {

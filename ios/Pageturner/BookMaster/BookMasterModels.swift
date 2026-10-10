@@ -148,3 +148,39 @@ func sendableAuthor(_ raw: String) -> String {
     }
     return clean
 }
+
+// MARK: - Together
+
+struct BMReading: Decodable, Hashable {
+    var title: String
+    var author: String?
+    var format: String?
+    var percent: Double?
+}
+
+struct BMPartner: Decodable {
+    var name: String
+    var online: Bool
+    var reading: BMReading?
+}
+
+struct BMNudge: Decodable, Identifiable, Hashable {
+    var id: String
+    var note: String?
+    var fromName: String
+    var title: String
+    var author: String?
+}
+
+/// A line another suite app wants this one to show.
+struct BMNotice: Decodable, Identifiable, Hashable {
+    var id: String
+    var app: String
+    var text: String
+}
+
+struct BMTogether: Decodable {
+    var partner: BMPartner?
+    var nudges: [BMNudge]
+    var notices: [BMNotice]
+}

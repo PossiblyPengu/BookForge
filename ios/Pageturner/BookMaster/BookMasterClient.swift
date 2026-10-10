@@ -143,6 +143,32 @@ final class BookMaster {
         _ = try? await post("presence", body: body)
     }
 
+    // MARK: Reads
+
+    /// The other reader, the suggestions waiting on you, and notices from the
+    /// rest of the suite. A solo instance answers with no partner.
+    func fetchTogether() async throws -> BMTogether {
+        guard let user else { throw BMError.notLinked }
+        let (data, status) = try await get("together", query: ["username": user.username])
+        guard (200..<300).contains(status) else {
+            handleRefusal(status: status, data: data)
+            throw BMError.server(status, Self.errorMessage(data))
+        }
+        return try JSONDecoder().decode(BMTogether.self, from: data)
+    }
+
+    /// Accept a suggestion onto the want-to-read shelf, or dismiss it.
+    func answerNudge(id: String, accept: Bool) async throws {
+        guard let user else { throw BMError.notLinked }
+        let body = try JSONSerialization.data(withJSONObject: [
+            "username": user.username, "id": id, "action": accept ? "accept" : "dismiss",
+        ])
+        let (data, status) = try await post("nudge-answer", body: body)
+        guard (200..<300).contains(status) else {
+            throw BMError.server(status, Self.errorMessage(data))
+        }
+    }
+
     // MARK: Sending
 
     /// Send a push, parking it when the network can't take it. Returns the
@@ -243,6 +269,15 @@ final class BookMaster {
     }
 
     // MARK: Transport
+
+    private func get(_ path: String, query: [String: String]) async throws -> (Data, Int) {
+        var parts = URLComponents(url: Self.bridge.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        parts.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        var request = URLRequest(url: parts.url!)
+        request.timeoutInterval = 20
+        let (data, response) = try await URLSession.shared.data(for: request)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+    }
 
     private func post(_ path: String, body: Data) async throws -> (Data, Int) {
         var request = URLRequest(url: Self.bridge.appendingPathComponent(path))
