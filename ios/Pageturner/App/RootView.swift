@@ -10,71 +10,112 @@ struct RootView: View {
     @State private var tab: AppTab = .library
     private let playback = PlaybackCoordinator.shared
     private let bookMaster = BookMaster.shared
+    private let notifier = Notifier.shared
 
     var body: some View {
-        @Bindable var router = router
-        @Bindable var playback = playback
-        shell
+        // grouped, so no one expression is a long chain the compiler has to solve at once
+        alerts(bookSheets(screens(shell)))
             .tint(.ptAccent)
-            .fullScreenCover(item: $router.reading) { book in
+            // a tapped suggestion notification opens the Together tab
+            .onChange(of: notifier.openTogether, initial: true) { _, open in
+                guard open else { return }
+                tab = .together
+                notifier.openTogether = false
+            }
+            // outermost, so the tabs and everything presented over them can read it
+            .environment(router)
+    }
+
+    // MARK: Presentations
+
+    /// The reader and the player, over everything.
+    private func screens<V: View>(_ content: V) -> some View {
+        @Bindable var r = router
+        @Bindable var p = playback
+        return content
+            .fullScreenCover(item: $r.reading) { book in
                 ReaderView(book: book, library: library)
             }
-            .sheet(isPresented: $playback.showNowPlaying) {
+            .sheet(isPresented: $p.showNowPlaying) {
                 if let player = playback.player {
                     NowPlayingView(player: player) { playback.stop() }
                         .presentationDragIndicator(.visible)
                 }
             }
-            .sheet(item: $router.detail) { book in
-                BookDetailSheet(book: book, cover: library.cover(for: book)) {
-                    router.detail = nil
-                    // "Read again" starts from the beginning, not the last page
-                    if (book.progression ?? 0) >= 0.995 { library.restart(book.id) }
-                    router.open(library.books.first { $0.id == book.id } ?? book, library: library)
-                } onEdit: {
-                    router.detail = nil
-                    // present the edit sheet after this one is fully dismissed
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { router.editing = book }
-                } onDelete: {
-                    router.detail = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { router.askDelete([book]) }
-                } onShelves: {
-                    router.detail = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { router.openShelves([book.id]) }
-                } onFinish: {
-                    library.markFinished(book.id)
-                    router.detail = nil
-                } onRestart: {
-                    library.restart(book.id)
-                    router.detail = nil
-                }
+    }
+
+    /// A book's detail, its edit form, shelves and Settings.
+    private func bookSheets<V: View>(_ content: V) -> some View {
+        @Bindable var r = router
+        return content
+            .sheet(item: $r.detail) { book in detailSheet(book) }
+            .sheet(item: $r.editing) { book in editSheet(book) }
+            .sheet(item: $r.shelfTarget) { ShelvesSheet(target: $0) }
+            .sheet(isPresented: $r.showSettings) { SettingsView() }
+    }
+
+    private func detailSheet(_ book: Book) -> some View {
+        BookDetailSheet(book: book, cover: library.cover(for: book)) {
+            router.detail = nil
+            // "Read again" starts from the beginning, not the last page
+            if (book.progression ?? 0) >= 0.995 { library.restart(book.id) }
+            router.open(library.books.first { $0.id == book.id } ?? book, library: library)
+        } onEdit: {
+            router.detail = nil
+            // present the edit sheet after this one is fully dismissed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { router.editing = book }
+        } onDelete: {
+            router.detail = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { router.askDelete([book]) }
+        } onShelves: {
+            router.detail = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { router.openShelves([book.id]) }
+        } onFinish: {
+            library.markFinished(book.id)
+            router.detail = nil
+        } onRestart: {
+            library.restart(book.id)
+            router.detail = nil
+        }
+    }
+
+    private func editSheet(_ book: Book) -> some View {
+        BookEditSheet(book: book) { updated in
+            library.update(updated)
+            // a lookup that named a BookMaster shelf row pins the book to it
+            if let pin = updated.bookmasterId, pin != book.bookmasterId {
+                library.updateBookMaster(book.id) { $0.bookmasterId = pin }
             }
-            .sheet(item: $router.editing) { book in
-                BookEditSheet(book: book) { updated in
-                    library.update(updated)
-                    // a lookup that named a BookMaster shelf row pins the book to it
-                    if let pin = updated.bookmasterId, pin != book.bookmasterId {
-                        library.updateBookMaster(book.id) { $0.bookmasterId = pin }
-                    }
-                    router.editing = nil
-                }
-            }
-            .sheet(item: $router.shelfTarget) { ShelvesSheet(target: $0) }
-            .sheet(isPresented: $router.showSettings) { SettingsView() }
-            .alert("BookMaster", isPresented: Binding(
-                get: { bookMaster.notice != nil },
-                set: { if !$0 { bookMaster.notice = nil } }
-            )) {
+            router.editing = nil
+        }
+    }
+
+    /// BookMaster's notice, the "continue from BookMaster?" question and the remove confirmation.
+    private func alerts<V: View>(_ content: V) -> some View {
+        content
+            .alert("BookMaster", isPresented: noticeShown) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(bookMaster.notice ?? "")
             }
+            .alert(
+                "Continue from BookMaster?",
+                isPresented: resumeShown,
+                presenting: router.resumePrompt
+            ) { prompt in
+                Button("Go to \(ResumeOffer.label(prompt.fraction))") {
+                    router.answer(prompt, jump: true, library: library)
+                }
+                Button("Stay at \(ResumeOffer.label(prompt.book.progression ?? 0))") {
+                    router.answer(prompt, jump: false, library: library)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { prompt in
+                Text(Self.resumeMessage(prompt))
+            }
             .confirmationDialog(
                 Self.deleteTitle(router.pendingDelete),
-                isPresented: Binding(
-                    get: { !router.pendingDelete.isEmpty },
-                    set: { if !$0 { router.pendingDelete = [] } }
-                ),
+                isPresented: deleteShown,
                 titleVisibility: .visible,
                 presenting: router.pendingDelete.isEmpty ? nil : router.pendingDelete
             ) { books in
@@ -87,8 +128,24 @@ struct RootView: View {
             } message: { _ in
                 Text("This also deletes the file from this device. Your BookMaster shelf isn’t touched.")
             }
-            // outermost, so the tabs and everything presented over them can read it
-            .environment(router)
+    }
+
+    private var noticeShown: Binding<Bool> {
+        Binding(get: { bookMaster.notice != nil }, set: { if !$0 { bookMaster.notice = nil } })
+    }
+
+    private var resumeShown: Binding<Bool> {
+        Binding(get: { router.resumePrompt != nil }, set: { if !$0 { router.resumePrompt = nil } })
+    }
+
+    private var deleteShown: Binding<Bool> {
+        Binding(get: { !router.pendingDelete.isEmpty }, set: { if !$0 { router.pendingDelete = [] } })
+    }
+
+    private static func resumeMessage(_ prompt: ResumePrompt) -> String {
+        let remote = ResumeOffer.label(prompt.fraction)
+        let here = ResumeOffer.label(prompt.book.progression ?? 0)
+        return "BookMaster has you \(remote) of the way through “\(prompt.book.title)”. This device is at \(here)."
     }
 
     private static func deleteTitle(_ books: [Book]) -> String {
@@ -116,6 +173,7 @@ struct RootView: View {
             Tab("Together", systemImage: "person.2", value: AppTab.together) {
                 togetherTab
             }
+            .badge(notifier.pendingCount)
             Tab("Stats", systemImage: "chart.bar", value: AppTab.stats) {
                 statsTab
             }
@@ -134,6 +192,7 @@ struct RootView: View {
                 .tag(AppTab.library)
             withMiniPlayer(togetherTab)
                 .tabItem { Label("Together", systemImage: "person.2") }
+                .badge(notifier.pendingCount)
                 .tag(AppTab.together)
             withMiniPlayer(statsTab)
                 .tabItem { Label("Stats", systemImage: "chart.bar") }

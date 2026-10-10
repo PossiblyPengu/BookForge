@@ -11,6 +11,9 @@ final class AudioPlayer: ObservableObject {
     @Published private(set) var position: TimeInterval = 0   // seconds from book start
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var trackIndex = 0
+    /// Chapters on the book's timeline — a file each for a multi-file book, the
+    /// embedded markers for a single m4b. Empty when the audio has none.
+    @Published private(set) var chapters: [AudioChapter] = []
     @Published var rate: Float {
         didSet {
             if isPlaying { player?.rate = rate }
@@ -33,6 +36,7 @@ final class AudioPlayer: ObservableObject {
     private var sleepTimer: Timer?
     private var sleepDeadline: Date?
     private var lastSavedPosition: TimeInterval = -1
+    private var lastChapterIndex: Int?
     private var artworkItem: MPMediaItemArtwork?
     /// Where and when this listen began, for the BookMaster session push.
     private var sessionStart: (at: Date, progression: Double)?
@@ -60,6 +64,9 @@ final class AudioPlayer: ObservableObject {
         }
         trackOffsets = offsets
         duration = total
+        chapters = urls.count > 1
+            ? AudioChapters.fromTracks(titles: trackNames, offsets: offsets, duration: total)
+            : await Self.embeddedChapters(of: urls.first, duration: total)
         coverImage = library.cover(for: book)
         guard !urls.isEmpty else {
             notice = "No audio files found for this book."
@@ -166,6 +173,15 @@ final class AudioPlayer: ObservableObject {
         updateNowPlaying()
     }
 
+    /// Chapters when the book has them, otherwise files.
+    func skipForwardAChapter() {
+        if chapters.count > 1 { nextChapter() } else { nextTrack() }
+    }
+
+    func skipBackAChapter() {
+        if chapters.count > 1 { previousChapter() } else { previousTrack() }
+    }
+
     func nextTrack() {
         goToTrack(trackIndex + 1)
     }
@@ -185,6 +201,54 @@ final class AudioPlayer: ObservableObject {
         let wasPlaying = isPlaying
         load(track: index)
         if wasPlaying { resumePlayback() }
+    }
+
+    // MARK: - Chapters
+
+    var currentChapterIndex: Int? { AudioChapters.index(at: position, in: chapters) }
+
+    var currentChapter: AudioChapter? { currentChapterIndex.map { chapters[$0] } }
+
+    /// Seconds left in the chapter being played.
+    var chapterRemaining: TimeInterval? {
+        currentChapter.map { max($0.end - position, 0) }
+    }
+
+    func goToChapter(_ index: Int) {
+        guard chapters.indices.contains(index) else { return }
+        seek(to: chapters[index].start, resume: isPlaying)
+    }
+
+    func nextChapter() {
+        guard let current = currentChapterIndex, current + 1 < chapters.count else { return }
+        goToChapter(current + 1)
+    }
+
+    /// Restart the chapter, or go back one when already at its head.
+    func previousChapter() {
+        guard let target = AudioChapters.previousTarget(position: position, in: chapters) else { return }
+        goToChapter(target)
+    }
+
+    /// The markers inside a single audio file (m4b/m4a chapter tracks). A file
+    /// without any, or one that won't say, has no chapters.
+    private static func embeddedChapters(of url: URL?, duration: TimeInterval) async -> [AudioChapter] {
+        guard let url else { return [] }
+        let asset = AVURLAsset(url: url)
+        guard let groups = try? await asset.loadChapterMetadataGroups(
+            bestMatchingPreferredLanguages: Locale.preferredLanguages), !groups.isEmpty
+        else { return [] }
+        var raw: [(title: String, start: TimeInterval, end: TimeInterval?)] = []
+        for group in groups {
+            let titles = AVMetadataItem.metadataItems(from: group.items, filteredByIdentifier: .commonIdentifierTitle)
+            var title = ""
+            if let item = titles.first ?? group.items.first, let text = try? await item.load(.stringValue) {
+                title = text
+            }
+            let end = group.timeRange.end.seconds
+            raw.append((title, group.timeRange.start.seconds, end.isFinite ? end : nil))
+        }
+        return AudioChapters.normalise(raw, duration: duration)
     }
 
     var trackNames: [String] {
@@ -297,6 +361,11 @@ final class AudioPlayer: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.position = self.trackOffsets[self.trackIndex] + time.seconds
+                // the lock screen shows the chapter's name — keep it current
+                if self.currentChapterIndex != self.lastChapterIndex {
+                    self.lastChapterIndex = self.currentChapterIndex
+                    self.updateNowPlaying()
+                }
                 // persist about every 10s so resume survives a force-quit
                 if self.isPlaying, abs(self.position - self.lastSavedPosition) >= 10 {
                     self.lastSavedPosition = self.position
@@ -311,8 +380,8 @@ final class AudioPlayer: ObservableObject {
         center.playCommand.addTarget { [weak self] _ in self?.play(); return .success }
         center.pauseCommand.addTarget { [weak self] _ in self?.pause(); return .success }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in self?.togglePlay(); return .success }
-        center.nextTrackCommand.addTarget { [weak self] _ in self?.nextTrack(); return .success }
-        center.previousTrackCommand.addTarget { [weak self] _ in self?.previousTrack(); return .success }
+        center.nextTrackCommand.addTarget { [weak self] _ in self?.skipForwardAChapter(); return .success }
+        center.previousTrackCommand.addTarget { [weak self] _ in self?.skipBackAChapter(); return .success }
         center.skipForwardCommand.preferredIntervals = [30]
         center.skipForwardCommand.addTarget { [weak self] _ in self?.skip(by: 30); return .success }
         center.skipBackwardCommand.preferredIntervals = [15]
@@ -325,16 +394,17 @@ final class AudioPlayer: ObservableObject {
             artworkItem = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
         }
         var info: [String: Any] = [
-            MPMediaItemPropertyTitle: book.title,
+            MPMediaItemPropertyTitle: currentChapter?.title ?? book.title,
+            MPMediaItemPropertyAlbumTitle: book.title,
             MPMediaItemPropertyArtist: book.author,
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? rate : 0,
         ]
         if let artworkItem { info[MPMediaItemPropertyArtwork] = artworkItem }
-        if urls.count > 1 {
-            info[MPMediaItemPropertyAlbumTrackNumber] = trackIndex + 1
-            info[MPMediaItemPropertyAlbumTrackCount] = urls.count
+        if let index = currentChapterIndex {
+            info[MPNowPlayingInfoPropertyChapterNumber] = index
+            info[MPNowPlayingInfoPropertyChapterCount] = chapters.count
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }

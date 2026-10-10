@@ -7,6 +7,7 @@ struct BookMasterSection: View {
     @State private var working = false
     @State private var error: String?
     private let bookMaster = BookMaster.shared
+    private let notifier = Notifier.shared
 
     var body: some View {
         Group {
@@ -23,9 +24,28 @@ struct BookMasterSection: View {
                         : "Paused. Nothing is sent while you read; comments, suggestions and quotes still work.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    Toggle("Notify me about suggestions", isOn: Binding(
+                        get: { notifier.enabled },
+                        set: { on in Task { await notifier.setEnabled(on) } }
+                    ))
+                    if notifier.blockedBySystem {
+                        Text("Notifications are turned off for Pageturner in iOS Settings.")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                        Button("Open iOS Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                    } else {
+                        Text("A suggestion from the other reader shows up as a notification. iOS decides when Pageturner may check in the background, so it can take a while — and Background App Refresh has to be on.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     Button("Unlink BookMaster", role: .destructive) {
                         bookMaster.unlink()
                         library.clearBookMasterFields()
+                        notifier.reset()
                     }
                 }
             } else {
@@ -45,6 +65,7 @@ struct BookMasterSection: View {
                 Section { Text(error).foregroundStyle(.red) }
             }
         }
+        .task { await notifier.refreshAuthorization() }
     }
 
     private func link() async {

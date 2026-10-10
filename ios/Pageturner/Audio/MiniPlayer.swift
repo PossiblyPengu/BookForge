@@ -5,6 +5,12 @@ struct MiniPlayer: View {
     @ObservedObject var player: AudioPlayer
     let onOpen: () -> Void
 
+    /// The chapter being played, when the book has chapters; otherwise the author.
+    private var subtitle: String? {
+        if player.chapters.count > 1, let chapter = player.currentChapter { return chapter.title }
+        return player.bookAuthor.isEmpty ? nil : player.bookAuthor
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Button(action: onOpen) {
@@ -25,8 +31,8 @@ struct MiniPlayer: View {
                         Text(player.bookTitle)
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
-                        if !player.bookAuthor.isEmpty {
-                            Text(player.bookAuthor)
+                        if let line = subtitle {
+                            Text(line)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)

@@ -55,9 +55,13 @@ targets:
           - CFBundleURLName: io.github.possiblypengu.pageturner
             CFBundleURLSchemes:
               - pageturner
-        # read-aloud keeps playing with the screen locked
+        # read-aloud keeps playing with the screen locked; "fetch" lets iOS wake
+        # the app now and then to look for new BookMaster suggestions
         UIBackgroundModes:
           - audio
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - io.github.possiblypengu.pageturner.refresh
         # the Books folder is visible in the Files app
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true

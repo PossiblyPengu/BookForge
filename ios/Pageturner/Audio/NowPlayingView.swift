@@ -9,6 +9,7 @@ struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var scrubbing: TimeInterval?
     @State private var tint: Color = .ptAccent
+    @State private var showChapters = false
 
     private var shownPosition: TimeInterval { scrubbing ?? player.position }
 
@@ -30,6 +31,10 @@ struct NowPlayingView: View {
         .onDisappear { BookMaster.shared.place = "library" }
         .task(id: player.coverImage == nil) {
             if let color = player.coverImage?.averageColor { tint = Color(color) }
+        }
+        .sheet(isPresented: $showChapters) {
+            ChapterListSheet(player: player)
+                .presentationDetents([.medium, .large])
         }
         .alert("Pageturner", isPresented: Binding(
             get: { player.notice != nil },
@@ -56,19 +61,9 @@ struct NowPlayingView: View {
             PTIconButton(systemImage: "chevron.down", label: "Close player") { dismiss() }
             Spacer()
             Menu {
-                if player.trackCount > 1 {
-                    Menu("Tracks") {
-                        ForEach(Array(player.trackNames.enumerated()), id: \.offset) { index, name in
-                            Button {
-                                player.goToTrack(index)
-                            } label: {
-                                if index == player.trackIndex {
-                                    Label(name, systemImage: "checkmark")
-                                } else {
-                                    Text(name)
-                                }
-                            }
-                        }
+                if player.chapters.count > 1 {
+                    Button { showChapters = true } label: {
+                        Label("Chapters", systemImage: "list.bullet")
                     }
                 }
                 Button(role: .destructive) {
@@ -124,9 +119,9 @@ struct NowPlayingView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            if player.trackCount > 1, let name = player.trackNames[safe: player.trackIndex] {
-                Text(name)
-                    .font(.caption)
+            if let chapter = player.currentChapter, player.chapters.count > 1 {
+                Text(chapter.title)
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .padding(.top, 2)
@@ -152,6 +147,11 @@ struct NowPlayingView: View {
             HStack {
                 Text(format(shownPosition)).monospacedDigit()
                 Spacer()
+                if let chapter = player.currentChapter, player.chapters.count > 1 {
+                    Text("\(format(max(chapter.end - shownPosition, 0))) left in chapter")
+                        .monospacedDigit()
+                    Spacer()
+                }
                 Text("-" + format(max(player.duration - shownPosition, 0))).monospacedDigit()
             }
             .font(.caption)
@@ -161,9 +161,15 @@ struct NowPlayingView: View {
     }
 
     private var transport: some View {
-        PTGlassGroup(spacing: 18) {
-            HStack(spacing: 18) {
-                transportButton("gobackward.15", label: "Back 15 seconds", size: 64) {
+        let chapterSkips = player.chapters.count > 1
+        return PTGlassGroup(spacing: 14) {
+            HStack(spacing: chapterSkips ? 10 : 18) {
+                if chapterSkips {
+                    transportButton("backward.end.fill", label: "Previous chapter", size: 50) {
+                        player.previousChapter()
+                    }
+                }
+                transportButton("gobackward.15", label: "Back 15 seconds", size: chapterSkips ? 56 : 64) {
                     player.skip(by: -15)
                 }
                 Button { player.togglePlay() } label: {
@@ -175,8 +181,13 @@ struct NowPlayingView: View {
                 .buttonStyle(.plain)
                 .ptGlass(in: Circle(), tint: .ptAccent.opacity(0.55), interactive: true)
                 .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
-                transportButton("goforward.30", label: "Forward 30 seconds", size: 64) {
+                transportButton("goforward.30", label: "Forward 30 seconds", size: chapterSkips ? 56 : 64) {
                     player.skip(by: 30)
+                }
+                if chapterSkips {
+                    transportButton("forward.end.fill", label: "Next chapter", size: 50) {
+                        player.nextChapter()
+                    }
                 }
             }
         }
@@ -222,6 +233,14 @@ struct NowPlayingView: View {
                     }
                 }
                 .accessibilityLabel("Sleep timer")
+
+                if player.chapters.count > 1 {
+                    Button { showChapters = true } label: {
+                        chip("Chapters", symbol: "list.bullet")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Chapters")
+                }
             }
         }
     }
@@ -244,8 +263,64 @@ struct NowPlayingView: View {
     }
 }
 
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
+/// Every chapter with where it starts; tap one to jump there.
+private struct ChapterListSheet: View {
+    @ObservedObject var player: AudioPlayer
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                List(player.chapters) { chapter in
+                    let current = chapter.id == player.currentChapterIndex
+                    Button {
+                        player.goToChapter(chapter.id)
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(chapter.title)
+                                    .font(.body.weight(current ? .semibold : .regular))
+                                    .foregroundStyle(current ? Color.ptAccent : Color.primary)
+                                    .lineLimit(2)
+                                Text(Self.format(chapter.length))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            if current {
+                                Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
+                                    .foregroundStyle(Color.ptAccent)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(Self.format(chapter.start))
+                                .font(.callout.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .id(chapter.id)
+                    .accessibilityAddTraits(current ? .isSelected : [])
+                }
+                .listStyle(.plain)
+                .onAppear {
+                    if let index = player.currentChapterIndex { proxy.scrollTo(index, anchor: .center) }
+                }
+            }
+            .navigationTitle("Chapters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private static func format(_ seconds: TimeInterval) -> String {
+        let s = Int(seconds.rounded(.down))
+        let h = s / 3600, m = (s % 3600) / 60, r = s % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, r)
+            : String(format: "%d:%02d", m, r)
     }
 }

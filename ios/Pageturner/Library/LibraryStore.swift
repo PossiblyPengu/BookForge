@@ -428,6 +428,15 @@ final class LibraryStore: ObservableObject {
         save()
     }
 
+    /// The answer to "BookMaster has you at N% — jump there?": take its place
+    /// (`fraction`) or, with nil, stay where this device is.
+    func answerResume(_ id: UUID, fraction: Double?) {
+        guard let i = books.firstIndex(where: { $0.id == id }) else { return }
+        var book = books[i]
+        if let fraction { ResumeOffer.accept(&book, fraction: fraction) } else { ResumeOffer.decline(&book) }
+        update(book)
+    }
+
     /// Change only the BookMaster fields of one book.
     func updateBookMaster(_ id: UUID, _ change: (inout Book) -> Void) {
         guard let i = books.firstIndex(where: { $0.id == id }) else { return }

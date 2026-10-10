@@ -49,7 +49,12 @@ final class ReaderModel: ObservableObject {
         do {
             let publication = try await Readium.shared.open(url: library.fileURL(for: book))
             self.publication = publication
-            let initial = book.locatorJSON.flatMap { try? Locator(jsonString: $0) }
+            var initial = book.locatorJSON.flatMap { try? Locator(jsonString: $0) }
+            // no saved place but a progression (a jump to where BookMaster has
+            // the book, or a restored backup): find that point in the book
+            if initial == nil, let progression = book.progression, progression > 0.001 {
+                initial = await publication.locate(progression: min(progression, 0.999))
+            }
 
             // comics (cbz) are opened by the EPUB navigator too — the CBZ one is deprecated
             if publication.conforms(to: .epub) || publication.conforms(to: .divina) {

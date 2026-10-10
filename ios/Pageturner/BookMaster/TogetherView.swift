@@ -100,7 +100,9 @@ struct TogetherView: View {
 
     private func load() async {
         do {
-            together = try await BookMaster.shared.fetchTogether()
+            let fresh = try await BookMaster.shared.fetchTogether()
+            together = fresh
+            Notifier.shared.noteSeen(fresh)
             error = nil
         } catch {
             if together == nil { self.error = error.localizedDescription }
@@ -112,6 +114,7 @@ struct TogetherView: View {
         do {
             try await BookMaster.shared.answerNudge(id: nudge.id, accept: accept)
             together?.nudges.removeAll { $0.id == nudge.id }
+            if let together { Notifier.shared.noteSeen(together) }
         } catch {
             self.error = error.localizedDescription
         }

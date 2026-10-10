@@ -1,9 +1,15 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct PageturnerApp: App {
     @StateObject private var library = LibraryStore()
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        // taps on a suggestion notification come back through here
+        UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -27,6 +33,7 @@ struct PageturnerApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .background {
                         Task { await BookMaster.shared.beat(leaving: true) }
+                        Notifier.shared.scheduleRefresh()
                     }
                 }
                 // runs while the app is in front: say hello first (the slow work
@@ -38,12 +45,18 @@ struct PageturnerApp: App {
                     await BookMaster.shared.flush()
                     await FolderWatcher.shared.scan(library: library)
                     await BookMaster.shared.pullShelf(into: library)
+                    await Notifier.shared.refresh(notify: false)
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(45))
                         guard !Task.isCancelled else { return }
                         await BookMaster.shared.beat()
                     }
                 }
+        }
+        // iOS's own background refresh (a scene modifier): look for new
+        // suggestions and announce them
+        .backgroundTask(.appRefresh(Notifier.refreshTaskID)) {
+            await Notifier.shared.backgroundRefresh()
         }
     }
 }

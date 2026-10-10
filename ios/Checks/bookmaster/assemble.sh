@@ -10,6 +10,9 @@ cp "$SRC/BookMaster/BookMasterShelf.swift" "$OUT/BookMasterShelf.swift"
 cp "$SRC/Import/TextBook.swift" "$OUT/TextBook.swift"
 cp "$SRC/Import/ZipWriter.swift" "$OUT/ZipWriter.swift"
 cp "$SRC/Library/BookText.swift" "$OUT/BookText.swift"
+cp "$SRC/Library/ResumeOffer.swift" "$OUT/ResumeOffer.swift"
+cp "$SRC/Audio/AudioChapter.swift" "$OUT/AudioChapter.swift"
+cp "$SRC/Notifications/NotificationPlan.swift" "$OUT/NotificationPlan.swift"
 python3 - "$SRC" "$OUT" <<'PY'
 import sys
 src, out = sys.argv[1], sys.argv[2]

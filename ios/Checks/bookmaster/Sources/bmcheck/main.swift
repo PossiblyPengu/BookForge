@@ -114,6 +114,7 @@ func runData() {
     check("author: missing never decides", BMShelf.authorsAgree("", "Frank Herbert") && BMShelf.authorsAgree("Frank Herbert", nil))
 
     runBookText()
+    runLogic()
     runTextBook()
 }
 
@@ -212,6 +213,11 @@ func run() async {
         check("suggestion fields decode", t.nudges.first?.title == "Hyperion" && t.nudges.first?.fromName == "Kristen" && t.nudges.first?.note == "you will love this", "\(String(describing: t.nudges.first))")
         nudgeId = t.nudges.first?.id
         check("notices decode", t.notices.allSatisfy { !$0.text.isEmpty })
+        let told = NotificationPlan.plan(nudges: t.nudges, notices: t.notices, seen: [])
+        check("the live suggestion becomes the notification the reader would see",
+              told.items.first?.title == "Kristen suggested a book"
+                && told.items.first?.body == "Hyperion by Dan Simmons — “you will love this”", "\(told.items)")
+        check("…and is not announced twice", NotificationPlan.plan(nudges: t.nudges, notices: t.notices, seen: told.seen).items.isEmpty)
     } catch { check("together decodes with a nudge", false, "\(error)") }
     if let nudgeId {
         do {

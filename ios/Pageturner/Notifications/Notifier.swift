@@ -1,0 +1,165 @@
+import BackgroundTasks
+import Observation
+import UIKit
+import UserNotifications
+
+/// Suggestions from the other reader as notifications, and the Together tab's badge.
+///
+/// A sideloaded app has no push entitlement, so these are *local* notifications:
+/// iOS wakes the app for a background refresh every so often (when, is its call,
+/// not ours), the app asks BookMaster what is waiting, and posts a notification
+/// for anything it hasn't already mentioned.
+@Observable
+@MainActor
+final class Notifier {
+    static let shared = Notifier()
+    static let refreshTaskID = "io.github.possiblypengu.pageturner.refresh"
+
+    /// Suggestions waiting on the reader — the Together tab's badge.
+    private(set) var pendingCount = 0
+    /// The system's answer to "may I send notifications?" — refreshed on demand.
+    private(set) var authorization: UNAuthorizationStatus = .notDetermined
+    /// Set when a notification is tapped; the shell switches to Together and clears it.
+    var openTogether = false
+
+    private let defaults = UserDefaults.standard
+
+    /// Whether the reader wants notifications. Observable, stored in UserDefaults.
+    var enabled: Bool {
+        get {
+            access(keyPath: \.enabled)
+            return defaults.bool(forKey: "notify-suggestions")
+        }
+        set {
+            withMutation(keyPath: \.enabled) {
+                defaults.set(newValue, forKey: "notify-suggestions")
+            }
+        }
+    }
+
+    /// Switched on but refused (or later turned off) in iOS Settings.
+    var blockedBySystem: Bool { enabled && authorization == .denied }
+
+    /// What was already announced, kept per account so another one starts fresh.
+    private var seenKey: String? {
+        BookMaster.shared.user.map { "notified-ids-\($0.username)" }
+    }
+
+    // MARK: Switching on and off
+
+    func refreshAuthorization() async {
+        authorization = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
+    /// The Settings toggle. Switching on asks iOS for permission the first time.
+    func setEnabled(_ on: Bool) async {
+        guard on else {
+            enabled = false
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
+            await setBadge(0)
+            return
+        }
+        let granted = (try? await UNUserNotificationCenter.current()
+            .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        await refreshAuthorization()
+        enabled = granted
+        guard granted else { return }
+        // what is waiting right now is already known — only new things get announced
+        await refresh(notify: false)
+        scheduleRefresh()
+    }
+
+    // MARK: Looking
+
+    /// Ask BookMaster what is waiting. In front of the reader, new things are only
+    /// counted (the Together tab shows them); behind the app they are announced.
+    func refresh(notify: Bool) async {
+        guard BookMaster.shared.isLinked,
+              let together = try? await BookMaster.shared.fetchTogether()
+        else { return }
+        let announce = settle(together)
+        await refreshAuthorization()
+        if notify, enabled, !announce.isEmpty { await post(announce) }
+    }
+
+    /// The Together tab loaded or changed — keep the badge and the "already told" set in step.
+    func noteSeen(_ together: BMTogether) {
+        _ = settle(together)
+    }
+
+    /// Update the count and the remembered set; return what is new since last time.
+    private func settle(_ together: BMTogether) -> [NotificationPlan.Item] {
+        pendingCount = together.nudges.count
+        guard let key = seenKey else { return [] }
+        let known = defaults.stringArray(forKey: key).map { Set($0) }
+        let result = NotificationPlan.plan(nudges: together.nudges, notices: together.notices, seen: known)
+        defaults.set(Array(result.seen), forKey: key)
+        if enabled { Task { await setBadge(pendingCount) } }
+        return result.items
+    }
+
+    private func post(_ items: [NotificationPlan.Item]) async {
+        let center = UNUserNotificationCenter.current()
+        let status = await center.notificationSettings().authorizationStatus
+        guard status == .authorized || status == .provisional else { return }
+        for item in items {
+            let content = UNMutableNotificationContent()
+            content.title = item.title
+            content.body = item.body
+            content.sound = .default
+            content.threadIdentifier = "together"
+            // no trigger: deliver now
+            try? await center.add(UNNotificationRequest(identifier: item.id, content: content, trigger: nil))
+        }
+    }
+
+    private func setBadge(_ count: Int) async {
+        try? await UNUserNotificationCenter.current().setBadgeCount(count)
+    }
+
+    // MARK: Background refresh
+
+    /// Line up the next background check — or drop it when it has no job to do.
+    func scheduleRefresh() {
+        let scheduler = BGTaskScheduler.shared
+        guard enabled, BookMaster.shared.isLinked else {
+            scheduler.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
+            return
+        }
+        let request = BGAppRefreshTaskRequest(identifier: Self.refreshTaskID)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 20 * 60)
+        try? scheduler.submit(request)
+    }
+
+    /// What the system's background refresh runs: look, announce, line up the next.
+    func backgroundRefresh() async {
+        defer { scheduleRefresh() }
+        guard enabled, BookMaster.shared.isLinked else { return }
+        await refresh(notify: true)
+    }
+
+    /// Unlinking: forget the count and the badge.
+    func reset() {
+        pendingCount = 0
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
+        Task { await setBadge(0) }
+    }
+}
+
+/// Receives notification taps. A notification that arrives while the app is in
+/// front stays quiet — the Together tab already shows what it would say.
+final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = NotificationDelegate()
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        []
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
+    ) async {
+        await MainActor.run { Notifier.shared.openTogether = true }
+    }
+}
