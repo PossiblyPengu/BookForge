@@ -1,0 +1,5 @@
+.build/
+.work/
+Sources/bmcheck/BookMaster*.swift
+Sources/bmcheck/BookModel.swift
+Sources/bmcheck/LibraryStub.swift
