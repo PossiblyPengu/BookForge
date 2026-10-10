@@ -2,9 +2,9 @@
 // Pageturner runs that flow in an in-app browser sheet, which can only be
 // closed by a custom-scheme redirect — so hand the code to the app. An
 // installed web app (standalone) still redeems its own code.
-(function () {
-  var m = /[?&]bm-link=([^&#]+)/.exec(location.search);
-  var standalone =
-    navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
-  if (m && !standalone) location.replace("pageturner://link?code=" + m[1]);
+(() => {
+  const m = /[?&]bm-link=([^&#]+)/.exec(location.search);
+  const standalone =
+    navigator.standalone || window.matchMedia?.("(display-mode: standalone)").matches;
+  if (m && !standalone) location.replace(`pageturner://link?code=${m[1]}`);
 })();
