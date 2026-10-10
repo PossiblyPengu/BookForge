@@ -65,12 +65,7 @@ struct LibraryView: View {
         }
     }
 
-    /// The book most recently opened that isn't finished.
-    private var continueBook: Book? {
-        library.books
-            .filter { ($0.progression ?? 0) > 0.001 && ($0.progression ?? 0) < 0.995 }
-            .max { ($0.lastOpenedAt ?? .distantPast) < ($1.lastOpenedAt ?? .distantPast) }
-    }
+    private var continueBook: Book? { library.continueBook }
 
     var body: some View {
         NavigationStack {

@@ -336,9 +336,14 @@ final class AudioPlayer: ObservableObject {
         guard let start = sessionStart, duration > 0 else { return }
         sessionStart = nil
         let end = position / duration
-        guard (end - start.progression) * 100 >= 0.5 else { return }
-        let ref = book.bookMasterRef
         let minutes = Date().timeIntervalSince(start.at) / 60
+        let moved = (end - start.progression) * 100 >= 0.5
+        // the local log keeps any real listen — even a long one that went nowhere
+        if moved || minutes >= 2 {
+            ReadingLog.shared.record(book: book, minutes: minutes, from: start.progression, to: end, audio: true)
+        }
+        guard moved else { return }
+        let ref = book.bookMasterRef
         Task {
             await BookMaster.shared.syncSession(
                 ref: ref, percentStart: start.progression, percentEnd: end,

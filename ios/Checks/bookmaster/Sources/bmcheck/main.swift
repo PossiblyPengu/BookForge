@@ -115,6 +115,7 @@ func runData() {
 
     runBookText()
     runLogic()
+    runStatsChecks()
     runTextBook()
 }
 

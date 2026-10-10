@@ -239,6 +239,80 @@ func runLogic() {
     check("…with its early-build date repaired", abs((legacy?.first?.highlights.first?.createdAt.timeIntervalSince(made)) ?? 9e9) < 2)
 }
 
+
+@MainActor
+func runStatsChecks() {
+    section("Local reading stats")
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "UTC")!
+    // Wed 14 Feb 2024, 15:00 UTC
+    let now = Date(timeIntervalSince1970: 1_707_922_800)
+    func at(daysAgo: Int, hour: Int = 12, minute: Int = 0) -> Date {
+        let day = cal.date(byAdding: .day, value: -daysAgo, to: cal.startOfDay(for: now))!
+        return cal.date(bySettingHour: hour, minute: minute, second: 0, of: day)!
+    }
+    let bookA = UUID(), bookB = UUID()
+    func session(_ book: UUID, _ title: String, daysAgo: Int, minutes: Double, hour: Int = 12, audio: Bool = false) -> ReadingSession {
+        ReadingSession(bookID: book, title: title, end: at(daysAgo: daysAgo, hour: hour), minutes: minutes, progressStart: 0, progressEnd: 0.1, audio: audio)
+    }
+    func stats(_ s: [ReadingSession], days: Int = 14) -> ReadingStats { ReadingStats.compute(s, now: now, calendar: cal, days: days) }
+
+    let empty = stats([])
+    check("no sessions: zeros", empty.minutesToday == 0 && empty.minutesTotal == 0 && empty.currentStreak == 0 && empty.longestStreak == 0 && empty.perBook.isEmpty)
+    check("the chart always has the asked-for number of days, today last", empty.daily.count == 14 && empty.daily.last?.date == cal.startOfDay(for: now) && empty.daily.first?.date == at(daysAgo: 13, hour: 0))
+    check("days are consecutive, oldest first", zip(empty.daily, empty.daily.dropFirst()).allSatisfy { cal.date(byAdding: .day, value: 1, to: $0.date) == $1.date })
+
+    let one = stats([session(bookA, "Dune", daysAgo: 0, minutes: 30)])
+    check("today's minutes", one.minutesToday == 30 && one.minutesLast7Days == 30 && one.minutesTotal == 30 && one.sessionCount == 1)
+    check("a day of reading is a one-day streak", one.currentStreak == 1 && one.longestStreak == 1)
+    check("today's bar is the last one", one.daily.last?.minutes == 30 && one.daily.dropLast().allSatisfy { $0.minutes == 0 })
+
+    let alive = stats([session(bookA, "Dune", daysAgo: 1, minutes: 20), session(bookA, "Dune", daysAgo: 2, minutes: 20), session(bookA, "Dune", daysAgo: 3, minutes: 20)])
+    check("a streak stays alive until today is over (nothing yet today)", alive.currentStreak == 3 && alive.minutesToday == 0, "\(alive.currentStreak)")
+    let broken = stats([session(bookA, "Dune", daysAgo: 2, minutes: 20), session(bookA, "Dune", daysAgo: 3, minutes: 20)])
+    check("…but not past a missed day", broken.currentStreak == 0 && broken.longestStreak == 2, "\(broken.currentStreak)/\(broken.longestStreak)")
+    let gap = stats([session(bookA, "Dune", daysAgo: 0, minutes: 5), session(bookA, "Dune", daysAgo: 2, minutes: 5), session(bookA, "Dune", daysAgo: 3, minutes: 5), session(bookA, "Dune", daysAgo: 4, minutes: 5)])
+    check("today alone is a streak of 1 after a gap", gap.currentStreak == 1)
+    check("the longest streak is found in the past", gap.longestStreak == 3, "\(gap.longestStreak)")
+    let thin = stats([session(bookA, "Dune", daysAgo: 0, minutes: 0.4), session(bookA, "Dune", daysAgo: 1, minutes: 0.4)])
+    check("under a minute in a day does not make a streak", thin.currentStreak == 0)
+
+    let week = stats([session(bookA, "Dune", daysAgo: 6, minutes: 10), session(bookA, "Dune", daysAgo: 7, minutes: 100)])
+    check("'last 7 days' is today and the six before it", week.minutesLast7Days == 10, "\(week.minutesLast7Days)")
+    check("…while the total keeps everything", week.minutesTotal == 110)
+    check("old sessions fall off the chart but not the total", week.daily.map(\.minutes).reduce(0, +) == 110)
+    check("a 3-day chart", stats([session(bookA, "Dune", daysAgo: 5, minutes: 7)], days: 3).daily.count == 3 && stats([], days: 0).daily.isEmpty)
+
+    let edge = stats([
+        ReadingSession(bookID: bookA, title: "Dune", end: at(daysAgo: 1, hour: 23, minute: 59), minutes: 10, progressStart: 0, progressEnd: 0.1, audio: false),
+        ReadingSession(bookID: bookA, title: "Dune", end: at(daysAgo: 0, hour: 0, minute: 1), minutes: 10, progressStart: 0, progressEnd: 0.1, audio: false),
+    ])
+    check("11:59pm and 12:01am are different days", edge.minutesToday == 10 && edge.daily[12].minutes == 10 && edge.currentStreak == 2, "\(edge.minutesToday) \(edge.daily[12].minutes) \(edge.currentStreak)")
+
+    let two = stats([
+        session(bookA, "Dune", daysAgo: 0, minutes: 10), session(bookB, "Hyperion", daysAgo: 1, minutes: 60, audio: true),
+        session(bookA, "Dune (renamed)", daysAgo: 2, minutes: 15),
+    ])
+    check("books ranked by time", two.perBook.map(\.bookID) == [bookB, bookA], "\(two.perBook.map(\.title))")
+    check("minutes add up per book", two.perBook.first?.minutes == 60 && two.perBook.last?.minutes == 25)
+    check("a book keeps its audio flag", two.perBook.first?.audio == true)
+    let ties = stats([session(bookA, "Zebra", daysAgo: 0, minutes: 10), session(bookB, "Aardvark", daysAgo: 0, minutes: 10)])
+    check("ties sort by title", ties.perBook.map(\.title) == ["Aardvark", "Zebra"])
+    let junk = stats([session(bookA, "Dune", daysAgo: 0, minutes: 0), session(bookA, "Dune", daysAgo: 0, minutes: -5), session(bookA, "Dune", daysAgo: 0, minutes: .nan), session(bookA, "Dune", daysAgo: 0, minutes: 12)])
+    check("zero, negative and NaN minutes are ignored", junk.minutesTotal == 12 && junk.sessionCount == 1)
+
+    check("duration: minutes", ReadingStats.duration(minutes: 42.2) == "42m")
+    check("duration: hours", ReadingStats.duration(minutes: 65) == "1h 05m" && ReadingStats.duration(minutes: 120) == "2h 00m")
+    check("duration: nothing", ReadingStats.duration(minutes: 0) == "0m" && ReadingStats.duration(minutes: 0.2) == "0m")
+
+    // a session survives the JSON round trip the log uses
+    let enc = JSONEncoder(); enc.dateEncodingStrategy = .secondsSince1970
+    let dec = JSONDecoder(); dec.dateDecodingStrategy = .secondsSince1970
+    let original = session(bookA, "Dune", daysAgo: 3, minutes: 12.5, audio: true)
+    let round = try? dec.decode([ReadingSession].self, from: enc.encode([original]))
+    check("sessions round-trip through the log file", round == [original], "\(String(describing: round))")
+}
+
 private extension JumpHistory {
     /// `record` on a throwaway copy, to ask "would it be kept?" in one expression.
     func recordedCopy(origin: Spot, landed: Spot) -> Bool {

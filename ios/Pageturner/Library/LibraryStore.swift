@@ -238,6 +238,13 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    /// The book most recently opened that isn't finished.
+    var continueBook: Book? {
+        books
+            .filter { ($0.progression ?? 0) > 0.001 && ($0.progression ?? 0) < 0.995 }
+            .max { ($0.lastOpenedAt ?? .distantPast) < ($1.lastOpenedAt ?? .distantPast) }
+    }
+
     func fileURL(for book: Book) -> URL { booksDir.appendingPathComponent(book.fileName) }
     func fileURLs(for book: Book) -> [URL] {
         let names = book.fileNames.isEmpty ? [book.fileName] : book.fileNames
@@ -683,5 +690,6 @@ final class LibraryStore: ObservableObject {
         encoder.dateEncodingStrategy = .secondsSince1970
         guard let data = try? encoder.encode(books) else { return }
         try? data.write(to: catalogueURL, options: .atomic)
+        SpotlightIndexer.shared.libraryChanged(self)
     }
 }

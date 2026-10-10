@@ -1,3 +1,4 @@
+import CoreSpotlight
 import SwiftUI
 import UserNotifications
 
@@ -30,6 +31,14 @@ struct PageturnerApp: App {
                         Task { await library.importFiles([url]) }
                     }
                 }
+                // a tapped Spotlight result
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    if let raw = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+                       let id = UUID(uuidString: raw)
+                    {
+                        IntentRouter.shared.request = .open(id)
+                    }
+                }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .background {
                         Task { await BookMaster.shared.beat(leaving: true) }
@@ -46,6 +55,7 @@ struct PageturnerApp: App {
                     await FolderWatcher.shared.scan(library: library)
                     await BookMaster.shared.pullShelf(into: library)
                     await Notifier.shared.refresh(notify: false)
+                    SpotlightIndexer.shared.libraryChanged(library)
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(45))
                         guard !Task.isCancelled else { return }

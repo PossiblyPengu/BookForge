@@ -11,19 +11,41 @@ struct RootView: View {
     private let playback = PlaybackCoordinator.shared
     private let bookMaster = BookMaster.shared
     private let notifier = Notifier.shared
+    private let intents = IntentRouter.shared
 
     var body: some View {
         // grouped, so no one expression is a long chain the compiler has to solve at once
-        alerts(bookSheets(screens(shell)))
+        routing(alerts(bookSheets(screens(shell))))
             .tint(.ptAccent)
-            // a tapped suggestion notification opens the Together tab
+            // outermost, so the tabs and everything presented over them can read it
+            .environment(router)
+    }
+
+    /// Requests that arrive from outside: a tapped suggestion notification, Siri,
+    /// Shortcuts, a Spotlight result.
+    private func routing<V: View>(_ content: V) -> some View {
+        content
             .onChange(of: notifier.openTogether, initial: true) { _, open in
                 guard open else { return }
                 tab = .together
                 notifier.openTogether = false
             }
-            // outermost, so the tabs and everything presented over them can read it
-            .environment(router)
+            .onChange(of: intents.request, initial: true) { _, request in
+                guard let request else { return }
+                intents.request = nil
+                handle(request)
+            }
+    }
+
+    private func handle(_ request: IntentRouter.Request) {
+        switch request {
+        case let .open(id):
+            guard let book = library.books.first(where: { $0.id == id }) else { return }
+            router.open(book, library: library)
+        case .continueReading:
+            guard let book = library.continueBook else { return }
+            router.open(book, library: library)
+        }
     }
 
     // MARK: Presentations
@@ -236,16 +258,9 @@ struct RootView: View {
         }
     }
 
-    @ViewBuilder
+    /// Reading time from this phone; BookMaster's own numbers join it when linked.
     private var statsTab: some View {
-        if bookMaster.isLinked {
-            StatsView(embedded: true)
-        } else {
-            LinkPrompt(
-                title: "Stats",
-                message: "Link BookMaster to see your streaks, goals and totals.",
-                symbol: "chart.bar")
-        }
+        StatsView(embedded: true)
     }
 }
 

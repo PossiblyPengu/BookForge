@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// Reading streaks, totals and goals, as BookMaster keeps them.
+/// Reading time and streaks from this phone, and — when BookMaster is linked —
+/// its streaks, totals, goals and achievements.
 struct StatsView: View {
     /// Inside a tab: no Done button, the tab bar is the way out.
     var embedded = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppRouter.self) private var router
     @State private var overview: BMOverview?
     @State private var error: String?
     @State private var loading = true
@@ -12,8 +14,17 @@ struct StatsView: View {
     var body: some View {
         NavigationStack {
             List {
-                if let overview {
+                LocalStatsSection()
+                if !BookMaster.shared.isLinked {
                     Section {
+                        Button {
+                            router.showSettings = true
+                        } label: {
+                            Label("Link BookMaster for goals and achievements", systemImage: "link")
+                        }
+                    }
+                } else if let overview {
+                    Section("On BookMaster") {
                         stat("Current streak", "\(Int(overview.stats.currentStreak)) days")
                         stat("Longest streak", "\(Int(overview.stats.longestStreak)) days")
                         stat("Books finished", "\(Int(overview.stats.booksFinished))")
@@ -46,7 +57,7 @@ struct StatsView: View {
                 } else if loading {
                     ProgressView().frame(maxWidth: .infinity)
                 } else if let error {
-                    Text(error).foregroundStyle(.secondary)
+                    Section { Text(error).foregroundStyle(.secondary) }
                 }
             }
             .navigationTitle("Reading Stats")
@@ -57,7 +68,8 @@ struct StatsView: View {
                 }
             }
             .refreshable { await load() }
-            .task { await load() }
+            // again when the account is linked or unlinked while the tab is up
+            .task(id: BookMaster.shared.isLinked) { await load() }
             .onAppear { if embedded { BookMaster.shared.place = "stats" } }
             .onDisappear { if embedded { BookMaster.shared.place = "library" } }
         }
@@ -81,6 +93,10 @@ struct StatsView: View {
     }
 
     private func load() async {
+        guard BookMaster.shared.isLinked else {
+            loading = false
+            return
+        }
         do {
             overview = try await BookMaster.shared.fetchOverview()
             error = nil

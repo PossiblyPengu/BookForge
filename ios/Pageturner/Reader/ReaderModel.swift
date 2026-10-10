@@ -212,7 +212,7 @@ final class ReaderModel: ObservableObject {
     /// by the time this is told, the one before.
     private func origin(ofJumpTo target: Locator) -> Locator? {
         guard let current = currentLocator else { return nil }
-        let moved = current.href == target.href
+        let moved = current.href.isEquivalentTo(target.href)
             && abs((current.locations.progression ?? 0) - (target.locations.progression ?? 0)) < 0.02
         return moved ? (previousLocator ?? current) : current
     }
@@ -527,9 +527,14 @@ final class ReaderModel: ObservableObject {
         guard let start = sessionStart else { return }
         sessionStart = nil
         let end = book.progression ?? start.progression
-        guard (end - start.progression) * 100 >= 0.5 else { return }
-        let ref = book.bookMasterRef
         let minutes = Date().timeIntervalSince(start.at) / 60
+        let moved = (end - start.progression) * 100 >= 0.5
+        // the local log keeps any real sitting — time spent, even where it hardly moved the page
+        if moved || minutes >= 2 {
+            ReadingLog.shared.record(book: book, minutes: minutes, from: start.progression, to: end, audio: false)
+        }
+        guard moved else { return }
+        let ref = book.bookMasterRef
         Task {
             await BookMaster.shared.syncProgress(
                 bookKey: ref.title, ref: ref, percent: end, isAudio: false, force: true,
