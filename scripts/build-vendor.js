@@ -42,8 +42,8 @@ patchFoliate(out("foliate"));
 
 // --- pdfjs ---
 fs.rmSync(out("pdfjs"), { recursive: true, force: true });
-cp(nm("pdfjs-dist/build/pdf.min.mjs"), out("pdfjs/pdf.min.mjs"));
-cp(nm("pdfjs-dist/build/pdf.worker.min.mjs"), out("pdfjs/pdf.worker.min.mjs"));
+cp(nm("pdfjs-dist/legacy/build/pdf.min.mjs"), out("pdfjs/pdf.min.mjs"));
+cp(nm("pdfjs-dist/legacy/build/pdf.worker.min.mjs"), out("pdfjs/pdf.worker.min.mjs"));
 cp(nm("pdfjs-dist/standard_fonts"), out("pdfjs/standard_fonts"));
 cp(nm("pdfjs-dist/cmaps"), out("pdfjs/cmaps"));
 
