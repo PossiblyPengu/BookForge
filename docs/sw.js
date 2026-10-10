@@ -47,6 +47,7 @@ const APP_SHELL = [
   './js/tts-voices.js',
   './js/util.js',
   './js/version.js',
+  './js/native-link.js',
   './js/viewport.js',
   './js/zip.js',
   './vendor/foliate/view.js',
