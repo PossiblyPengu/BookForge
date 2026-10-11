@@ -12,6 +12,8 @@ import UIKit
 ///     -PTDebugReaderSheet …     with `reader`: contents | settings | search | voices
 ///     -PTDebugSettingsPush …    with `settings`: voices (open the voice list)
 ///     -PTDebugSpeechProbe 1     log the installed voices and how long speech takes at each rate
+///     -PTDebugNeuralProbe <key> download that neural voice, speak with it, log the result (+ -PTDebugNeuralPlay 1)
+///     -PTDebugVoiceSource neural  open the voice list on its Neural tab
 ///
 /// Debug builds only — none of this is in the IPA.
 @MainActor
@@ -20,9 +22,14 @@ enum DebugScenario {
 
     static var readerSheet: String? { defaults.string(forKey: "PTDebugReaderSheet") }
     static var settingsPush: String? { defaults.string(forKey: "PTDebugSettingsPush") }
+    static var voiceSource: String? { defaults.string(forKey: "PTDebugVoiceSource") }
 
     static func run(library: LibraryStore, router: AppRouter, selectTab: @escaping (AppTab) -> Void) async {
         if defaults.bool(forKey: "PTDebugSpeechProbe") { Task { await SpeechProbe.run() } }
+        if let voice = defaults.string(forKey: "PTDebugNeuralProbe") {
+            let play = defaults.bool(forKey: "PTDebugNeuralPlay")
+            Task { await NeuralProbe.run(key: voice, play: play) }
+        }
         let seeding = defaults.bool(forKey: "PTDebugSeed")
         let screen = defaults.string(forKey: "PTDebugScreen")
         guard seeding || screen != nil else { return }

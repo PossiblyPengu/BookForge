@@ -51,7 +51,7 @@ func runVoiceChecks() {
         voice("us.bubbles", "Bubbles", "en-US", novelty: true),
         voice("us.whisper", "Whisper (Premium)", "en-US", .premium, novelty: true),
     ]
-    func groups(_ voices: [SpeechVoice], query: String = "", preferred: [String]) -> [SpeechVoices.LanguageGroup] {
+    func groups(_ voices: [SpeechVoice], query: String = "", preferred: [String]) -> [SpeechVoices.LanguageGroup<SpeechVoice>] {
         SpeechVoices.groups(
             voices, query: query, preferred: preferred,
             languageName: { languageNames[$0] ?? $0 }, regionName: { regionNames[$0] })

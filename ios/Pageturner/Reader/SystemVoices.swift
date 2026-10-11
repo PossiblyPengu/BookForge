@@ -42,19 +42,25 @@ extension SpeechVoice {
     }
 }
 
-/// Speaks a short sample so a voice can be heard before it is chosen.
+/// Speaks a short sample so a voice can be heard before it is chosen — a voice iOS ships with,
+/// or a neural one that has been downloaded.
 @MainActor
 final class SpeechPreview: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+    /// One for the whole app: a speech synthesizer must not be freed while iOS is still
+    /// calling back into it (that crashes inside TextToSpeech), and only one sample plays at a time.
+    static let shared = SpeechPreview()
+
     static let sample = "Chapter one. The lamplight fell across the open page, and the story began."
 
     /// The voice being sampled — its identifier, or "" for Automatic.
     @Published private(set) var playing: String?
 
     private let synthesizer = AVSpeechSynthesizer()
-    /// The sample that was asked for last: a callback for an older one is not this one's end.
+    /// The system sample that was asked for last: a callback for an older one is not this one's end.
     private var current: AVSpeechUtterance?
+    private var neuralTask: Task<Void, Never>?
 
-    override init() {
+    private override init() {
         super.init()
         synthesizer.delegate = self
     }
@@ -64,15 +70,10 @@ final class SpeechPreview: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     func toggle(_ voice: SpeechVoice?, rate: Double) {
         let key = voice?.id ?? ""
         let wasPlaying = playing == key
-        stop()
-        guard !wasPlaying else { return }
+        halt()
+        guard !wasPlaying else { return release() }
 
-        // an audiobook or read-aloud in progress gives way
-        AudioFocus.shared.claim("preview")
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .spokenAudio)
-        try? session.setActive(true)
-
+        begin()
         let utterance = AVSpeechUtterance(string: Self.sample)
         utterance.voice = voice.flatMap { AVSpeechSynthesisVoice(identifier: $0.id) } ?? SystemVoices.automatic()
         utterance.rate = SpeechRateMap.avRate(forMultiplier: rate)
@@ -81,11 +82,64 @@ final class SpeechPreview: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         synthesizer.speak(utterance)
     }
 
+    /// The same for a neural voice, which must be on this iPhone.
+    func toggle(_ voice: NeuralVoice, rate: Double) {
+        let key = voice.id
+        let wasPlaying = playing == key
+        halt()
+        guard !wasPlaying, let entry = NeuralVoiceStore.shared.index.entry(forID: key) else { return release() }
+
+        begin()
+        playing = key
+        neuralTask = Task { [weak self] in
+            if let audio = try? await NeuralSynth.shared.generate(text: Self.sample, directory: entry.directory, info: entry.info),
+               !Task.isCancelled
+            {
+                NeuralPlayer.shared.speed = rate
+                _ = await withTaskCancellationHandler {
+                    await NeuralPlayer.shared.play(audio.samples, sampleRate: audio.sampleRate)
+                } onCancel: {
+                    Task { @MainActor in NeuralPlayer.shared.stop() }
+                }
+            }
+            guard !Task.isCancelled else { return }
+            self?.playing = nil
+            self?.release()
+        }
+    }
+
     func stop() {
         guard playing != nil else { return }
+        halt()
+        release()
+    }
+
+    /// Silence whatever is playing, leaving the audio session as it is.
+    private func halt() {
+        guard playing != nil else { return }
         playing = nil
+        neuralTask?.cancel()   // which also silences the player
+        neuralTask = nil
         synthesizer.stopSpeaking(at: .immediate)
     }
+
+    // MARK: Audio session
+
+    /// An audiobook or read-aloud in progress gives way, and the sound is allowed on the silent switch.
+    private func begin() {
+        AudioFocus.shared.claim("preview")
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .spokenAudio)
+        try? session.setActive(true)
+    }
+
+    /// Let other apps' audio carry on — unless an audiobook or read-aloud of ours is still open.
+    private func release() {
+        guard AudioFocus.shared.isIdle, playing == nil else { return }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    // MARK: AVSpeechSynthesizerDelegate
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in self.ended(utterance) }
@@ -99,9 +153,6 @@ final class SpeechPreview: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         guard utterance === current else { return }
         current = nil
         playing = nil
-        // let other apps' audio carry on — unless an audiobook or read-aloud of ours is still open
-        if AudioFocus.shared.isIdle {
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        }
+        release()
     }
 }

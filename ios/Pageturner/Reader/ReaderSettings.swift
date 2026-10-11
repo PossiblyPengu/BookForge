@@ -121,9 +121,9 @@ struct ReaderSettings: Codable, Equatable {
         guard let data = UserDefaults.standard.data(forKey: key),
               var settings = try? JSONDecoder().decode(ReaderSettings.self, from: data)
         else { return ReaderSettings() }
-        // earlier builds offered speeds the engine can't reach (2.25×, 2.5×) — and a bad value is no speed
+        // a bad value is no speed
         settings.speechRate = settings.speechRate.isFinite
-            ? min(max(settings.speechRate, SpeechRateMap.range.lowerBound), SpeechRateMap.range.upperBound)
+            ? min(max(settings.speechRate, SpeechRateMap.neuralRange.lowerBound), SpeechRateMap.neuralRange.upperBound)
             : 1
         return settings
     }

@@ -42,6 +42,19 @@ shot() {
     --predicate 'process == "Pageturner"' 2>/dev/null | tail -n 150 > "$OUT/logs/$name.txt" || true
 }
 
+# probe <name> <seconds to wait> [launch args…]: an experiment — logs are kept, but the app dying
+# (or finding nothing) is reported, never failed on
+probe() {
+  local name=$1 wait=$2; shift 2
+  xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+  local started; started=$(date +%s)
+  xcrun simctl launch "$UDID" "$BUNDLE" "$@" >/dev/null 2>&1 || echo "::warning::launch failed for $name"
+  sleep "$wait"
+  alive && echo "ok     $name (still running)" || echo "::warning::the app is not running after the $name probe"
+  xcrun simctl spawn "$UDID" log show --style compact --last "$(( $(date +%s) - started + 5 ))s" \
+    --predicate 'process == "Pageturner"' 2>/dev/null | tail -n 400 > "$OUT/logs/$name.txt" || true
+}
+
 # first launch: an empty library
 shot 01-empty 6
 
@@ -80,12 +93,6 @@ shot 40-pdf 14 -PTDebugScreen pdf -PTDebugKeepChrome 1
 shot 41-pdf-search 20 -PTDebugScreen pdf -PTDebugKeepChrome 1 -PTDebugReaderSheet pdfsearch
 shot 42-cbz 14 -PTDebugScreen cbz -PTDebugKeepChrome 1
 
-# what the simulator's speech engine has: its voices, and how long speech takes at each rate
-# (the log lines are copied out so the rate scale in SpeechRateMap can be fitted to them)
-shot 54-speech-probe 100 -PTDebugSpeechProbe 1
-xcrun simctl spawn "$UDID" log show --style compact --last 10m \
-  --predicate 'process == "Pageturner" AND eventMessage CONTAINS "PTSpeechProbe"' > "$OUT/speech-probe.txt" 2>/dev/null || true
-
 # dark
 xcrun simctl ui "$UDID" appearance dark 2>/dev/null || true
 shot 20-dark-library 8 -PTDebugScreen library
@@ -105,10 +112,32 @@ shot 33-large-player 8 -PTDebugScreen player
 shot 34-large-voices 12 -PTDebugScreen settings -PTDebugSettingsPush voices
 xcrun simctl ui "$UDID" content_size large 2>/dev/null || true
 
+# neural voices: download one inside the simulator, make a sentence with it on sherpa-onnx (Piper on
+# ONNX Runtime) and check there was speech — then the Neural tab, with that voice saved
+shot 55-neural-probe 120 -PTDebugNeuralProbe en_US-lessac-low
+xcrun simctl spawn "$UDID" log show --style compact --last 15m \
+  --predicate 'process == "Pageturner" AND eventMessage CONTAINS "PTNeuralProbe"' > "$OUT/neural-probe.txt" 2>/dev/null || true
+cat "$OUT/neural-probe.txt"
+grep -q "PTNeuralProbe ok" "$OUT/neural-probe.txt" || { echo "::error::the neural voice probe did not report ok"; FAILED=1; }
+shot 56-neural-list 12 -PTDebugScreen settings -PTDebugSettingsPush voices -PTDebugVoiceSource neural
+
 # crash reports from the host (the simulator writes them there)
 mkdir -p "$OUT/crashes"
 find ~/Library/Logs/DiagnosticReports -name 'Pageturner*' -newer "$APP" -exec cp {} "$OUT/crashes/" \; 2>/dev/null || true
 if ls "$OUT/crashes"/* >/dev/null 2>&1; then echo "::error::crash reports found"; FAILED=1; fi
+
+# experiments that can take the app down in a simulator with no sound hardware: their crash
+# reports are kept apart and never fail the run
+mkdir -p "$OUT/probe-crashes"
+MARK=$(mktemp)
+# what AVSpeechSynthesizer does at each speaking rate (the scale in SpeechRateMap), and playing a
+# neural voice through AVAudioEngine
+probe 58-speech-probe 100 -PTDebugSpeechProbe 1
+xcrun simctl spawn "$UDID" log show --style compact --last 10m \
+  --predicate 'process == "Pageturner" AND eventMessage CONTAINS "PTSpeechProbe"' > "$OUT/speech-probe.txt" 2>/dev/null || true
+probe 59-neural-play 60 -PTDebugNeuralProbe en_US-lessac-low -PTDebugNeuralPlay 1
+find ~/Library/Logs/DiagnosticReports -name 'Pageturner*' -newer "$MARK" -exec cp {} "$OUT/probe-crashes/" \; 2>/dev/null || true
+if ls "$OUT/probe-crashes"/* >/dev/null 2>&1; then echo "::warning::a probe crashed the app (see probe-crashes)"; fi
 
 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
 exit $FAILED

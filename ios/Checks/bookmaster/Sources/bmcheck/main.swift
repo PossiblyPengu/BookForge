@@ -118,6 +118,7 @@ func runData() {
     runStatsChecks()
     runLinkURLChecks()
     runVoiceChecks()
+    runNeuralChecks()
     runTextBook()
 }
 

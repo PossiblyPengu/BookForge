@@ -16,6 +16,11 @@ packages:
   ZIPFoundation:
     url: https://github.com/readium/ZIPFoundation.git
     exactVersion: 3.0.1
+  # On-device neural text-to-speech (Piper voices on ONNX Runtime): the package's own
+  # prebuilt xcframeworks. Its Swift wrapper is the `SherpaOnnx` module.
+  SherpaOnnx:
+    url: https://github.com/k2-fsa/sherpa-onnx
+    exactVersion: 1.13.8
 targets:
   Pageturner:
     type: application
@@ -24,6 +29,10 @@ targets:
       - path: Pageturner
         excludes:
           - Info.plist
+      # espeak-ng's phoneme data, which the neural voices need to turn text into sounds
+      # (a folder reference: copied into the app as it is)
+      - path: Resources/espeak-ng-data
+        type: folder
     dependencies:
       - package: Readium
         product: ReadiumShared
@@ -33,6 +42,8 @@ targets:
         product: ReadiumNavigator
       - package: ZIPFoundation
         product: ReadiumZIPFoundation
+      - package: SherpaOnnx
+        product: sherpa-onnx
     info:
       path: Pageturner/Info.plist
       properties:

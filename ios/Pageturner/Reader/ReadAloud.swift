@@ -44,6 +44,7 @@ final class ReadAloud: NSObject, ObservableObject {
     private weak var navigator: VisualNavigator?
     private let synthesizer: PublicationSpeechSynthesizer
     private let tuning: SpeechTuning
+    private let neural: NeuralTTSEngine
     /// The library record's values — the publication's own metadata can name
     /// a different edition than the title the user edited.
     private let displayTitle: String
@@ -73,16 +74,20 @@ final class ReadAloud: NSObject, ObservableObject {
         let tuning = SpeechTuning()
         tuning.multiplier = settings.speechRate
         tuning.chosenVoiceID = settings.voiceIdentifier
+        // the voices iOS ships with, and the neural ones that have been downloaded
+        let neural = NeuralTTSEngine(index: NeuralVoiceStore.shared.index)
+        neural.speed = settings.speechRate
         guard let synthesizer = PublicationSpeechSynthesizer(
             publication: publication,
             config: .init(voiceIdentifier: settings.voiceIdentifier),
-            engineFactory: { AVTTSEngine(delegate: tuning) }
+            engineFactory: { CompositeTTSEngine(system: AVTTSEngine(delegate: tuning), neural: neural) }
         ) else { return nil }
 
         self.publication = publication
         self.navigator = navigator
         self.synthesizer = synthesizer
         self.tuning = tuning
+        self.neural = neural
         self.displayTitle = displayTitle
         self.displayAuthor = displayAuthor
         rate = settings.speechRate
@@ -148,6 +153,7 @@ final class ReadAloud: NSObject, ObservableObject {
 
     func stop() {
         synthesizer.stop()
+        NeuralSynth.shared.unload()   // the model's memory back
         AudioFocus.shared.unregister("readaloud")
         isActive = false
         setSleepTimer(minutes: nil)
@@ -187,6 +193,7 @@ final class ReadAloud: NSObject, ObservableObject {
     func setRate(_ value: Double) {
         rate = value
         tuning.multiplier = value
+        neural.speed = value
     }
 
     var availableVoices: [TTSVoice] { synthesizer.availableVoices }

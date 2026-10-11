@@ -510,7 +510,8 @@ final class ReaderModel: ObservableObject {
     }
 
     func cycleRate() {
-        let steps = SpeechRateMap.cycle
+        let neural = settings.voiceIdentifier.map { NeuralVoice.key(fromID: $0) != nil } ?? false
+        let steps = SpeechRateMap.cycle(neural: neural)
         settings.speechRate = steps.first { $0 > settings.speechRate + 0.001 } ?? steps[0]
     }
 

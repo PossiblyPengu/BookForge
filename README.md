@@ -13,8 +13,11 @@ A native SwiftUI app (iOS 17+) built on the [Readium](https://readium.org) toolk
   and any jump — contents, search hit, link, scrubber — leaves a **Back** chip; bookmarks; highlights in five colours with notes (tap one to edit it),
   exported as Markdown; select text → Look Up / Translate / Share like any iOS reader
 - **Listening:** multi-file audiobooks (M4B/M4A/MP3/FLAC/OGG/OPUS/WAV) with chapters (an m4b's embedded markers, or a file each), a chapter list,
-  previous/next chapter, time left in the chapter, speed, sleep timer and lock-screen controls; read-aloud with Apple's voices (install the Enhanced or Premium ones in
-  Settings → Accessibility → Spoken Content). Read-aloud and an audiobook never talk over each other
+  previous/next chapter, time left in the chapter, speed, sleep timer and lock-screen controls. Read-aloud and an audiobook never talk over each other
+- **Read aloud, in your choice of voice:** Settings → Read Aloud (and the voice button on the read-aloud bar) — every voice installed on the iPhone by language with a sample button
+  on each (Automatic picks the best Enhanced/Premium voice for the book's language; add them in Settings → Accessibility → Spoken Content), or **neural voices** —
+  Piper's, the same ones as the web app, 170 of them in 50 languages. A neural voice downloads once (~60 MB), is checked, and lives on the iPhone, so it works offline and with the
+  screen locked; **Saved Voices** lists and deletes them. Speed 0.5–2× (3× for neural), changeable while it speaks
 - **Library:** a Continue card, All / Books / Audiobooks, **shelves** (named collections), an **Up next** shelf from BookMaster, search, sort, a **select mode** for
   bulk shelves / find details / remove, covers (designed jackets when there's no art), book details with description, year and ISBN, metadata lookup
   (BookMaster, Google Books and Open Library), mark as finished / start over; import from Files, a **zip of books**, or "Open in Pageturner";
@@ -30,7 +33,7 @@ A native SwiftUI app (iOS 17+) built on the [Readium](https://readium.org) toolk
 - **Backup:** export the whole library to one zip and restore it here — also restores a backup made by the old web app
 
 Not in the app, on purpose: a Home Screen widget (it needs an app extension and an App Group, which free-Apple-ID sideloading doesn't reliably provision),
-CarPlay (needs an Apple entitlement), real push notifications (same), MOBI/AZW3/FB2/CBR, and the web app's neural voices.
+CarPlay (needs an Apple entitlement), real push notifications (same), MOBI/AZW3/FB2/CBR, and the web app's Kokoro "HQ" voice (too large to keep resident).
 
 ### Install (sideload)
 
@@ -56,9 +59,10 @@ On a Mac without signing set up, the CI workflow (`.github/workflows/ios.yml`) i
 
 The app never holds BookMaster's bridge secret. Its calls go to a Pages Function at
 `https://pageturner.pages.dev/api/bookmaster/*` (`functions/api/bookmaster/[path].js`),
-which adds the secret and forwards to BookMaster. Linking runs BookMaster's pair flow in an
-in-app browser sheet and returns through `pageturner://link?code=…`
-(`docs/js/native-link.js` hands the code from the web origin to the app).
+which adds the secret and forwards to BookMaster. Linking opens BookMaster's own sign-in page
+(`/link/pageturner`) in a sheet inside the app; when BookMaster sends the browser home to
+`https://pageturner.pages.dev/?bm-link=<code>` the app catches that address before it loads, closes the
+sheet and trades the code for a link — so the web site doesn't have to be deployed for it to work.
 
 ## The web app (being retired)
 

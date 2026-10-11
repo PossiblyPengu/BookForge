@@ -7,7 +7,9 @@ not on a phone. The same target also compiles and runs the app's UIKit-free logi
 `assemble.sh` lists the files — so rules that need no device get checked here:
 the text→EPUB converter, ISBN and description cleaning, audiobook chapters, the
 "continue from BookMaster?" offer, the notification plan, the Back history, highlight
-export, reading stats and streaks, and the date round-trip of the catalogue.
+export, reading stats and streaks, the voice list (grouping, order, search, which voice "Automatic"
+prefers, the speed scale), the neural voice catalogue and the conversion of a Piper voice into what the on-device
+engine loads, and the date round-trip of the catalogue.
 
 ```
 Swift client  ->  Pageturner Pages Function (:8789)  ->  BookMaster (:8788)  ->  local D1
@@ -38,6 +40,10 @@ or BookMaster's `functions/_lib/routes/pageturner.ts`.
 
 ## What it does not cover
 
-SwiftUI, `ASWebAuthenticationSession` and the sign-in sheet closing on a real
-device — those need an iPhone. The link hop through `docs/js/native-link.js` was
-checked once in headless Chromium (see the commit that added it).
+SwiftUI, the in-app sign-in sheet and the audio engine on a real device — those need
+an iPhone (the CI simulator run photographs the sheet and the voice lists, and makes real speech
+with a downloaded neural voice).
+
+To convert a real downloaded Piper voice with the app's code (and then load it with sherpa-onnx
+to hear that it works), set `PIPER_RAW_ONNX`, `PIPER_RAW_JSON` and `PIPER_OUT_DIR` when running
+the built `bmcheck` (`BM_ONLY=data .build/debug/bmcheck`).

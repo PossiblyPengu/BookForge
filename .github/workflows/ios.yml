@@ -137,6 +137,9 @@ jobs:
           grep -q 'io.github.possiblypengu.pageturner.refresh' ios/info-plist.txt || { echo "::error::the refresh task id is not permitted"; missing=1; }
           [ -d "$APP/Metadata.appintents" ] || { echo "::error::no Metadata.appintents (Siri/Shortcuts would not see the intents)"; missing=1; }
           [ -f "$APP/Assets.car" ] || { echo "::error::no compiled asset catalogue (app icon)"; missing=1; }
+          [ -f "$APP/espeak-ng-data/phondata" ] || { echo "::error::espeak-ng's phoneme data is not in the app (neural voices could not speak)"; missing=1; }
+          [ -f "$APP/NeuralVoices.json" ] || { echo "::error::the neural voice catalogue is not in the app"; missing=1; }
+          du -sh "$APP"
           ls "$APP" | head -40
           exit $missing
 
@@ -146,6 +149,7 @@ jobs:
           mkdir -p Payload
           cp -r Pageturner.app Payload/
           zip -qr Pageturner.ipa Payload
+          ls -lh Pageturner.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4

@@ -20,15 +20,17 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
 - `.github/workflows/ios-sim.yml` is the nearest thing to looking at the app: a **Debug** build in the
   iOS Simulator, launched once per screen (`ios/scripts/simulator-shots.sh`) and photographed; the
   `simulator-screens` artifact holds PNGs, the app's log and any crash report. The launch arguments
-  (`-PTDebugScreen`, `-PTDebugSeed`, `-PTDebugReaderSheet`) are read by `Debug/DebugScenario.swift`,
+  (`-PTDebugScreen`, `-PTDebugSeed`, `-PTDebugReaderSheet`, `-PTDebugSettingsPush`, `-PTDebugVoiceSource`,
+  `-PTDebugNeuralProbe <voice key>`, `-PTDebugSpeechProbe`) are read by `Debug/DebugScenario.swift`,
   which is `#if DEBUG` only — none of it is in the IPA. Download with
   `gh api repos/<owner>/<repo>/actions/artifacts/<id>/zip`.
 - `ios/Checks/bookmaster/` compiles the app's **real** pure-logic sources (BookMaster client and
   models, the `Book` model, text→EPUB converter, chapters, resume offer, notification plan, jump
-  history, highlight export, reading stats) on Linux with a Swift 6 toolchain and runs them: against a
+  history, highlight export, reading stats, voice lists, neural voice conversion) on Linux with a Swift 6 toolchain and runs them: against a
   live local BookMaster (`run.sh`, needs a BookMaster checkout, `wrangler`, `python3`) or alone
-  (`run.sh data`, ~200 checks, no servers). Anything that can be written without UIKit/Readium should
-  be, so it can be checked there; `assemble.sh` lists the files it copies.
+  (`run.sh data`, ~330 checks, no servers). Anything that can be written without UIKit/Readium should
+  be, so it can be checked there; `assemble.sh` lists the files it copies. `run.sh` stops if the target fails to
+  build (it used to run the previous binary and report green).
 - When touching Readium calls, verify signatures against the toolkit source — the 3.x API changed a lot
   between releases. The `Archive Readium sources` CI step uploads the resolved checkout as the
   `readium-src` artifact.
@@ -77,13 +79,30 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
 - Offline: progress is de-duplicated per title, sessions and quotes always queue, oldest first, a 4xx is
   dropped. Presence beats are never queued. Only a push reply or a shelf pull may change a book's `bm*`
   fields (`LibraryStore.updateBookMaster` / `applyShelf`); `update()` always keeps the stored ones.
-- Linking: `ASWebAuthenticationSession` → bookmaster.pages.dev/link/pageturner →
-  `pageturner.pages.dev/?bm-link=<code>` → `docs/js/native-link.js` redirects to
-  `pageturner://link?code=<code>`. Keep that script (and its precache entry in `docs/sw.js`) for as long
-  as the site is deployed — and deploy the site, or the link can't complete on a device.
+- Linking: `BookMasterLinkSheet` (a `WKWebView`, non-persistent data store) opens
+  bookmaster.pages.dev/link/pageturner?from=https://pageturner.pages.dev; BookMaster signs the user in and
+  sends the browser to `pageturner.pages.dev/?bm-link=<code>`, which the sheet's navigation delegate cancels,
+  reading the code off the URL (`BMLinkURL.code(fromReturn:)` — only that host, https, a plausible code).
+  Nothing of the web site is involved, so it works whether or not the PWA is deployed. (`pageturner://link?code=`
+  and `docs/js/native-link.js` are the older route and still work; the app handles both.) Why not
+  `ASWebAuthenticationSession`: its callback came from a page that was never deployed, so linking never completed.
 - Notifications are **local** (`Notifications/`): a sideloaded app has no push entitlement, so iOS's
   background refresh (best effort, its schedule) asks BookMaster for new suggestions and posts them.
 - Siri/Shortcuts (`Intents/`) and Spotlight (`Library/SpotlightIndexer.swift`) hand requests to the shell
   through `IntentRouter`, which holds them until the first screen exists.
+- Read-aloud voices (`Reader/` and `Neural/`): `SpeechVoices.swift` is Foundation-only (list, group, search, "best
+  voice for a language", the speed scale) and checked on Linux. Device voices: `SystemVoices.swift`; the shared list
+  and the Settings/Reading-sheet rows: `VoiceListView.swift`; **always use `SpeechPreview.shared`** — an
+  `AVSpeechSynthesizer` freed while iOS is still calling back into it crashes inside TextToSpeech.
+  Neural voices (Piper on sherpa-onnx, the official SwiftPM package `k2-fsa/sherpa-onnx`):
+  `NeuralVoiceCatalog.swift` (the bundled `NeuralVoices.json`, made by `scripts/make-neural-catalog.py`, pinned to a
+  commit of rhasspy/piper-voices so URLs and MD5s stay true), `NeuralVoiceFormat.swift` (turns a Piper download
+  into what sherpa loads: `tokens.txt`, and the voice's facts appended to the `.onnx` as protobuf `metadata_props`
+  — byte-identical to sherpa's own conversion, verified by loading it with sherpa-onnx and transcribing the speech),
+  `NeuralVoiceStore.swift` (download, MD5 check, install into Application Support, delete), `NeuralSynth.swift`
+  (loads a model, makes a sentence on one serial queue), `NeuralPlayer.swift` (AVAudioEngine + time-stretch, so speed
+  is exact and changes mid-sentence), `NeuralTTSEngine.swift` (Readium `TTSEngine`, and a composite that routes a voice
+  to the right engine). espeak-ng's phoneme data (`ios/Resources/espeak-ng-data`, GPL-3) is bundled; sherpa exits the
+  process on a model it can't load, so only files this code wrote itself are ever handed to it.
 - Not built, on purpose: a Home Screen widget (app extension + App Group, which free-Apple-ID signing
   doesn't reliably provide) and CarPlay (entitlement).

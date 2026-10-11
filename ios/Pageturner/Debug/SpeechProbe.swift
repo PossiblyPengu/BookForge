@@ -6,6 +6,8 @@ import AVFoundation
 /// can be fitted to what AVSpeechSynthesizer really does. The result is NSLog lines that
 /// start with "PTSpeechProbe" (collected into the run's logs). Debug builds only.
 enum SpeechProbe {
+    private static var kept: [AnyObject] = []
+
     static let passage = "Call me Ishmael. Some years ago, never mind how long precisely, having little or no money in my purse, and nothing particular to interest me on shore, I thought I would sail about a little and see the watery part of the world."
 
     static func run() async {
@@ -31,7 +33,9 @@ enum SpeechProbe {
             let utterance = AVSpeechUtterance(string: passage)
             utterance.voice = voice
             utterance.rate = rate
-            let result = await Meter().measure(utterance, timeout: 10)
+            let meter = Meter()
+            kept.append(meter)   // never freed: TextToSpeech keeps calling back into it
+            let result = await meter.measure(utterance, timeout: 10)
             NSLog("PTSpeechProbe rate=%.2f seconds=%.2f buffers=%d", Double(rate), result.seconds, result.buffers)
         }
         NSLog("PTSpeechProbe done")

@@ -1,52 +1,112 @@
 import SwiftUI
 import UIKit
 
-/// Every voice iOS has installed, by language, with a sample button on each. Used by
-/// Settings and by the reader (the Reading sheet and the read-aloud bar).
+/// Every voice there is for reading aloud — the ones iOS ships with, and neural voices that can
+/// be downloaded — by language, with a sample button on each. Used by Settings and by the reader
+/// (the Reading sheet and the read-aloud bar).
 struct VoiceListView: View {
     /// The chosen voice's identifier; nil is Automatic.
     @Binding var selection: String?
     /// How fast the samples are spoken.
     let rate: Double
 
+    private enum Source: Hashable {
+        case device, neural
+    }
+
+    @State private var source: Source
     @State private var voices: [SpeechVoice] = []
     @State private var looked = false
     @State private var query = ""
-    @StateObject private var preview = SpeechPreview()
+    /// A neural voice to choose, or to hear, as soon as its download is done.
+    @State private var chooseWhenReady: String?
+    @State private var playWhenReady: String?
+    @ObservedObject private var preview = SpeechPreview.shared
+    private let store = NeuralVoiceStore.shared
+
+    init(selection: Binding<String?>, rate: Double) {
+        _selection = selection
+        self.rate = rate
+        var neural = selection.wrappedValue.flatMap(NeuralVoice.key(fromID:)) != nil
+        #if DEBUG
+        if DebugScenario.voiceSource == "neural" { neural = true }
+        #endif
+        _source = State(initialValue: neural ? .neural : .device)
+    }
 
     var body: some View {
+        following(chrome(list))
+    }
+
+    private var list: some View {
+        List {
+            sourcePicker
+            switch source {
+            case .device: deviceRows
+            case .neural: neuralRows
+            }
+        }
+    }
+
+    private func chrome<V: View>(_ content: V) -> some View {
+        content
+            .searchable(text: $query, prompt: source == .device ? "Search voices" : "Search neural voices")
+            .navigationTitle("Voice")
+            .navigationBarTitleDisplayMode(.inline)
+            .tint(.ptAccent)
+    }
+
+    /// Loading, and the downloads the list is waiting on.
+    private func following<V: View>(_ content: V) -> some View {
+        content
+            .task { await load() }
+            // coming back from iOS Settings after downloading a voice
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                Task { await load() }
+            }
+            .onDisappear { preview.stop() }
+            .onChange(of: source) { _, _ in
+                preview.stop()
+                query = ""
+            }
+            .onChange(of: store.installed.count) { _, _ in installedChanged() }
+            .onChange(of: store.progress.count) { _, _ in transfersChanged() }
+    }
+
+    private var sourcePicker: some View {
+        Section {
+            Picker("Voices", selection: $source) {
+                Text("Device").tag(Source.device)
+                Text("Neural").tag(Source.neural)
+            }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+        }
+    }
+
+    // MARK: Device voices
+
+    @ViewBuilder
+    private var deviceRows: some View {
         let groups = SpeechVoices.groups(
             voices, query: query, preferred: Locale.preferredLanguages,
             languageName: Self.languageName, regionName: Self.regionName)
-        return List {
-            if query.isEmpty { automatic }
-            if voices.isEmpty && looked {
-                none
-            } else {
-                ForEach(groups) { group in
-                    Section(group.title) {
-                        ForEach(group.voices) { row($0) }
-                    }
+        if query.isEmpty { automatic }
+        if voices.isEmpty && looked {
+            none
+        } else {
+            ForEach(groups) { group in
+                Section(group.title) {
+                    ForEach(group.voices) { row($0) }
                 }
             }
-            if !query.isEmpty && groups.isEmpty && !voices.isEmpty {
-                ContentUnavailableView.search(text: query)
-            }
-            more
         }
-        .searchable(text: $query, prompt: "Search voices")
-        .navigationTitle("Voice")
-        .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
-        // coming back from iOS Settings after downloading a voice
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            Task { await load() }
+        if !query.isEmpty && groups.isEmpty && !voices.isEmpty {
+            ContentUnavailableView.search(text: query)
         }
-        .onDisappear { preview.stop() }
-        .tint(.ptAccent)
+        more
     }
-
-    // MARK: Sections
 
     private var automatic: some View {
         Section {
@@ -87,13 +147,11 @@ struct VoiceListView: View {
 
     private var more: some View {
         Section {
-            Text("Enhanced and Premium voices sound far more natural. To add one, open Settings → Accessibility → Spoken Content → Voices (Read & Speak on newer iOS), choose a language and voice, and tap the download button. It appears here the next time you come back.")
+            Text("Enhanced and Premium voices sound far more natural. To add one, open Settings → Accessibility → Spoken Content → Voices (Read & Speak on newer iOS), choose a language and voice, and tap the download button. It appears here the next time you come back. Or choose Neural above for voices that download inside Pageturner.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
     }
-
-    // MARK: Rows
 
     private func row(_ voice: SpeechVoice) -> some View {
         HStack(spacing: 8) {
@@ -118,6 +176,192 @@ struct VoiceListView: View {
         }
     }
 
+    /// "United States", or the language tag when the voice has no region.
+    private func detail(_ voice: SpeechVoice) -> String {
+        SpeechVoices.region(voice.language).flatMap(Self.regionName) ?? voice.language
+    }
+
+    // MARK: Neural voices
+
+    @ViewBuilder
+    private var neuralRows: some View {
+        let groups = SpeechVoices.groups(
+            store.catalog.voices, query: query, preferred: Locale.preferredLanguages,
+            languageName: Self.languageName, regionName: Self.regionName)
+        if query.isEmpty { neuralNote }
+        ForEach(groups) { group in
+            Section(group.title) {
+                ForEach(group.voices) { neuralRow($0) }
+            }
+        }
+        if !query.isEmpty && groups.isEmpty {
+            ContentUnavailableView.search(text: query)
+        }
+        if !store.installed.isEmpty {
+            Section {
+                NavigationLink {
+                    SavedVoicesView(selection: $selection)
+                } label: {
+                    LabeledContent("Saved Voices", value: NeuralVoiceSummary.text(for: store))
+                }
+            }
+        }
+    }
+
+    private var neuralNote: some View {
+        Section {
+            Text("Neural voices sound more natural and keep reading with the screen locked. Choosing one downloads it once (about 63 MB) and keeps it on this iPhone, so it works offline.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func neuralRow(_ voice: NeuralVoice) -> some View {
+        let installed = store.isInstalled(voice)
+        let transfer = store.progress[voice.key]
+        let chosen = selection == voice.id
+        return HStack(spacing: 8) {
+            Button { choose(voice) } label: {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(voice.displayName).foregroundStyle(.primary)
+                        Text(neuralDetail(voice))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if transfer == nil, let failure = store.failures[voice.key] {
+                            Text(failure)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    neuralStatus(installed: installed, transfer: transfer, chosen: chosen)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(chosen ? .isSelected : [])
+            if transfer == nil {
+                neuralSampleButton(voice, installed: installed)
+            } else {
+                Button { cancel(voice) } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Cancel download")
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if installed {
+                Button(role: .destructive) { remove(voice) } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func neuralStatus(installed: Bool, transfer: NeuralVoiceStore.Transfer?, chosen: Bool) -> some View {
+        if let transfer {
+            HStack(spacing: 6) {
+                if transfer.phase == .downloading {
+                    Text("\(Int((transfer.fraction * 100).rounded()))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    ProgressView(value: transfer.fraction)
+                        .progressViewStyle(.circular)
+                } else {
+                    Text(transfer.phase == .checking ? "Checking" : "Preparing")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ProgressView()
+                }
+            }
+        } else if installed {
+            if chosen { chosenMark }
+        } else {
+            Image(systemName: "arrow.down.circle")
+                .font(.title3)
+                .foregroundStyle(Color.ptAccent)
+                .accessibilityLabel("Download")
+        }
+    }
+
+    private func neuralSampleButton(_ voice: NeuralVoice, installed: Bool) -> some View {
+        let playing = preview.playing == voice.id
+        return Button {
+            if installed {
+                preview.toggle(voice, rate: rate)
+            } else {
+                // downloaded first, then heard
+                playWhenReady = voice.key
+                store.install(voice)
+            }
+        } label: {
+            Image(systemName: playing ? "stop.circle.fill" : "play.circle")
+                .font(.title2)
+                .foregroundStyle(Color.ptAccent)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(playing ? "Stop sample" : installed ? "Hear \(voice.displayName)" : "Download and hear \(voice.displayName)")
+    }
+
+    /// "Medium · United States · 63 MB".
+    private func neuralDetail(_ voice: NeuralVoice) -> String {
+        let place = SpeechVoices.region(voice.language).flatMap(Self.regionName) ?? voice.country
+        return [voice.quality.label, place, voice.sizeLabel].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    /// Choose an installed voice; one that isn't yet is downloaded and then chosen.
+    private func choose(_ voice: NeuralVoice) {
+        if store.isInstalled(voice) {
+            selection = voice.id
+        } else if !store.isBusy(voice) {
+            chooseWhenReady = voice.key
+            store.install(voice)
+        }
+    }
+
+    private func cancel(_ voice: NeuralVoice) {
+        if chooseWhenReady == voice.key { chooseWhenReady = nil }
+        if playWhenReady == voice.key { playWhenReady = nil }
+        store.cancel(voice)
+    }
+
+    private func remove(_ voice: NeuralVoice) {
+        if preview.playing == voice.id { preview.stop() }
+        if selection == voice.id { selection = nil }
+        store.remove(voice)
+    }
+
+    private func installedChanged() {
+        if let key = chooseWhenReady, store.installed[key] != nil, let voice = store.catalog.voice(withKey: key) {
+            selection = voice.id
+            chooseWhenReady = nil
+        }
+        if let key = playWhenReady, store.installed[key] != nil, let voice = store.catalog.voice(withKey: key) {
+            playWhenReady = nil
+            preview.toggle(voice, rate: rate)
+        }
+    }
+
+    /// A download that ended without a voice (it failed, or was cancelled) stops being waited for.
+    private func transfersChanged() {
+        for key in [chooseWhenReady, playWhenReady].compactMap({ $0 }) where store.progress[key] == nil && store.installed[key] == nil {
+            if chooseWhenReady == key { chooseWhenReady = nil }
+            if playWhenReady == key { playWhenReady = nil }
+        }
+    }
+
+    // MARK: Shared
+
     private var chosenMark: some View {
         Image(systemName: "checkmark")
             .font(.body.weight(.semibold))
@@ -138,13 +382,6 @@ struct VoiceListView: View {
         .accessibilityLabel(playing ? "Stop sample" : "Hear \(voice?.displayName ?? "the automatic voice")")
     }
 
-    /// "United States", or the language tag when the voice has no region.
-    private func detail(_ voice: SpeechVoice) -> String {
-        SpeechVoices.region(voice.language).flatMap(Self.regionName) ?? voice.language
-    }
-
-    // MARK: Loading
-
     private func load() async {
         // right after launch iOS can answer with an empty list for a moment
         for _ in 0..<5 {
@@ -154,8 +391,6 @@ struct VoiceListView: View {
         }
         looked = true
     }
-
-    // MARK: Names
 
     private static func languageName(_ code: String) -> String {
         (Locale.current.localizedString(forLanguageCode: code) ?? code).localizedCapitalized
@@ -188,11 +423,14 @@ struct ReadAloudControls: View {
     /// The chosen voice's identifier; nil is Automatic.
     @Binding var voice: String?
 
-    @StateObject private var preview = SpeechPreview()
+    @ObservedObject private var preview = SpeechPreview.shared
     @State private var installed: [SpeechVoice] = []
+    private let store = NeuralVoiceStore.shared
+
+    private var neural: Bool { voice.flatMap(NeuralVoice.key(fromID:)) != nil }
 
     var body: some View {
-        Stepper(value: $rate, in: SpeechRateMap.range, step: SpeechRateMap.step) {
+        Stepper(value: $rate, in: SpeechRateMap.range(neural: neural), step: SpeechRateMap.step) {
             LabeledContent("Speed", value: SpeechRateMap.label(rate))
         }
         NavigationLink {
@@ -200,21 +438,33 @@ struct ReadAloudControls: View {
         } label: {
             LabeledContent("Voice", value: voiceName)
         }
-        Button { preview.toggle(chosen, rate: rate) } label: {
+        Button { hear() } label: {
             Label(
                 preview.playing == nil ? "Hear This Voice" : "Stop",
                 systemImage: preview.playing == nil ? "play.fill" : "stop.fill")
         }
         .onAppear { installed = SystemVoices.installed() }
         .onDisappear { preview.stop() }
+        // a speed a device voice can't reach, after switching to one
+        .onChange(of: voice) { _, _ in
+            let range = SpeechRateMap.range(neural: neural)
+            rate = min(max(rate, range.lowerBound), range.upperBound)
+        }
     }
 
-    private var chosen: SpeechVoice? {
-        voice.flatMap { id in installed.first { $0.id == id } }
+    private func hear() {
+        if let id = voice, let chosen = store.catalog.voice(withID: id), store.isInstalled(chosen) {
+            preview.toggle(chosen, rate: rate)
+        } else {
+            preview.toggle(voice.flatMap { id in installed.first { $0.id == id } }, rate: rate)
+        }
     }
 
     /// A voice that has since been removed from the phone reads as Automatic.
     private var voiceName: String {
-        chosen?.displayName ?? "Automatic"
+        if let id = voice, let chosen = store.catalog.voice(withID: id), store.isInstalled(chosen) {
+            return "\(chosen.displayName) (Neural)"
+        }
+        return voice.flatMap { id in installed.first { $0.id == id } }?.displayName ?? "Automatic"
     }
 }
