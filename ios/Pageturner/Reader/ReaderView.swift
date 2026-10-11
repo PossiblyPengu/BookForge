@@ -597,7 +597,8 @@ private struct SearchResultsView: View {
                     model.go(to: locator)
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(locator.title ?? "Match \(i + 1)")
+                        // a PDF hit has no chapter title but does have its page
+                        Text(locator.title ?? locator.locations.position.map { "Page \($0)" } ?? "Match \(i + 1)")
                             .font(.subheadline.weight(.medium))
                             .lineLimit(1)
                         if let highlight = locator.text.highlight, !highlight.isEmpty {

@@ -12,29 +12,35 @@ struct BookCoverView: View {
     var selected: Bool?
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            if let cover {
-                Image(uiImage: cover).resizable().scaledToFill()
-            } else {
-                jacket
+        // The 2:3 box is a clear base and the art an overlay on it: an overlay never changes its
+        // base's size, so a PDF's or a comic's cover (not exactly 2:3) is cropped to the cell instead
+        // of making the cell wider than its neighbours.
+        Color.clear
+            .aspectRatio(2 / 3, contentMode: .fit)
+            .overlay {
+                if let cover {
+                    Image(uiImage: cover).resizable().scaledToFill()
+                } else {
+                    jacket
+                }
             }
-            if showsBadges { badges }
-        }
-        .aspectRatio(2 / 3, contentMode: .fit)
-        // a cover is artwork with a fixed shape: its lettering and badges don't grow with the text size
-        .dynamicTypeSize(...DynamicTypeSize.large)
-        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-        .overlay(alignment: .topTrailing) {
-            if let selected {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(selected ? Color.ptAccent : Color.white)
-                    .background(Circle().fill(Color.black.opacity(selected ? 0 : 0.25)))
-                    .padding(6)
+            .overlay(alignment: .bottom) {
+                if showsBadges { badges }
             }
-        }
-        .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
-        .accessibilityHidden(true)
+            // a cover is artwork with a fixed shape: its lettering and badges don't grow with the text size
+            .dynamicTypeSize(...DynamicTypeSize.large)
+            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+            .overlay(alignment: .topTrailing) {
+                if let selected {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(selected ? Color.ptAccent : Color.white)
+                        .background(Circle().fill(Color.black.opacity(selected ? 0 : 0.25)))
+                        .padding(6)
+                }
+            }
+            .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
+            .accessibilityHidden(true)
     }
 
     private var jacket: some View {
