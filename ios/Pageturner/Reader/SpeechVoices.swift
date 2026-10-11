@@ -232,3 +232,44 @@ enum SpeechRateMap {
         String(format: "%.3g×", multiplier)
     }
 }
+
+/// The sentence a voice is heard in: the same line in the voice's own language, so a French voice
+/// isn't asked to read English.
+enum SpeechSamples {
+    static let english = "Chapter one. The lamplight fell across the open page, and the story began."
+
+    private static let lines: [String: String] = [
+        "en": english,
+        "de": "Erstes Kapitel. Das Lampenlicht fiel auf die offene Seite, und die Geschichte begann.",
+        "fr": "Chapitre un. La lumière de la lampe tombait sur la page ouverte, et l’histoire commença.",
+        "es": "Capítulo uno. La luz de la lámpara cayó sobre la página abierta, y la historia comenzó.",
+        "it": "Capitolo primo. La luce della lampada cadde sulla pagina aperta, e la storia ebbe inizio.",
+        "pt": "Capítulo um. A luz da lâmpada caiu sobre a página aberta, e a história começou.",
+        "nl": "Hoofdstuk één. Het lamplicht viel over de opengeslagen pagina, en het verhaal begon.",
+        "ru": "Глава первая. Свет лампы упал на раскрытую страницу, и история началась.",
+        "pl": "Rozdział pierwszy. Światło lampy padło na otwartą stronę i zaczęła się opowieść.",
+        "uk": "Розділ перший. Світло лампи впало на розгорнуту сторінку, і почалася історія.",
+        "cs": "První kapitola. Světlo lampy dopadlo na otevřenou stránku a příběh začal.",
+        "sk": "Prvá kapitola. Svetlo lampy dopadlo na otvorenú stranu a príbeh sa začal.",
+        "sl": "Prvo poglavje. Svetloba svetilke je padla na odprto stran in zgodba se je začela.",
+        "sv": "Kapitel ett. Lampans sken föll över den uppslagna sidan, och berättelsen började.",
+        "da": "Kapitel et. Lampelyset faldt over den opslåede side, og historien begyndte.",
+        "nb": "Kapittel én. Lampelyset falt over den oppslåtte siden, og historien begynte.",
+        "no": "Kapittel én. Lampelyset falt over den oppslåtte siden, og historien begynte.",
+        "fi": "Ensimmäinen luku. Lampun valo osui avoimelle sivulle, ja tarina alkoi.",
+        "tr": "Birinci bölüm. Lamba ışığı açık sayfaya düştü ve hikâye başladı.",
+        "el": "Κεφάλαιο πρώτο. Το φως της λάμπας έπεσε πάνω στην ανοιχτή σελίδα και η ιστορία ξεκίνησε.",
+        "hu": "Első fejezet. A lámpafény ráesett a nyitott oldalra, és a történet elkezdődött.",
+        "ro": "Capitolul unu. Lumina lămpii a căzut pe pagina deschisă și povestea a început.",
+        "ca": "Capítol u. La llum de la làmpada va caure sobre la pàgina oberta, i la història va començar.",
+        "lv": "Pirmā nodaļa. Lampas gaisma krita uz atvērtās lappuses, un stāsts sākās.",
+        "ar": "الفصل الأول. سقط ضوء المصباح على الصفحة المفتوحة، وبدأت الحكاية.",
+        "vi": "Chương một. Ánh đèn rọi xuống trang sách đang mở, và câu chuyện bắt đầu.",
+        "zh": "第一章。灯光落在翻开的书页上，故事开始了。",
+    ]
+
+    /// The sample for a BCP-47 tag ("fr-CA", "de_DE", nil) — English when there is none in that language.
+    static func text(for tag: String?) -> String {
+        lines[tag.map(SpeechVoices.baseLanguage) ?? ""] ?? english
+    }
+}

@@ -84,6 +84,12 @@ final class NeuralTTSEngine: TTSEngine {
 /// Speaks with whichever engine owns the voice: the neural voices that were downloaded, or the
 /// ones iOS ships with. Anything without a chosen neural voice goes to the system.
 final class CompositeTTSEngine: TTSEngine {
+    enum Failure: Error, LocalizedError {
+        case silent
+
+        var errorDescription: String? { "The voice said nothing." }
+    }
+
     private let system: AVTTSEngine
     private let neural: NeuralTTSEngine
 
@@ -110,6 +116,22 @@ final class CompositeTTSEngine: TTSEngine {
         if case let .left(voice) = utterance.voiceOrLanguage, NeuralVoice.key(fromID: voice.identifier) != nil {
             return await neural.speak(utterance, onSpeakRange: onSpeakRange)
         }
-        return await system.speak(utterance, onSpeakRange: onSpeakRange)
+        // iOS can "finish" a sentence at once without a sound (a voice that is listed but not
+        // downloaded, a lost audio session) and AVTTSEngine reports that as success. Real speech
+        // takes far longer than this and says a word on the way; say so, so the failure counter
+        // (and the fall-back to the automatic voice) can work.
+        let started = Date()
+        var spoke = false
+        let result = await system.speak(utterance) { range in
+            spoke = true
+            onSpeakRange(range)
+        }
+        if case .success = result, !spoke, !Task.isCancelled,
+           utterance.text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 12,
+           Date().timeIntervalSince(started) < 0.25
+        {
+            return .failure(.other(Failure.silent))
+        }
+        return result
     }
 }

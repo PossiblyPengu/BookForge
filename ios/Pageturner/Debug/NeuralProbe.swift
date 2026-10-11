@@ -39,7 +39,7 @@ enum NeuralProbe {
             var audio: NeuralSynth.Audio?
             for pass in 1...2 {
                 let started = Date()
-                let made = try await NeuralSynth.shared.generate(text: SpeechPreview.sample, directory: entry.directory, info: entry.info)
+                let made = try await NeuralSynth.shared.generate(text: SpeechPreview.sample(for: voice.language), directory: entry.directory, info: entry.info)
                 let took = Date().timeIntervalSince(started)
                 let seconds = Double(made.samples.count) / made.sampleRate
                 let rms = (made.samples.reduce(0.0) { $0 + Double($1 * $1) } / Double(max(made.samples.count, 1))).squareRoot()

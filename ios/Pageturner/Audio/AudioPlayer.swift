@@ -18,6 +18,7 @@ final class AudioPlayer: ObservableObject {
         didSet {
             if isPlaying { player?.rate = rate }
             UserDefaults.standard.set(Double(rate), forKey: "audioPlaybackRate")
+            updateNowPlaying()   // the lock screen's clock runs at this speed
         }
     }
     /// Seconds left on the sleep timer, nil when unset.
@@ -40,6 +41,16 @@ final class AudioPlayer: ObservableObject {
     private var artworkItem: MPMediaItemArtwork?
     /// Where and when this listen began, for the BookMaster session push.
     private var sessionStart: (at: Date, progression: Double)?
+    /// Set once the files have been measured and the starting place found. Until then there is
+    /// no position to save — an early close would have written "the start" over the real one.
+    private var opened = false
+    private var closed = false
+    /// What was last written to the library, to tell a change from outside (a restart, a jump to
+    /// BookMaster's place) from our own saves.
+    private var written: (audioPosition: TimeInterval?, progression: Double?)?
+    /// Consecutive seconds the player said "paused" while we believed it was playing.
+    private var stalledTicks = 0
+    private var routeObserver: NSObjectProtocol?
 
     init(book: Book, library: LibraryStore) {
         self.book = book
@@ -62,11 +73,13 @@ final class AudioPlayer: ObservableObject {
             let d = (try? await AVURLAsset(url: url).load(.duration).seconds) ?? 0
             total += d
         }
+        guard !closed else { return }
         trackOffsets = offsets
         duration = total
         chapters = urls.count > 1
             ? AudioChapters.fromTracks(titles: trackNames, offsets: offsets, duration: total)
             : await Self.embeddedChapters(of: urls.first, duration: total)
+        guard !closed else { return }
         coverImage = library.cover(for: book)
         guard !urls.isEmpty else {
             notice = "No audio files found for this book."
@@ -75,9 +88,11 @@ final class AudioPlayer: ObservableObject {
         load(track: 0)
         let target = book.audioPosition ?? (book.progression.map { $0 * total }) ?? 0
         if target > 1 { seek(to: target, resume: false) }
+        written = (book.audioPosition, book.progression)
+        opened = true
         configureSession()
-        setUpNowPlaying()
-        AudioFocus.shared.register("audiobook") { [weak self] in self?.pause() }
+        AudioFocus.shared.register("audiobook", pause: { [weak self] in self?.pause() }, remote: remoteHandlers)
+        updateNowPlaying()
         // a call or alarm stops the audio — pause too, so the sitting ends there
         // instead of counting the interruption as listening
         interruptionObserver = NotificationCenter.default.addObserver(
@@ -88,6 +103,39 @@ final class AudioPlayer: ObservableObject {
             else { return }
             Task { @MainActor in self?.pause() }
         }
+        // headphones unplugged: iOS has already stopped the player — make the screen agree
+        routeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                  AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable
+            else { return }
+            Task { @MainActor in self?.pause() }
+        }
+    }
+
+    /// The library's record of this book changed from outside — a restart, "Go to N%" from
+    /// BookMaster's offer — while the player was already loaded: follow it, rather than carry on
+    /// from the old place and write that back over it.
+    func adopt(_ latest: Book) {
+        book = latest
+        guard opened, duration > 0, latest.audioPosition != written?.audioPosition || latest.progression != written?.progression else { return }
+        let target = latest.audioPosition ?? (latest.progression.map { $0 * duration }) ?? 0
+        written = (latest.audioPosition, latest.progression)
+        if abs(target - position) > 2 { seek(to: target, resume: isPlaying) }
+    }
+
+    /// What the lock screen, headset and Control Center buttons do while this owns them.
+    private var remoteHandlers: RemoteControls.Handlers {
+        RemoteControls.Handlers(
+            play: { [weak self] in self?.play() },
+            pause: { [weak self] in self?.pause() },
+            toggle: { [weak self] in self?.togglePlay() },
+            next: { [weak self] in self?.skipForwardAChapter() },
+            previous: { [weak self] in self?.skipBackAChapter() },
+            skipForward: { [weak self] in self?.skip(by: 30) },
+            skipBackward: { [weak self] in self?.skip(by: -15) },
+            refresh: { [weak self] in self?.updateNowPlaying() })
     }
 
     private func load(track index: Int) {
@@ -128,6 +176,8 @@ final class AudioPlayer: ObservableObject {
 
     func play() {
         guard player != nil else { return }
+        // pressing play on a book that has finished starts it again
+        if duration > 0, position >= duration - 0.5 { seek(to: 0, resume: false) }
         AudioFocus.shared.claim("audiobook")
         if sessionStart == nil, duration > 0 { sessionStart = (Date(), position / duration) }
         resumePlayback()
@@ -146,9 +196,11 @@ final class AudioPlayer: ObservableObject {
     func pause() {
         player?.pause()
         isPlaying = false
+        stalledTicks = 0
         savePosition(force: true)
         endBookMasterSession()
         MPNowPlayingInfoCenter.default().playbackState = .paused
+        updateNowPlaying()   // the clock stops, and the lock screen should say so
     }
 
     func skip(by seconds: TimeInterval) {
@@ -159,11 +211,7 @@ final class AudioPlayer: ObservableObject {
     func seek(to target: TimeInterval, resume: Bool) {
         guard !trackOffsets.isEmpty else { return }
         let t = min(max(target, 0), duration)
-        var track = trackIndex
-        for (i, off) in trackOffsets.enumerated() {
-            let next = i + 1 < trackOffsets.count ? trackOffsets[i + 1] : duration
-            if t >= off && t < next { track = i; break }
-        }
+        let track = AudioChapters.trackIndex(at: t, offsets: trackOffsets) ?? trackIndex
         if track != trackIndex { load(track: track) }
         let local = t - trackOffsets[track]
         player?.seek(to: CMTime(seconds: local, preferredTimescale: 600),
@@ -253,7 +301,8 @@ final class AudioPlayer: ObservableObject {
 
     var trackNames: [String] {
         if book.trackTitles.count == urls.count { return book.trackTitles }
-        return urls.map { $0.deletingPathExtension().lastPathComponent }
+        // the files are stored under internal names — never show those
+        return urls.indices.map { "Part \($0 + 1)" }
     }
 
     // MARK: - Sleep timer
@@ -290,7 +339,8 @@ final class AudioPlayer: ObservableObject {
     func close() {
         savePosition()
         pause()
-        AudioFocus.shared.unregister("audiobook")
+        closed = true
+        AudioFocus.shared.unregister("audiobook")   // the lock-screen buttons pass on, or are cleared
         setSleepTimer(minutes: nil)
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
         timeObserver = nil
@@ -298,26 +348,24 @@ final class AudioPlayer: ObservableObject {
         endObserver = nil
         if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
         interruptionObserver = nil
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        MPNowPlayingInfoCenter.default().playbackState = .stopped
-        let center = MPRemoteCommandCenter.shared()
-        for command in [center.playCommand, center.pauseCommand, center.togglePlayPauseCommand,
-                        center.nextTrackCommand, center.previousTrackCommand,
-                        center.skipForwardCommand, center.skipBackwardCommand]
-        {
-            command.removeTarget(nil)
-        }
+        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+        routeObserver = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     private func savePosition(force: Bool = false) {
-        var b = book
-        b.audioPosition = position
-        b.progression = duration > 0 ? position / duration : nil
-        b.lastOpenedAt = Date()
-        library.update(b)
-        guard let progression = b.progression else { return }
-        let ref = b.bookMasterRef
+        // before the files are measured there is no place to save; after a close there is nothing to follow
+        guard opened, duration > 0 else { return }
+        let progression = position / duration
+        // the record as it is now: an edit made while this was loaded (a title, a shelf) must survive
+        library.mutate(book.id) { stored in
+            stored.audioPosition = position
+            stored.progression = progression
+            stored.lastOpenedAt = Date()
+        }
+        written = (position, progression)
+        if let latest = library.books.first(where: { $0.id == book.id }) { book = latest }
+        let ref = book.bookMasterRef
         Task {
             await BookMaster.shared.syncProgress(
                 bookKey: ref.title, ref: ref, percent: progression, isAudio: true, force: force,
@@ -371,6 +419,13 @@ final class AudioPlayer: ObservableObject {
                     self.lastChapterIndex = self.currentChapterIndex
                     self.updateNowPlaying()
                 }
+                // iOS paused the player under us (an unplugged headset, another app's audio) and nobody told us
+                if self.isPlaying, self.player?.timeControlStatus == .paused {
+                    self.stalledTicks += 1
+                    if self.stalledTicks >= 2 { self.pause() }
+                } else {
+                    self.stalledTicks = 0
+                }
                 // persist about every 10s so resume survives a force-quit
                 if self.isPlaying, abs(self.position - self.lastSavedPosition) >= 10 {
                     self.lastSavedPosition = self.position
@@ -378,20 +433,6 @@ final class AudioPlayer: ObservableObject {
                 }
             }
         }
-    }
-
-    private func setUpNowPlaying() {
-        let center = MPRemoteCommandCenter.shared()
-        center.playCommand.addTarget { [weak self] _ in self?.play(); return .success }
-        center.pauseCommand.addTarget { [weak self] _ in self?.pause(); return .success }
-        center.togglePlayPauseCommand.addTarget { [weak self] _ in self?.togglePlay(); return .success }
-        center.nextTrackCommand.addTarget { [weak self] _ in self?.skipForwardAChapter(); return .success }
-        center.previousTrackCommand.addTarget { [weak self] _ in self?.skipBackAChapter(); return .success }
-        center.skipForwardCommand.preferredIntervals = [30]
-        center.skipForwardCommand.addTarget { [weak self] _ in self?.skip(by: 30); return .success }
-        center.skipBackwardCommand.preferredIntervals = [15]
-        center.skipBackwardCommand.addTarget { [weak self] _ in self?.skip(by: -15); return .success }
-        updateNowPlaying()
     }
 
     private func updateNowPlaying() {

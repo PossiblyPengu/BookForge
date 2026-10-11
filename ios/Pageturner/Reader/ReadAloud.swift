@@ -93,7 +93,15 @@ final class ReadAloud: NSObject, ObservableObject {
         rate = settings.speechRate
         super.init()
         synthesizer.delegate = self
-        AudioFocus.shared.register("readaloud") { [weak self] in self?.pauseForOtherAudio() }
+        AudioFocus.shared.register(
+            "readaloud", pause: { [weak self] in self?.pauseForOtherAudio() },
+            remote: RemoteControls.Handlers(
+                play: { [weak self] in self?.synthesizer.resume() },
+                pause: { [weak self] in self?.synthesizer.pause() },
+                toggle: { [weak self] in self?.synthesizer.pauseOrResume() },
+                next: { [weak self] in self?.synthesizer.next() },
+                previous: { [weak self] in self?.synthesizer.previous() },
+                refresh: { [weak self] in self?.publishNowPlaying() }))
 
         // highlight the sentence being spoken
         if let decorable = navigator as? DecorableNavigator {
@@ -138,7 +146,7 @@ final class ReadAloud: NSObject, ObservableObject {
             let start = await navigator?.firstVisibleElementLocator() ?? navigator?.currentLocation
             synthesizer.start(from: start)
         }
-        setUpNowPlaying()
+        publishNowPlaying()
     }
 
     func playPause() {
@@ -157,7 +165,6 @@ final class ReadAloud: NSObject, ObservableObject {
         AudioFocus.shared.unregister("readaloud")
         isActive = false
         setSleepTimer(minutes: nil)
-        tearDownNowPlaying()
     }
 
     // MARK: - Sleep timer
@@ -205,29 +212,8 @@ final class ReadAloud: NSObject, ObservableObject {
 
     // MARK: - Lock screen / Control Center
 
-    private func setUpNowPlaying() {
-        let center = MPRemoteCommandCenter.shared()
-        center.playCommand.removeTarget(nil)
-        center.pauseCommand.removeTarget(nil)
-        center.togglePlayPauseCommand.removeTarget(nil)
-        center.nextTrackCommand.removeTarget(nil)
-        center.previousTrackCommand.removeTarget(nil)
-        center.playCommand.addTarget { [weak self] _ in
-            self?.synthesizer.resume(); return .success
-        }
-        center.pauseCommand.addTarget { [weak self] _ in
-            self?.synthesizer.pause(); return .success
-        }
-        center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            self?.synthesizer.pauseOrResume(); return .success
-        }
-        center.nextTrackCommand.addTarget { [weak self] _ in
-            self?.synthesizer.next(); return .success
-        }
-        center.previousTrackCommand.addTarget { [weak self] _ in
-            self?.synthesizer.previous(); return .success
-        }
-
+    /// The lock screen's title, author and cover. The buttons are `RemoteControls`'.
+    private func publishNowPlaying() {
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: displayTitle,
             MPMediaItemPropertyArtist: displayAuthor,
@@ -236,18 +222,11 @@ final class ReadAloud: NSObject, ObservableObject {
         Task { @MainActor in
             if let image = try? await publication.cover().get() {
                 info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+                // only if read-aloud still has the lock screen
+                if RemoteControls.shared.activeOwner == "readaloud" {
+                    MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+                }
             }
-        }
-    }
-
-    private func tearDownNowPlaying() {
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        let center = MPRemoteCommandCenter.shared()
-        for command in [center.playCommand, center.pauseCommand, center.togglePlayPauseCommand,
-                        center.nextTrackCommand, center.previousTrackCommand]
-        {
-            command.removeTarget(nil)
         }
     }
 }
@@ -264,9 +243,13 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
         case let .playing(utterance, range: word):
             isActive = true
             isPlaying = true
-            consecutiveFailures = 0
             spokenUtterance = utterance.locator
-            if let word { spokenWord.send(word) }
+            // the state is published before every sentence, spoken or not — only a word being
+            // spoken proves the voice works
+            if let word {
+                consecutiveFailures = 0
+                spokenWord.send(word)
+            }
         case let .paused(utterance):
             isPlaying = false
             spokenUtterance = utterance.locator

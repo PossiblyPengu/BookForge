@@ -123,3 +123,62 @@ func runVoiceChecks() {
           && SpeechRateMap.label(1.75) == "1.75×" && SpeechRateMap.label(2.5) == "2.5×",
           "\([1, 1.25, 0.75, 1.75, 2.5].map(SpeechRateMap.label))")
 }
+
+
+@MainActor
+func runSampleChecks() {
+    section("Voice samples")
+    check("English for English and for the unknown", SpeechSamples.text(for: "en-GB") == SpeechSamples.english && SpeechSamples.text(for: nil) == SpeechSamples.english
+          && SpeechSamples.text(for: "xx") == SpeechSamples.english && SpeechSamples.text(for: "") == SpeechSamples.english)
+    check("a voice's own language, however the tag is written", SpeechSamples.text(for: "fr-CA").hasPrefix("Chapitre") && SpeechSamples.text(for: "de_DE").hasPrefix("Erstes")
+          && SpeechSamples.text(for: "zh-Hans-CN").hasPrefix("第一章") && SpeechSamples.text(for: "NB").hasPrefix("Kapittel"))
+    let others = ["de", "fr", "es", "it", "pt", "nl", "ru", "pl", "uk", "cs", "sk", "sl", "sv", "da", "nb", "no", "fi", "tr", "el", "hu", "ro", "ca", "lv", "ar", "vi", "zh"]
+    check("every other line is a real, different sentence", others.allSatisfy { SpeechSamples.text(for: $0) != SpeechSamples.english && SpeechSamples.text(for: $0).count > 12 })
+}
+
+@MainActor
+func runReadingSpanChecks() {
+    section("What was read in a sitting")
+    var turning = ReadingSpan(startingAt: 0.10)
+    turning.moved(to: 0.11); turning.moved(to: 0.13); turning.moved(to: 0.14)
+    check("page turns add up", abs(turning.span - 0.04) < 1e-9, "\(turning.span)")
+
+    var scrubbed = ReadingSpan(startingAt: 0.10)
+    scrubbed.jumped(); scrubbed.moved(to: 0.50)
+    check("where a jump lands is not read", scrubbed.span == 0)
+    scrubbed.moved(to: 0.51)
+    check("…the pages turned after it are", abs(scrubbed.span - 0.01) < 1e-9, "\(scrubbed.span)")
+
+    var closed = ReadingSpan(startingAt: 0.10)
+    closed.jumped(); closed.moved(to: 0.50)
+    check("a jump from 10% to 50% and nothing else is no reading at all (it was reported as 40% read)", closed.span == 0)
+
+    var aloud = ReadingSpan(startingAt: 0.20)
+    aloud.moved(to: 0.21); aloud.moved(to: 0.22)   // read-aloud following the narration is not announced as a jump
+    check("read-aloud turning pages counts", abs(aloud.span - 0.02) < 1e-9)
+
+    var big = ReadingSpan(startingAt: 0.10)
+    big.moved(to: 0.45)
+    check("a leap of a third in one step is a jump nobody announced", big.span == 0)
+
+    var back = ReadingSpan(startingAt: 0.30)
+    back.moved(to: 0.25); back.moved(to: 0.26)
+    check("backwards steps are not reading, and reading on from there is", abs(back.span - 0.01) < 1e-9, "\(back.span)")
+
+    var junk = ReadingSpan(startingAt: 0.30)
+    junk.moved(to: nil); junk.moved(to: .nan); junk.moved(to: 0.31)
+    check("a missing or broken position is ignored", abs(junk.span - 0.01) < 1e-9, "\(junk.span)")
+
+    var peek = ReadingSpan(startingAt: 0.40)
+    peek.jumped(); peek.moved(to: 0.998)
+    check("a peek at the last page is not 'finished' for BookMaster", peek.reachedByJump && peek.reportable(0.998) == 0.99 && peek.reportable(0.5) == 0.5)
+    peek.moved(to: 1.0)
+    check("…until the last page is reached by reading on", !peek.reachedByJump && peek.reportable(1.0) == 1.0 && peek.span > 0)
+
+    var fresh = ReadingSpan(startingAt: 0.4)
+    fresh.moved(to: 0.41)
+    fresh.restart(at: 0.41)
+    check("a new sitting starts from nothing", fresh.span == 0)
+    fresh.moved(to: 0.42)
+    check("…counting from where the book is", abs(fresh.span - 0.01) < 1e-9)
+}

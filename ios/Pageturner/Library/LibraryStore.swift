@@ -512,14 +512,21 @@ final class LibraryStore: ObservableObject {
         update(book)
     }
 
-    /// Change only the BookMaster fields of one book.
-    func updateBookMaster(_ id: UUID, _ change: (inout Book) -> Void) {
+    /// Change one book's record as it is stored right now. This is what a player or reader should
+    /// save a position with: writing back its own older copy of the whole `Book` would undo an
+    /// edit made meanwhile (a title, a shelf, a note).
+    func mutate(_ id: UUID, _ change: (inout Book) -> Void) {
         guard let i = books.firstIndex(where: { $0.id == id }) else { return }
         var book = books[i]
         change(&book)
         guard book != books[i] else { return }
         books[i] = book
         save()
+    }
+
+    /// Change only the BookMaster fields of one book.
+    func updateBookMaster(_ id: UUID, _ change: (inout Book) -> Void) {
+        mutate(id, change)
     }
 
     /// Apply a whole shelf pull in one write.

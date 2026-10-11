@@ -52,7 +52,10 @@ final class ReaderModel: ObservableObject {
     private var currentLocator: Locator?
     /// Where and when this sitting began, for the BookMaster session push.
     private var sessionStart: (at: Date, progression: Double)?
+    /// How much of the book was actually read this sitting — page turns, not jumps.
+    private var reading = ReadingSpan()
     private var searchTask: Task<Void, Never>?
+    private var searchGeneration = 0
     /// Where the reader was when this app began a jump, and the location before
     /// the latest one — together they tell a jump's origin however the two
     /// callbacks (jumped / location changed) happen to be ordered.
@@ -73,6 +76,7 @@ final class ReaderModel: ObservableObject {
         do {
             let publication = try await Readium.shared.open(url: library.fileURL(for: book))
             self.publication = publication
+            reading = ReadingSpan(startingAt: book.progression)
             var initial = book.locatorJSON.flatMap { try? Locator(jsonString: $0) }
             // no saved place but a progression (a jump to where BookMaster has
             // the book, or a restored backup): find that point in the book
@@ -212,6 +216,15 @@ final class ReaderModel: ObservableObject {
         }
     }
 
+    // MARK: - What was read
+
+    /// The navigator says a jump was made. One the reader asked for (or a link they followed) is not
+    /// reading; read-aloud following the narration is.
+    fileprivate func noteJump() {
+        guard pendingOrigin != nil || readAloud?.isActive != true else { return }
+        reading.jumped()
+    }
+
     // MARK: - Back
 
     /// A jump was made (the contents, a search hit, a link in the page, the
@@ -295,6 +308,8 @@ final class ReaderModel: ObservableObject {
 
     func removeBookmark(_ bookmark: Bookmark) {
         book.bookmarks.removeAll { $0.id == bookmark.id }
+        // the header's icon follows the page's bookmark — which may just have been this one
+        isCurrentLocationBookmarked = currentLocator.map { self.bookmark(matching: $0) != nil } ?? false
         flushSave()
     }
 
@@ -328,6 +343,9 @@ final class ReaderModel: ObservableObject {
 
     func search(_ query: String) {
         searchTask?.cancel()
+        // one search at a time owns the spinner and the list: an older one finishing late must not touch either
+        searchGeneration += 1
+        let generation = searchGeneration
         let q = query.trimmingCharacters(in: .whitespaces)
         guard let publication, !q.isEmpty else {
             searchResults = []
@@ -336,7 +354,7 @@ final class ReaderModel: ObservableObject {
         }
         searchInFlight = true
         searchTask = Task { @MainActor in
-            defer { searchInFlight = false }
+            defer { if generation == searchGeneration { searchInFlight = false } }
             switch await publication.search(query: q) {
             case let .success(iterator):
                 var found: [Locator] = []
@@ -347,8 +365,10 @@ final class ReaderModel: ObservableObject {
                     found.append(contentsOf: page.locators)
                     if found.count >= 200 { break }
                 }
+                guard generation == searchGeneration, !Task.isCancelled else { return }
                 searchResults = found
             case .failure:
+                guard generation == searchGeneration, !Task.isCancelled else { return }
                 searchResults = []
                 notice = "This book can't be searched."
             }
@@ -539,30 +559,39 @@ final class ReaderModel: ObservableObject {
 
     /// A new sitting begins now, from wherever the book is open.
     func beginSession() {
-        if sessionStart == nil, let p = book.progression { sessionStart = (Date(), p) }
+        if sessionStart == nil, let p = book.progression {
+            sessionStart = (Date(), p)
+            reading.restart(at: p)
+        }
     }
 
     /// Tell BookMaster how far this sitting got — called when the reader is
-    /// left or the app goes to the background, not on every save. A peek that
-    /// moved under half a percent is not a session.
+    /// left or the app goes to the background, not on every save. The pages
+    /// counted are the ones turned to, not the distance between where the
+    /// sitting began and ended: jumping from 10% to 50% and closing the book
+    /// is not 40% read. A peek that read under half a percent is not a session.
     func endSession() {
         guard let start = sessionStart else { return }
         sessionStart = nil
         let end = book.progression ?? start.progression
+        let span = min(reading.span, 1)
+        let reported = reading.reportable(end)
+        reading.restart(at: nil)
         let minutes = Date().timeIntervalSince(start.at) / 60
-        let moved = (end - start.progression) * 100 >= 0.5
+        let moved = span * 100 >= 0.5
         // the local log keeps any real sitting — time spent, even where it hardly moved the page
         if moved || minutes >= 2 {
-            ReadingLog.shared.record(book: book, minutes: minutes, from: start.progression, to: end, audio: false)
+            ReadingLog.shared.record(book: book, minutes: minutes, from: max(end - span, 0), to: end, audio: false)
         }
-        guard moved else { return }
         let ref = book.bookMasterRef
         Task {
+            // wherever the book was left, however it got there
             await BookMaster.shared.syncProgress(
-                bookKey: ref.title, ref: ref, percent: end, isAudio: false, force: true,
+                bookKey: ref.title, ref: ref, percent: reported, isAudio: false, force: true,
                 pinned: { [weak self] id in self?.pin(id) })
+            guard moved else { return }
             await BookMaster.shared.syncSession(
-                ref: ref, percentStart: start.progression, percentEnd: end,
+                ref: ref, percentStart: max(reported - span, 0), percentEnd: reported,
                 minutes: minutes, at: Date())
         }
     }
@@ -579,6 +608,7 @@ final class ReaderModel: ObservableObject {
 extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
     func navigator(_ navigator: Navigator, didJumpTo locator: Locator) {
         recordJump(to: locator)
+        noteJump()
     }
 
     /// A footnote or endnote reference: show the note in a sheet instead of
@@ -602,8 +632,9 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
         chapterTitle = self.chapterTitle(for: locator)
         scheduleSave()
         beginSession()
+        reading.moved(to: locator.locations.totalProgression)
         let ref = book.bookMasterRef
-        let progression = book.progression ?? 0
+        let progression = reading.reportable(book.progression ?? 0)
         Task {
             await BookMaster.shared.syncProgress(
                 bookKey: ref.title, ref: ref, percent: progression, isAudio: false,

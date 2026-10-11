@@ -44,6 +44,13 @@ enum AudioChapters {
             starts.append(marker)
         }
 
+        // Audio before the first marker (credits, a lead-in) is not part of chapter 1: give it a
+        // chapter of its own, so "previous" and "next" from there go where they should
+        let hasLeadIn = (starts.first?.start ?? 0) >= leadIn
+        if hasLeadIn, let first = starts.first {
+            starts.insert((title: "Opening", start: 0, end: first.start), at: 0)
+        }
+
         var chapters: [AudioChapter] = []
         for (i, marker) in starts.enumerated() {
             let nextStart = i + 1 < starts.count ? starts[i + 1].start : nil
@@ -54,11 +61,19 @@ enum AudioChapters {
             let title = marker.title.trimmingCharacters(in: .whitespacesAndNewlines)
             chapters.append(AudioChapter(
                 id: chapters.count,
-                title: title.isEmpty ? "Chapter \(chapters.count + 1)" : title,
+                // numbered from the first real chapter, not from the lead-in
+                title: title.isEmpty ? "Chapter \(chapters.count + 1 - (hasLeadIn ? 1 : 0))" : title,
                 start: marker.start, end: end))
         }
         return chapters
     }
+
+    /// Audio this long before the first marker gets a chapter of its own.
+    static let leadIn: TimeInterval = 1
+
+    /// Positions are quantised when they are sought to (1/600 s) and read back from a clock: a
+    /// position this close before a chapter's start is at its start.
+    static let tolerance: TimeInterval = 0.05
 
     /// The chapter containing `position`: the last one that has started. A
     /// position before the first chapter belongs to the first.
@@ -67,7 +82,7 @@ enum AudioChapters {
         var low = 0, high = chapters.count - 1
         while low < high {
             let mid = (low + high + 1) / 2
-            if chapters[mid].start <= position { low = mid } else { high = mid - 1 }
+            if chapters[mid].start <= position + tolerance { low = mid } else { high = mid - 1 }
         }
         return low
     }
@@ -78,5 +93,16 @@ enum AudioChapters {
         guard let current = index(at: position, in: chapters) else { return nil }
         if position - chapters[current].start > grace { return current }
         return current > 0 ? current - 1 : current
+    }
+}
+
+extension AudioChapters {
+    /// Which file of a multi-file book holds the global time `t`: the last one that has started —
+    /// so the very end of the book is the end of the last file.
+    static func trackIndex(at t: TimeInterval, offsets: [TimeInterval]) -> Int? {
+        guard !offsets.isEmpty else { return nil }
+        var found = 0
+        for (i, offset) in offsets.enumerated() where t >= offset - tolerance { found = i }
+        return found
     }
 }

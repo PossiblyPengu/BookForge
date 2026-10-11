@@ -20,7 +20,9 @@ final class PlaybackCoordinator {
     /// Open a book's audio. Choosing the book that is already loaded just
     /// brings its player back up instead of restarting it.
     func start(_ book: Book, library: LibraryStore) {
-        if bookID == book.id, player != nil {
+        if bookID == book.id, let player {
+            // a restart or a jump to BookMaster's place may have changed the record since it loaded
+            player.adopt(library.books.first { $0.id == book.id } ?? book)
             showNowPlaying = true
             return
         }

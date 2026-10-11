@@ -4,7 +4,8 @@ import Foundation
 ///
 /// Read-aloud and the audiobook player are separate engines that share one audio
 /// session, so nothing stopped them playing over each other. Whichever starts
-/// claims focus and the other is paused — not stopped, so it can be resumed.
+/// claims focus and the other is paused — not stopped, so it can be resumed. The
+/// one that claims also gets the lock-screen buttons (`RemoteControls`).
 @MainActor
 final class AudioFocus {
     static let shared = AudioFocus()
@@ -13,18 +14,22 @@ final class AudioFocus {
 
     private init() {}
 
-    /// Register something that makes sound, and how to quieten it.
-    func register(_ id: String, pause: @escaping () -> Void) {
+    /// Register something that makes sound, how to quieten it, and (if it has them) what the
+    /// lock-screen and headset buttons do while it owns them.
+    func register(_ id: String, pause: @escaping () -> Void, remote: RemoteControls.Handlers? = nil) {
         owners[id] = pause
+        if let remote { RemoteControls.shared.register(id, remote) }
     }
 
     func unregister(_ id: String) {
         owners[id] = nil
+        RemoteControls.shared.unregister(id)
     }
 
-    /// `id` is about to make sound: pause everything else.
+    /// `id` is about to make sound: pause everything else, and hand it the buttons.
     func claim(_ id: String) {
         for (other, pause) in owners where other != id { pause() }
+        RemoteControls.shared.activate(id)
     }
 
     /// Nothing of ours is open, playing or paused — a brief sound (a voice sample)

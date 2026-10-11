@@ -14,6 +14,14 @@ struct NowPlayingView: View {
 
     private var shownPosition: TimeInterval { scrubbing ?? player.position }
 
+    /// The chapter at the place the bar is showing — which is somewhere else while the thumb is dragged.
+    private var shownChapter: AudioChapter? {
+        AudioChapters.index(at: shownPosition, in: player.chapters).map { player.chapters[$0] }
+    }
+
+    /// "1x", "1.25x", "1.5x" — `%.2g` would round 1.25 to "1.2".
+    private func speedLabel(_ rate: Double) -> String { String(format: "%.3gx", rate) }
+
     var body: some View {
         VStack(spacing: 0) {
             topBar
@@ -128,7 +136,7 @@ struct NowPlayingView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            if let chapter = player.currentChapter, player.chapters.count > 1 {
+            if let chapter = shownChapter, player.chapters.count > 1 {
                 Text(chapter.title)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
@@ -156,7 +164,7 @@ struct NowPlayingView: View {
             HStack {
                 Text(format(shownPosition)).monospacedDigit()
                 Spacer()
-                if let chapter = player.currentChapter, player.chapters.count > 1 {
+                if let chapter = shownChapter, player.chapters.count > 1 {
                     Text("\(format(max(chapter.end - shownPosition, 0))) left in chapter")
                         .monospacedDigit()
                     Spacer()
@@ -222,10 +230,10 @@ struct NowPlayingView: View {
             HStack(spacing: 12) {
                 Menu {
                     ForEach([0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { rate in
-                        Button(String(format: "%.2gx", rate)) { player.rate = Float(rate) }
+                        Button(speedLabel(rate)) { player.rate = Float(rate) }
                     }
                 } label: {
-                    chip(String(format: "%.2gx", player.rate), symbol: "speedometer")
+                    chip(speedLabel(Double(player.rate)), symbol: "speedometer")
                 }
                 .accessibilityLabel("Playback speed")
 

@@ -48,6 +48,27 @@ func runLogic() {
     let many = (0..<400).map { chapter($0, "c\($0)", Double($0) * 60, Double($0 + 1) * 60) }
     check("index: binary search over 400 chapters", (0..<400).allSatisfy { AudioChapters.index(at: Double($0) * 60 + 30, in: many) == $0 })
 
+    // a position that was sought to lands a hair before the chapter that was asked for
+    check("index: a position a hair before a chapter's start is at its start (seek quantises to 1/600 s)", AudioChapters.index(at: 120 - 1.0 / 600, in: list) == 1)
+    check("index: but not a second before it", AudioChapters.index(at: 119, in: list) == 0)
+
+    // audio before the first marker is its own chapter
+    let leadIn = AudioChapters.normalise([("One", 6, 100), ("", 100, nil), ("Three", 200, 300)], duration: 300)
+    check("a lead-in before the first marker is a chapter of its own", leadIn.first?.title == "Opening" && leadIn.first?.start == 0 && leadIn.first?.end == 6, "\(leadIn.map(\.title)) \(leadIn.map(\.start))")
+    check("…so every marker's chapter is still there", leadIn.map(\.title) == ["Opening", "One", "Chapter 2", "Three"], "\(leadIn.map(\.title))")
+    check("…and the lead-in chapter runs up to the first marker, no gaps", zip(leadIn, leadIn.dropFirst()).allSatisfy { $0.end == $1.start })
+    check("from the lead-in, next goes to chapter one and previous stays", AudioChapters.index(at: 2, in: leadIn) == 0 && AudioChapters.previousTarget(position: 2, in: leadIn) == 0)
+    check("a first marker under a second in is not a lead-in", AudioChapters.normalise([("One", 0.4, 100)], duration: 100).map(\.title) == ["One"])
+    check("a first marker at 0 is not either", AudioChapters.normalise([("One", 0, 100)], duration: 100).map(\.title) == ["One"])
+
+    // which file holds a time
+    let offsets: [TimeInterval] = [0, 120, 600]
+    check("track: inside each file", AudioChapters.trackIndex(at: 50, offsets: offsets) == 0 && AudioChapters.trackIndex(at: 130, offsets: offsets) == 1 && AudioChapters.trackIndex(at: 700, offsets: offsets) == 2)
+    check("track: on a boundary belongs to the file that starts there", AudioChapters.trackIndex(at: 120, offsets: offsets) == 1)
+    check("track: the very end of the book is the last file", AudioChapters.trackIndex(at: 1_500, offsets: offsets) == 2)
+    check("track: a hair before a file is that file (quantised seek)", AudioChapters.trackIndex(at: 120 - 1.0 / 600, offsets: offsets) == 1)
+    check("track: none without files", AudioChapters.trackIndex(at: 5, offsets: []) == nil)
+
     check("previous: well into a chapter restarts it", AudioChapters.previousTarget(position: 400, in: list) == 1)
     check("previous: at its head goes back one", AudioChapters.previousTarget(position: 121, in: list) == 0)
     check("previous: at the head of the first stays", AudioChapters.previousTarget(position: 1, in: list) == 0)

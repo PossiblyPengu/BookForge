@@ -50,7 +50,8 @@ final class SpeechPreview: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     /// calling back into it (that crashes inside TextToSpeech), and only one sample plays at a time.
     static let shared = SpeechPreview()
 
-    static let sample = "Chapter one. The lamplight fell across the open page, and the story began."
+    /// The sentence heard, in the voice's language.
+    static func sample(for language: String?) -> String { SpeechSamples.text(for: language) }
 
     /// The voice being sampled — its identifier, or "" for Automatic.
     @Published private(set) var playing: String?
@@ -74,8 +75,9 @@ final class SpeechPreview: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         guard !wasPlaying else { return release() }
 
         begin()
-        let utterance = AVSpeechUtterance(string: Self.sample)
-        utterance.voice = voice.flatMap { AVSpeechSynthesisVoice(identifier: $0.id) } ?? SystemVoices.automatic()
+        let spoken = voice.flatMap { AVSpeechSynthesisVoice(identifier: $0.id) } ?? SystemVoices.automatic()
+        let utterance = AVSpeechUtterance(string: Self.sample(for: voice?.language ?? spoken?.language))
+        utterance.voice = spoken
         utterance.rate = SpeechRateMap.avRate(forMultiplier: rate)
         current = utterance
         playing = key
@@ -92,7 +94,7 @@ final class SpeechPreview: NSObject, ObservableObject, AVSpeechSynthesizerDelega
         begin()
         playing = key
         neuralTask = Task { [weak self] in
-            if let audio = try? await NeuralSynth.shared.generate(text: Self.sample, directory: entry.directory, info: entry.info),
+            if let audio = try? await NeuralSynth.shared.generate(text: Self.sample(for: voice.language), directory: entry.directory, info: entry.info),
                !Task.isCancelled
             {
                 NeuralPlayer.shared.speed = rate
