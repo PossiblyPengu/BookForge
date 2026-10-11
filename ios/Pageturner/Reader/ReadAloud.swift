@@ -129,8 +129,8 @@ final class ReadAloud: NSObject, ObservableObject {
         if let decorable = navigator as? DecorableNavigator {
             Publishers.CombineLatest($spoken, $highlights)
                 .removeDuplicates { $0.0 == $1.0 && $0.1 == $1.1 }
-                .sink { spoken, highlights in
-                    Self.paint(spoken, as: highlights, on: decorable)
+                .sink { [weak self] spoken, highlights in
+                    self?.paint(spoken, as: highlights, on: decorable)
                 }
                 .store(in: &subscriptions)
         }
@@ -180,6 +180,11 @@ final class ReadAloud: NSObject, ObservableObject {
 
     func stop() {
         synthesizer.stop()
+        // the synthesizer tells us it has stopped in a moment — by then this may be gone, and the
+        // marks would stay on the page
+        wordTimeout?.cancel()
+        namedAWordIn = nil
+        spoken = Spoken()
         neural.reset()
         NeuralSynth.shared.unload()   // the model's memory back
         AudioFocus.shared.unregister("readaloud")
@@ -254,8 +259,11 @@ final class ReadAloud: NSObject, ObservableObject {
         }
     }
 
+    /// What is on the page now, so that only what changed is sent to it.
+    private var painted: (sentence: [Decoration], line: [Decoration], word: [Decoration]) = ([], [], [])
+
     /// Put the sentence, line and word being said on the page as chosen — and take away the rest.
-    private static func paint(_ spoken: Spoken, as highlights: ReadAloudHighlights, on navigator: DecorableNavigator) {
+    private func paint(_ spoken: Spoken, as highlights: ReadAloudHighlights, on navigator: DecorableNavigator) {
         var sentence: [Decoration] = [], line: [Decoration] = [], word: [Decoration] = []
         if highlights.sentence, let locator = spoken.sentence {
             sentence = [Decoration(id: "tts", locator: locator, style: .highlight(tint: .systemOrange))]
@@ -271,9 +279,18 @@ final class ReadAloud: NSObject, ObservableObject {
                 line = [Decoration(id: "tts-line", locator: locator, style: .spokenLine)]
             }
         }
-        navigator.apply(decorations: sentence, in: "tts")
-        navigator.apply(decorations: line, in: "tts-line")
-        navigator.apply(decorations: word, in: "tts-word")
+        if sentence != painted.sentence {
+            navigator.apply(decorations: sentence, in: "tts")
+            painted.sentence = sentence
+        }
+        if line != painted.line {
+            navigator.apply(decorations: line, in: "tts-line")
+            painted.line = line
+        }
+        if word != painted.word {
+            navigator.apply(decorations: word, in: "tts-word")
+            painted.word = word
+        }
     }
 
     /// Where the first word of a sentence is on the page: what is lit until the voice names a word.

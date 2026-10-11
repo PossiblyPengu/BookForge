@@ -196,6 +196,12 @@ struct VoiceListView: View {
             .accessibilityAddTraits(selection == voice.id ? .isSelected : [])
             sampleButton(voice)
         }
+        // what iOS calls the voice, for telling someone which voices a phone lists
+        .contextMenu {
+            Button { UIPasteboard.general.string = voice.id } label: {
+                Label("Copy Voice ID", systemImage: "doc.on.doc")
+            }
+        }
     }
 
     /// "United States", or the language tag when the voice has no region.

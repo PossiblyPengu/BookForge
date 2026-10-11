@@ -100,6 +100,37 @@ func runSpokenWordsChecks() {
         return seen == Array(0 ..< timed.count)
     }())
 
+    // Six sentences read by three Piper voices (Lessac, Amy, Alan): where the speech starts and ends in
+    // the audio, and when an ASR heard each word begin (its timestamps lag the sound by about 0.33 s,
+    // taken off here). The estimate is allowed to be about a tenth of a second off.
+    struct Reference {
+        var text: String
+        var speech: ClosedRange<Double>
+        var starts: [Double?]
+    }
+    let references: [Reference] = [
+        Reference(text: "He opened the door quietly, looked up and down the corridor, and then stepped inside without a word.", speech: 0.08 ... 4.68, starts: [-0.12, 0.08, 0.32, 0.44, 0.80, 1.36, 1.60, 1.76, 1.88, 2.08, 2.20, 2.64, 2.84, 3.04, 3.60, 3.92, 4.24, 4.44]),
+        Reference(text: "There was nothing to be done; we had lost the road, and night was coming on fast.", speech: 0.04 ... 3.95, starts: [-0.08, 0.12, 0.32, 0.56, 0.72, 0.84, 1.12, 1.28, 1.48, 1.72, 1.88, 2.20, 2.44, 2.68, 2.96, 3.32, 3.52]),
+        Reference(text: "\"Well, Prince, so Genoa and Lucca are now just family estates of the Buonapartes,\" she said.", speech: 0.05 ... 6.26, starts: [0.11, 0.63, 1.23, 1.39, 1.87, 2.07, 2.51, 2.71, 3.03, 3.35, 3.79, 4.23, 4.35, nil, 5.63, 5.95]),
+        Reference(text: "He opened the door quietly, looked up and down the corridor, and then stepped inside without a word.", speech: 0.06 ... 5.48, starts: [-0.05, 0.27, 0.55, 0.71, 1.07, 1.59, 1.91, 2.11, 2.31, 2.59, 2.83, 3.27, 3.51, 3.71, 4.11, 4.59, 4.95, 5.15]),
+        Reference(text: "\"Well, Prince, so Genoa and Lucca are now just family estates of the Buonapartes,\" she said.", speech: 0.04 ... 6.08, starts: [0.27, 0.63, 1.23, 1.39, 1.87, 2.03, 2.51, 2.63, 2.91, 3.19, 3.79, 4.19, 4.31, nil, 5.47, 5.67]),
+        Reference(text: "He opened the door quietly, looked up and down the corridor, and then stepped inside without a word.", speech: 0.05 ... 6.15, starts: [-0.05, 0.27, 0.59, 0.71, 1.07, 1.79, 2.11, 2.31, 2.51, 2.75, 2.95, 3.59, 3.87, 4.15, 4.75, 5.23, 5.63, 5.91]),
+    ]
+    var errors: [Double] = []
+    var countsAgree = true
+    for reference in references {
+        let words = SpokenWords.schedule(SpokenWords.tokens(in: reference.text), speech: reference.speech)
+        if words.count != reference.starts.count { countsAgree = false; continue }
+        for (word, heard) in zip(words, reference.starts) { if let heard { errors.append(word.start - heard) } }
+    }
+    let meanError = errors.isEmpty ? .infinity : errors.map(abs).reduce(0, +) / Double(errors.count)
+    let bias = errors.isEmpty ? .infinity : errors.reduce(0, +) / Double(errors.count)
+    let within = errors.isEmpty ? 0 : Double(errors.filter { abs($0) < 0.25 }.count) / Double(errors.count)
+    check("the reference sentences split into the words the recogniser heard", countsAgree && errors.count > 80, "\(errors.count) words")
+    check("the estimate is within about a tenth of a second of when each word is spoken (\(Int(meanError * 1000)) ms)", meanError < 0.16, "\(meanError)")
+    check("…and is not late or early overall (\(Int(bias * 1000)) ms)", abs(bias) < 0.1, "\(bias)")
+    check("…and four words in five are within a quarter of a second (\(Int(within * 100))%)", within >= 0.8, "\(within)")
+
     section("Highlights: where the speech is in the audio")
     func tone(_ seconds: Double, rate: Double, amplitude: Float = 0.5) -> [Float] {
         (0 ..< Int(seconds * rate)).map { amplitude * Float(sin(2 * Double.pi * 220 * Double($0) / rate)) }

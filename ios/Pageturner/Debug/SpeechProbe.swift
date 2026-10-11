@@ -38,6 +38,20 @@ enum SpeechProbe {
             let result = await meter.measure(utterance, timeout: 10)
             NSLog("PTSpeechProbe rate=%.2f seconds=%.2f buffers=%d", Double(rate), result.seconds, result.buffers)
         }
+
+        // the scale as the app uses it: does "2×" really take half the time of "1×"?
+        var normal = 0.0
+        for multiplier in [1.0, 0.75, 1.25, 1.5, 2.0, 2.5, 3.0] {
+            let utterance = AVSpeechUtterance(string: passage)
+            utterance.voice = voice
+            utterance.rate = SpeechRateMap.avRate(forMultiplier: multiplier)
+            let meter = Meter()
+            kept.append(meter)
+            let result = await meter.measure(utterance, timeout: 10)
+            if multiplier == 1 { normal = result.seconds }
+            NSLog("PTSpeechProbe scale multiplier=%.2f rate=%.3f seconds=%.2f speed=%.2f",
+                  multiplier, Double(utterance.rate), result.seconds, result.seconds > 0 ? normal / result.seconds : 0)
+        }
         NSLog("PTSpeechProbe done")
     }
 
