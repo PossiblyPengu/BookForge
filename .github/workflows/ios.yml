@@ -122,6 +122,24 @@ jobs:
           path: ios/xcodebuild.log
           if-no-files-found: warn
 
+      # What the build actually produced, checked rather than assumed: a key missing from the
+      # generated Info.plist (background modes, URL scheme, document types) fails quietly on a device.
+      - name: Check the built app's Info.plist and bundle
+        run: |
+          APP=ios/build/Build/Products/Release-iphoneos/Pageturner.app
+          plutil -p "$APP/Info.plist" | tee ios/info-plist.txt
+          missing=0
+          for key in BGTaskSchedulerPermittedIdentifiers CFBundleURLTypes CFBundleDocumentTypes UTImportedTypeDeclarations UIFileSharingEnabled; do
+            grep -q "\"$key\"" ios/info-plist.txt || { echo "::error::Info.plist is missing $key"; missing=1; }
+          done
+          grep -q '=> "fetch"' ios/info-plist.txt || { echo "::error::UIBackgroundModes lacks fetch"; missing=1; }
+          grep -q '=> "audio"' ios/info-plist.txt || { echo "::error::UIBackgroundModes lacks audio"; missing=1; }
+          grep -q 'io.github.possiblypengu.pageturner.refresh' ios/info-plist.txt || { echo "::error::the refresh task id is not permitted"; missing=1; }
+          [ -d "$APP/Metadata.appintents" ] || { echo "::error::no Metadata.appintents (Siri/Shortcuts would not see the intents)"; missing=1; }
+          [ -f "$APP/Assets.car" ] || { echo "::error::no compiled asset catalogue (app icon)"; missing=1; }
+          ls "$APP" | head -40
+          exit $missing
+
       - name: Package IPA
         run: |
           cd ios/build/Build/Products/Release-iphoneos

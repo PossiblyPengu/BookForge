@@ -86,8 +86,13 @@ struct ReaderView: View {
             // CI simulator run: put a sheet up once the book has opened (Debug/DebugScenario.swift)
             .task {
                 guard let sheet = DebugScenario.readerSheet else { return }
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                // the ones that act on the open book wait for it to open
+                let needsBook = ["jump", "pdfsearch"].contains(sheet)
+                try? await Task.sleep(nanoseconds: needsBook ? 7_000_000_000 : 3_000_000_000)
                 switch sheet {
+                case "pdfsearch":
+                    model.search("fox")
+                    showSearch = true
                 case "contents": showContents = true
                 case "settings": showSettings = true
                 case "search": showSearch = true

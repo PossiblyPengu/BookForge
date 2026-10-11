@@ -39,6 +39,8 @@ enum DebugScenario {
         case "edit": router.editing = text
         case "shelves": if let text { router.openShelves([text.id]) }
         case "reader": router.reading = text
+        case "pdf": router.reading = library.books.first { $0.ext == "pdf" }
+        case "cbz": router.reading = library.books.first { $0.ext == "cbz" }
         case "player": if let audio { PlaybackCoordinator.shared.start(audio, library: library) }
         case "resume":
             // BookMaster has Alice at 62% and this phone has never opened her: opening asks
@@ -101,6 +103,41 @@ enum DebugScenario {
         try? data.write(to: url)
     }
 
+    private static func writePDF(to url: URL) {
+        let bounds = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let format = UIGraphicsPDFRendererFormat()
+        format.documentInfo = [
+            kCGPDFContextTitle as String: "The Quick Brown Fox",
+            kCGPDFContextAuthor as String: "A. Typist",
+        ]
+        let data = UIGraphicsPDFRenderer(bounds: bounds, format: format).pdfData { context in
+            for page in 1...3 {
+                context.beginPage()
+                ("Page \(page)" as NSString).draw(
+                    at: CGPoint(x: 72, y: 72), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 28)])
+                ("The quick brown fox jumps over the lazy dog. Pageturner reads PDFs too, and finds words like fox on page \(page)." as NSString)
+                    .draw(in: CGRect(x: 72, y: 130, width: 468, height: 400), withAttributes: [.font: UIFont.systemFont(ofSize: 18)])
+            }
+        }
+        try? data.write(to: url)
+    }
+
+    private static func writeCBZ(to url: URL) {
+        var zip = ZipWriter()
+        let colours: [UIColor] = [.systemTeal, .systemOrange, .systemPurple]
+        for (i, colour) in colours.enumerated() {
+            let png = UIGraphicsImageRenderer(size: CGSize(width: 800, height: 1200)).pngData { context in
+                colour.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 800, height: 1200))
+                ("\(i + 1)" as NSString).draw(
+                    at: CGPoint(x: 320, y: 450),
+                    withAttributes: [.font: UIFont.boldSystemFont(ofSize: 300), .foregroundColor: UIColor.white])
+            }
+            zip.add(String(format: "page-%02d.png", i + 1), png)
+        }
+        try? zip.finish().write(to: url)
+    }
+
     private static func seed(_ library: LibraryStore) async {
         let fm = FileManager.default
         let dir = fm.temporaryDirectory.appendingPathComponent("pt-seed-\(UUID().uuidString)", isDirectory: true)
@@ -118,6 +155,12 @@ enum DebugScenario {
             silence(seconds: 40, to: url)
             urls.append(url)
         }
+        // a PDF with real text (to search) and a CBZ comic of three coloured pages
+        let pdf = dir.appendingPathComponent("The Quick Brown Fox.pdf")
+        writePDF(to: pdf)
+        let cbz = dir.appendingPathComponent("Three Panels.cbz")
+        writeCBZ(to: cbz)
+        urls += [pdf, cbz]
         await library.importFiles(urls)
 
         // some state to look at: one book part-read, one nearly done, shelves, history

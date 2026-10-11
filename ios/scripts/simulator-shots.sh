@@ -46,7 +46,7 @@ shot() {
 shot 01-empty 6
 
 # seeded library (the first launch with -PTDebugSeed fills it; later launches reuse it)
-shot 02-library 16 -PTDebugSeed 1 -PTDebugScreen library
+shot 02-library 26 -PTDebugSeed 1 -PTDebugScreen library
 shot 03-detail 6 -PTDebugScreen detail
 shot 04-edit 6 -PTDebugScreen edit
 shot 05-shelves 6 -PTDebugScreen shelves
@@ -67,6 +67,10 @@ shot 17-reader-footnote 14 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugRe
 shot 18-reader-highlight 14 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugReaderSheet highlight
 shot 19-resume-prompt 8 -PTDebugScreen resume
 shot 19b-library-select 10 -PTDebugScreen library -PTDebugLibraryMode select
+# the other two readers: a PDF (and Readium's own search through it) and a CBZ comic
+shot 40-pdf 14 -PTDebugScreen pdf -PTDebugKeepChrome 1
+shot 41-pdf-search 20 -PTDebugScreen pdf -PTDebugKeepChrome 1 -PTDebugReaderSheet pdfsearch
+shot 42-cbz 14 -PTDebugScreen cbz -PTDebugKeepChrome 1
 
 # dark
 xcrun simctl ui "$UDID" appearance dark 2>/dev/null || true
