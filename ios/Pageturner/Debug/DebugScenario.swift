@@ -9,7 +9,9 @@ import UIKit
 ///
 ///     -PTDebugSeed 1            fill an empty library with sample books, a listen and some history
 ///     -PTDebugScreen library    which screen to put up (see `run`)
-///     -PTDebugReaderSheet …     with `reader`: contents | settings | search | voices
+///     -PTDebugReaderSheet …     with `reader`: contents | settings | search | voices | readaloud
+///     -PTDebugHighlights …      with readaloud: which of sentence,line,word to light (comma separated)
+///     -PTDebugVoice neural      with readaloud: speak with the downloaded Piper voice (en_US-lessac-low)
 ///     -PTDebugSettingsPush …    with `settings`: voices (open the voice list)
 ///     -PTDebugSpeechProbe 1     log the installed voices and how long speech takes at each rate
 ///     -PTDebugNeuralProbe <key> download that neural voice, speak with it, log the result (+ -PTDebugNeuralPlay 1)
@@ -23,6 +25,18 @@ enum DebugScenario {
     static var readerSheet: String? { defaults.string(forKey: "PTDebugReaderSheet") }
     static var settingsPush: String? { defaults.string(forKey: "PTDebugSettingsPush") }
     static var voiceSource: String? { defaults.string(forKey: "PTDebugVoiceSource") }
+
+    /// The highlights and voice a `readaloud` launch asks for.
+    static func configureReadAloud(_ settings: inout ReaderSettings) {
+        if let spec = defaults.string(forKey: "PTDebugHighlights") {
+            let chosen = Set(spec.split(separator: ",").map(String.init))
+            settings.highlights = ReadAloudHighlights(
+                sentence: chosen.contains("sentence"), line: chosen.contains("line"), word: chosen.contains("word"))
+        }
+        if defaults.string(forKey: "PTDebugVoice") == "neural" {
+            settings.voiceIdentifier = "piper:en_US-lessac-low"
+        }
+    }
 
     static func run(library: LibraryStore, router: AppRouter, selectTab: @escaping (AppTab) -> Void) async {
         if defaults.bool(forKey: "PTDebugSpeechProbe") { Task { await SpeechProbe.run() } }

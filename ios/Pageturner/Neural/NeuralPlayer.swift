@@ -5,10 +5,11 @@ import AVFoundation
 /// frames, so asking the model for "twice as fast" gets about 1.3×; stretching is exact and keeps
 /// the voice's pitch.
 ///
-/// Sentences are queued behind each other. `enqueue` returns while the end of a sentence is still
-/// playing, so the next one can be made in the meantime and follows without a gap. Audio is
-/// scheduled in short pieces, so after an interruption (a call, a route change) it picks up from
-/// the first piece not yet heard.
+/// Audio is scheduled in short pieces, so after an interruption (a call, a route change) it picks up
+/// from the first piece not yet heard. `enqueue` waits for the sentence to be heard — or, given a
+/// `lead`, returns while the end of it is still playing, so whoever is feeding the player can have the
+/// next one ready — and says how far through the sentence the voice is while it plays, which is what
+/// lights the word being spoken.
 @MainActor
 final class NeuralPlayer {
     static let shared = NeuralPlayer()
@@ -25,6 +26,14 @@ final class NeuralPlayer {
         let resume: (Bool) -> Void
     }
 
+    /// Who is told how far the voice has got in the sentence it queued last.
+    private struct Follower {
+        /// Frames queued before this sentence's first.
+        let start: Double
+        let frames: Double
+        let report: @MainActor (TimeInterval) -> Void
+    }
+
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
     private let stretch = AVAudioUnitTimePitch()
@@ -37,6 +46,14 @@ final class NeuralPlayer {
     private var generation = 0
     private var waiters: [Waiter] = []
     private var idleStop: Task<Void, Never>?
+
+    // Where the voice is: frames queued and heard since the queue was last emptied, how far into the
+    // piece being heard it is (integrated from the clock, and corrected each time a piece ends), and
+    // the ticker that reads it out.
+    private var clock = PlayheadClock()
+    private var lastTick: Date?
+    private var ticker: Task<Void, Never>?
+    private var follower: Follower?
 
     /// 1 is the voice's own pace. Applies at once, even in the middle of a sentence.
     var speed: Double = 1 {
@@ -68,14 +85,20 @@ final class NeuralPlayer {
     /// Seconds of playing time still queued, at the current speed.
     var remaining: TimeInterval {
         guard wiredRate > 0 else { return 0 }
-        let frames = pending.reduce(0.0) { $0 + Double($1.buffer.frameLength) }
+        let frames = clock.framesLeft(pending: pending.reduce(0.0) { $0 + Double($1.buffer.frameLength) })
         return frames / wiredRate / max(speed, 0.25)
     }
 
     /// Queue `samples` behind what is playing and wait until no more than `lead` seconds of it are
     /// left (0: until it has all been heard). True when that happened or `stop()` cut it short;
     /// false when the engine could not be started.
-    func enqueue(_ samples: [Float], sampleRate: Double, lead: TimeInterval) async -> Bool {
+    ///
+    /// `progress` hears how far the voice has got — seconds into `samples` at the voice's own pace,
+    /// not the stretched one — about 30 times a second while it plays.
+    func enqueue(
+        _ samples: [Float], sampleRate: Double, lead: TimeInterval,
+        progress: (@MainActor (TimeInterval) -> Void)? = nil
+    ) async -> Bool {
         guard !Task.isCancelled, !samples.isEmpty, sampleRate > 0,
               let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)
         else { return true }
@@ -86,11 +109,16 @@ final class NeuralPlayer {
             guard !Task.isCancelled else { return true }
             wire(format)
         }
+        let first = clock.queue(frames: Double(samples.count))
         for buffer in Self.buffers(of: samples, format: format) { schedule(buffer) }
+        follower = progress.map { Follower(start: first, frames: Double(samples.count), report: $0) }
         guard startEngine() else {
             failAll()
             return false
         }
+        // the ticker is for whoever follows the voice, or returns early
+        if progress != nil || lead > 0 { startTicker() }
+        progress?(0)
         return await wait(untilRemainingAtMost: lead)
     }
 
@@ -103,7 +131,7 @@ final class NeuralPlayer {
     func stop() {
         generation += 1
         node.stop()
-        pending.removeAll()
+        forgetQueue()
         let released = waiters
         waiters.removeAll()
         released.forEach { $0.resume(true) }
@@ -112,8 +140,19 @@ final class NeuralPlayer {
 
     // MARK: Plumbing
 
+    private func forgetQueue() {
+        pending.removeAll()
+        clock.reset()
+        follower = nil
+    }
+
+    /// Waiting for "all of it" means every piece has been heard; for a lead, that little time is left.
+    private func isReady(_ lead: TimeInterval) -> Bool {
+        lead > 0 ? remaining <= lead : pending.isEmpty
+    }
+
     private func wait(untilRemainingAtMost lead: TimeInterval) async -> Bool {
-        if remaining <= lead { return true }
+        if isReady(lead) { return true }
         return await withCheckedContinuation { continuation in
             nextID += 1
             waiters.append(Waiter(id: nextID, lead: lead, resume: { continuation.resume(returning: $0) }))
@@ -123,8 +162,7 @@ final class NeuralPlayer {
     /// Resume whoever has waited long enough.
     private func wake() {
         guard !waiters.isEmpty else { return }
-        let left = remaining
-        let ready = waiters.filter { left <= $0.lead }
+        let ready = waiters.filter { isReady($0.lead) }
         guard !ready.isEmpty else { return }
         waiters.removeAll { waiter in ready.contains { $0.id == waiter.id } }
         ready.forEach { $0.resume(true) }
@@ -133,7 +171,7 @@ final class NeuralPlayer {
     private func failAll() {
         generation += 1
         node.stop()
-        pending.removeAll()
+        forgetQueue()
         let released = waiters
         waiters.removeAll()
         released.forEach { $0.resume(false) }
@@ -153,10 +191,15 @@ final class NeuralPlayer {
     }
 
     private func heard(_ id: Int, generation queue: Int) {
-        guard queue == generation else { return }
-        pending.removeAll { $0.id == id }
+        guard queue == generation, let at = pending.firstIndex(where: { $0.id == id }) else { return }
+        clock.finishedPiece(frames: Double(pending[at].buffer.frameLength))   // the next piece starts now
+        pending.remove(at: at)
         wake()
-        if pending.isEmpty { scheduleIdleStop() }
+        if pending.isEmpty {
+            // everything queued has been heard: start counting again from nothing
+            forgetQueue()
+            scheduleIdleStop()
+        }
     }
 
     /// The engine runs on between sentences so they follow each other without a restart; it
@@ -168,6 +211,36 @@ final class NeuralPlayer {
             guard !Task.isCancelled, let self, self.pending.isEmpty, self.waiters.isEmpty else { return }
             self.node.stop()
             self.engine.stop()
+        }
+    }
+
+    // MARK: Where the voice is
+
+    private func startTicker() {
+        guard ticker == nil else { return }
+        lastTick = nil
+        ticker = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, !self.pending.isEmpty else { break }
+                self.tick()
+                try? await Task.sleep(nanoseconds: 33_000_000)
+            }
+            self?.ticker = nil
+        }
+    }
+
+    private func tick() {
+        let now = Date()
+        defer { lastTick = now }
+        guard engine.isRunning, node.isPlaying, let current = pending.first else { return }
+        if let last = lastTick {
+            clock.advance(
+                seconds: min(max(now.timeIntervalSince(last), 0), 0.2), speed: max(speed, 0.25),
+                sampleRate: wiredRate, pieceFrames: Double(current.buffer.frameLength))
+        }
+        wake()
+        if let follower {
+            follower.report(clock.seconds(sentenceStart: follower.start, frames: follower.frames, sampleRate: wiredRate))
         }
     }
 
@@ -196,6 +269,7 @@ final class NeuralPlayer {
         guard !pending.isEmpty else { return }
         generation += 1
         node.stop()
+        clock.restartPiece()   // the piece that was playing starts again from its beginning
         let queue = generation
         for piece in pending { hand(piece, to: queue) }
         if !startEngine() { failAll() }

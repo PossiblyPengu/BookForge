@@ -37,6 +37,14 @@ struct ReaderSettingsView: View {
             Section("Read aloud") {
                 ReadAloudControls(rate: $settings.speechRate, voice: $settings.voiceIdentifier)
             }
+
+            Section {
+                ReadAloudHighlightRows(highlights: $settings.highlights)
+            } header: {
+                Text("Highlight as it reads")
+            } footer: {
+                Text(ReadAloudHighlightRows.footnote)
+            }
         }
     }
 }

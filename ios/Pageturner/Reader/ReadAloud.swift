@@ -50,7 +50,19 @@ final class ReadAloud: NSObject, ObservableObject {
     private let displayTitle: String
     private let displayAuthor: String
 
-    @Published private var spokenUtterance: Locator?
+    /// What is being said now: the sentence, and the word in it.
+    private struct Spoken: Equatable {
+        var sentence: Locator?
+        var word: Locator?
+    }
+
+    @Published private var spoken = Spoken()
+    /// The sentence a voice has named a word of, and the wait for it to: a voice that never does
+    /// (some don't) would leave the first word lit for the whole sentence.
+    private var namedAWordIn: Locator?
+    private var wordTimeout: Task<Void, Never>?
+    /// What is lit while it reads.
+    @Published private(set) var highlights: ReadAloudHighlights
     private let spokenWord = PassthroughSubject<Locator, Never>()
     private var isTurning = false
     private var consecutiveFailures = 0
@@ -77,6 +89,7 @@ final class ReadAloud: NSObject, ObservableObject {
         // the voices iOS ships with, and the neural ones that have been downloaded
         let neural = NeuralTTSEngine(index: NeuralVoiceStore.shared.index)
         neural.speed = settings.speechRate
+        neural.reportsWords = settings.highlights.needsWords
         guard let synthesizer = PublicationSpeechSynthesizer(
             publication: publication,
             config: .init(voiceIdentifier: settings.voiceIdentifier),
@@ -91,8 +104,15 @@ final class ReadAloud: NSObject, ObservableObject {
         self.displayTitle = displayTitle
         self.displayAuthor = displayAuthor
         rate = settings.speechRate
+        highlights = settings.highlights
         super.init()
         synthesizer.delegate = self
+        // the next sentence is made while this one is said: ask the book what it is
+        let lookahead = SentenceLookahead(publication: publication)
+        neural.upcoming = { [weak self] text in
+            guard let self, case let .playing(utterance, range: _) = self.synthesizer.state, utterance.text == text else { return nil }
+            return await lookahead.sentence(after: utterance)
+        }
         AudioFocus.shared.register(
             "readaloud", pause: { [weak self] in self?.pauseForOtherAudio() },
             remote: RemoteControls.Handlers(
@@ -103,15 +123,12 @@ final class ReadAloud: NSObject, ObservableObject {
                 previous: { [weak self] in self?.synthesizer.previous() },
                 refresh: { [weak self] in self?.publishNowPlaying() }))
 
-        // highlight the sentence being spoken
+        // light the sentence, the line and the word being spoken, as chosen
         if let decorable = navigator as? DecorableNavigator {
-            $spokenUtterance
-                .removeDuplicates()
-                .sink { locator in
-                    let decorations = locator.map {
-                        [Decoration(id: "tts", locator: $0, style: .highlight(tint: .systemOrange))]
-                    } ?? []
-                    decorable.apply(decorations: decorations, in: "tts")
+            Publishers.CombineLatest($spoken, $highlights)
+                .removeDuplicates { $0.0 == $1.0 && $0.1 == $1.1 }
+                .sink { spoken, highlights in
+                    Self.paint(spoken, as: highlights, on: decorable)
                 }
                 .store(in: &subscriptions)
         }
@@ -161,6 +178,7 @@ final class ReadAloud: NSObject, ObservableObject {
 
     func stop() {
         synthesizer.stop()
+        neural.reset()
         NeuralSynth.shared.unload()   // the model's memory back
         AudioFocus.shared.unregister("readaloud")
         isActive = false
@@ -203,11 +221,61 @@ final class ReadAloud: NSObject, ObservableObject {
         neural.speed = value
     }
 
+    /// What is lit changes at once, even in the middle of a sentence.
+    func setHighlights(_ value: ReadAloudHighlights) {
+        guard value != highlights else { return }
+        highlights = value
+        neural.reportsWords = value.needsWords
+    }
+
     var availableVoices: [TTSVoice] { synthesizer.availableVoices }
 
     func setVoice(_ identifier: String?) {
         synthesizer.config.voiceIdentifier = identifier
         tuning.chosenVoiceID = identifier
+    }
+
+    // MARK: - Highlights
+
+    /// If the voice has named no word of `sentence` in a moment, it won't: stop marking the first.
+    private func waitForAWord(in sentence: Locator) {
+        wordTimeout?.cancel()
+        wordTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled, let self, self.spoken.sentence == sentence, self.namedAWordIn != sentence else { return }
+            self.spoken.word = nil
+        }
+    }
+
+    /// Put the sentence, line and word being said on the page as chosen — and take away the rest.
+    private static func paint(_ spoken: Spoken, as highlights: ReadAloudHighlights, on navigator: DecorableNavigator) {
+        var sentence: [Decoration] = [], line: [Decoration] = [], word: [Decoration] = []
+        if highlights.sentence, let locator = spoken.sentence {
+            sentence = [Decoration(id: "tts", locator: locator, style: .highlight(tint: .systemOrange))]
+        }
+        if let locator = spoken.word {
+            if highlights.word {
+                // a navigator that doesn't know the stronger mark gets the plain highlight
+                let style: Decoration.Style = navigator.supports(decorationStyle: .spokenWord)
+                    ? .spokenWord(tint: .systemOrange) : .highlight(tint: .systemOrange)
+                word = [Decoration(id: "tts-word", locator: locator, style: style)]
+            }
+            if highlights.line, navigator.supports(decorationStyle: .spokenLine) {
+                line = [Decoration(id: "tts-line", locator: locator, style: .spokenLine)]
+            }
+        }
+        navigator.apply(decorations: sentence, in: "tts")
+        navigator.apply(decorations: line, in: "tts-line")
+        navigator.apply(decorations: word, in: "tts-word")
+    }
+
+    /// Where the first word of a sentence is on the page: what is lit until the voice names a word.
+    private func firstWord(of utterance: PublicationSpeechSynthesizer.Utterance) -> Locator? {
+        guard let range = SpokenWords.words(in: utterance.text).first?.range else { return nil }
+        return utterance.locator.copy(text: { text in
+            guard let highlight = text.highlight, highlight.startIndex <= range.lowerBound, highlight.endIndex >= range.upperBound else { return }
+            text = text[range]
+        })
     }
 
     // MARK: - Lock screen / Control Center
@@ -239,20 +307,33 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
         switch state {
         case .stopped:
             isPlaying = false
-            spokenUtterance = nil
+            wordTimeout?.cancel()
+            namedAWordIn = nil
+            spoken = Spoken()
         case let .playing(utterance, range: word):
             isActive = true
             isPlaying = true
-            spokenUtterance = utterance.locator
+            // the sentence, and in it the word being said — the first until the voice says which
+            spoken = Spoken(sentence: utterance.locator, word: word ?? firstWord(of: utterance))
+            if word != nil {
+                namedAWordIn = utterance.locator
+            } else {
+                waitForAWord(in: utterance.locator)
+            }
             // the state is published before every sentence, spoken or not — only a word being
             // spoken proves the voice works
             if let word {
                 consecutiveFailures = 0
                 spokenWord.send(word)
+                #if DEBUG
+                NSLog("PTReadAloud word %@", word.text.highlight ?? "?")
+                #endif
             }
         case let .paused(utterance):
             isPlaying = false
-            spokenUtterance = utterance.locator
+            // stays where it was if this is the sentence that was being said
+            let stayed = spoken.sentence == utterance.locator ? spoken.word : nil
+            spoken = Spoken(sentence: utterance.locator, word: stayed ?? firstWord(of: utterance))
         }
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
     }

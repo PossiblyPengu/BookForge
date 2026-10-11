@@ -47,8 +47,22 @@ struct SpeechVoice: LanguageListed, Hashable {
         return String(name.dropLast(suffix.count))
     }
 
-    var listRank: Int { quality.rawValue }
-    var searchTerms: [String] { quality.badge.map { [$0] } ?? [] }
+    /// One of Siri's own voices, if iOS lists any for apps (it names them so).
+    var isSiri: Bool {
+        id.lowercased().contains("siri") || name.lowercased().hasPrefix("siri")
+    }
+
+    /// What the row says about it: "Siri", "Enhanced", "Premium".
+    var badges: [String] {
+        (isSiri ? ["Siri"] : []) + (quality.badge.map { [$0] } ?? [])
+    }
+
+    /// Better voices first; Siri's before the others of the same quality.
+    var listRank: Int { quality.rawValue * 2 + (isSiri ? 1 : 0) }
+    var searchTerms: [String] { badges }
+
+    /// Natural enough to be worth looking for: not one of the compact voices every iPhone has.
+    var isBetterThanCompact: Bool { quality > .standard || isSiri }
 }
 
 /// Which voice reads a book: ordering and searching the installed list, and
@@ -84,6 +98,12 @@ enum SpeechVoices {
     /// What's worth offering for reading a book.
     static func readable(_ voices: [SpeechVoice]) -> [SpeechVoice] {
         voices.filter { !$0.isNovelty }
+    }
+
+    /// How many of the readable voices are better than the compact ones every iPhone has, and so
+    /// whether it is worth telling the reader how to add some.
+    static func betterVoiceCount(in voices: [SpeechVoice]) -> Int {
+        readable(voices).filter(\.isBetterThanCompact).count
     }
 
     struct LanguageGroup<Voice: LanguageListed>: Identifiable {
@@ -193,25 +213,33 @@ enum SpeechVoices {
 
 /// The speaking-speed scale: 1× is the voice's normal pace.
 enum SpeechRateMap {
-    /// What the speed controls offer for a voice iOS ships with — the top is as fast as
-    /// AVSpeechSynthesizer goes.
-    static let range: ClosedRange<Double> = 0.5 ... 2.0
-    /// A neural voice's audio is stretched by the player, so it can go further.
+    /// What the speed controls offer for a voice iOS ships with. Below 0.75× AVSpeechSynthesizer
+    /// hardly gets slower (its slowest is about 0.7×).
+    static let range: ClosedRange<Double> = 0.75 ... 3.0
+    /// A neural voice's audio is stretched by the player, so it goes slower too.
     static let neuralRange: ClosedRange<Double> = 0.5 ... 3.0
     static let step = 0.25
 
     static func range(neural: Bool) -> ClosedRange<Double> { neural ? neuralRange : range }
 
     /// Where the reader's speed button goes on each tap.
-    static let cycle: [Double] = [0.75, 1, 1.25, 1.5, 1.75, 2]
-    static let neuralCycle: [Double] = cycle + [2.5, 3]
+    static let cycle: [Double] = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+    static let neuralCycle: [Double] = cycle
 
     static func cycle(neural: Bool) -> [Double] { neural ? neuralCycle : cycle }
 
-    /// AVSpeechUtterance.rate runs 0…1 with 0.5 the voice's normal pace. A multiplier is
-    /// read off these points (straight lines between them): 2× is the fastest rate.
+    /// AVSpeechUtterance.rate runs 0…1 with 0.5 the voice's normal pace — and it is steeper above that
+    /// than anyone would guess: 1.0 is about four times as fast. Measured on speech by the voices of
+    /// the iOS Simulator (the Debug/SpeechProbe run in CI; seconds for the same text at each rate):
+    ///
+    ///     rate      0.2   0.3   0.5   0.6   0.7   0.8   0.9   1.0
+    ///     seconds  18.2  16.9  13.0   8.2   6.2   4.7   3.7   3.2
+    ///     × normal 0.72  0.77  1.00  1.59  2.11  2.80  3.51  4.03
+    ///
+    /// A multiplier is read off these points (straight lines between them), so that "2×" is twice
+    /// as fast and not four times.
     private static let points: [(multiplier: Double, rate: Double)] = [
-        (0.5, 0.25), (1, 0.5), (2, 1),
+        (0.7, 0.2), (1, 0.5), (4, 1),
     ]
 
     /// `AVSpeechUtterance.rate` for a multiplier of the voice's normal pace.

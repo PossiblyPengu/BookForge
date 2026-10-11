@@ -104,6 +104,9 @@ final class ReaderModel: ObservableObject {
                     ))
                 }
                 config.editingActions = actions
+                // how read-aloud lights the word and the line it is on
+                config.decorationTemplates[.spokenWord] = .spokenWord()
+                config.decorationTemplates[.spokenLine] = .spokenLine()
                 let nav = try EPUBNavigatorViewController(
                     publication: publication,
                     initialLocation: initial,
@@ -381,6 +384,7 @@ final class ReaderModel: ObservableObject {
             .submitPreferences(settings.epubPreferences)
         readAloud?.setRate(settings.speechRate)
         readAloud?.setVoice(settings.voiceIdentifier)
+        readAloud?.setHighlights(settings.highlights)
     }
 
     // MARK: - Highlights

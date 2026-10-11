@@ -95,6 +95,26 @@ struct ReaderSettings: Codable, Equatable {
     /// Read-aloud speed multiplier (1 = the voice's normal pace).
     var speechRate: Double = 1.0
     var voiceIdentifier: String?
+    /// What is lit while a book is read aloud.
+    var highlights = ReadAloudHighlights()
+
+    init() {}
+
+    /// Every key is optional: settings saved by an earlier build lack the newer ones, and a missing
+    /// key must not lose the reader's theme and fonts. Add new settings here as well.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        theme = try c.decodeIfPresent(ThemeChoice.self, forKey: .theme) ?? theme
+        font = try c.decodeIfPresent(FontChoice.self, forKey: .font) ?? font
+        fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? fontSize
+        spacing = try c.decodeIfPresent(Spacing.self, forKey: .spacing) ?? spacing
+        justify = try c.decodeIfPresent(Bool.self, forKey: .justify) ?? justify
+        scroll = try c.decodeIfPresent(Bool.self, forKey: .scroll) ?? scroll
+        margins = try c.decodeIfPresent(Double.self, forKey: .margins) ?? margins
+        speechRate = try c.decodeIfPresent(Double.self, forKey: .speechRate) ?? speechRate
+        voiceIdentifier = try c.decodeIfPresent(String.self, forKey: .voiceIdentifier)
+        highlights = try c.decodeIfPresent(ReadAloudHighlights.self, forKey: .highlights) ?? highlights
+    }
 
     var epubPreferences: EPUBPreferences {
         var p = EPUBPreferences()
@@ -121,9 +141,11 @@ struct ReaderSettings: Codable, Equatable {
         guard let data = UserDefaults.standard.data(forKey: key),
               var settings = try? JSONDecoder().decode(ReaderSettings.self, from: data)
         else { return ReaderSettings() }
-        // a bad value is no speed
+        // a bad value is no speed, and a device voice can't go as slow as a neural one
+        let neural = settings.voiceIdentifier.flatMap(NeuralVoice.key(fromID:)) != nil
+        let range = SpeechRateMap.range(neural: neural)
         settings.speechRate = settings.speechRate.isFinite
-            ? min(max(settings.speechRate, SpeechRateMap.neuralRange.lowerBound), SpeechRateMap.neuralRange.upperBound)
+            ? min(max(settings.speechRate, range.lowerBound), range.upperBound)
             : 1
         return settings
     }

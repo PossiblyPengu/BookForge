@@ -103,12 +103,44 @@ func runVoiceChecks() {
     check("a tie is settled by name", up("en-US", [], among: [voice("2", "Zed", "en-US", .enhanced), voice("1", "Alf", "en-US", .enhanced)]) == "1")
     check("tags are compared however they are spelt", up("en_gb", ["EN-us"]) == "gb.kate")
 
+    section("Read-aloud voices: Siri's own, and the better ones")
+    let siriLegacy = voice("com.apple.ttsbundle.siri_female_en-US_compact", "Siri Female", "en-US")
+    let siriVoice = voice("com.apple.voice.premium.en-US.SiriVoice2", "Siri Voice 2 (Premium)", "en-US", .premium)
+    check("a voice that iOS names for Siri is one",
+          siriLegacy.isSiri && siriVoice.isSiri && voice("x", "Siri Voice 3", "en-US").isSiri
+          && !voice("com.apple.voice.premium.en-US.Zoe", "Zoe (Premium)", "en-US", .premium).isSiri && !voice("us.samantha", "Samantha", "en-US").isSiri)
+    check("the row says so, then how good it is",
+          siriLegacy.badges == ["Siri"] && siriVoice.badges == ["Siri", "Premium"]
+          && voice("a", "Zoe (Premium)", "en-US", .premium).badges == ["Premium"] && voice("b", "Samantha", "en-US").badges.isEmpty)
+    let ranked = [voice("s", "Samantha", "en-US"), siriLegacy, voice("e", "Evan (Enhanced)", "en-US", .enhanced),
+                  voice("p", "Ava (Premium)", "en-US", .premium), siriVoice]
+    check("the better the voice the earlier — and Siri's before the others of the same quality",
+          groups(ranked, preferred: ["en-US"]).first?.voices.map(\.id) == [siriVoice.id, "p", "e", siriLegacy.id, "s"],
+          "\(groups(ranked, preferred: ["en-US"]).first?.voices.map(\.id) ?? [])")
+    check("searching for Siri finds them", groups(ranked, query: "siri", preferred: ["en-US"]).flatMap(\.voices).map(\.id).sorted() == [siriLegacy.id, siriVoice.id].sorted())
+    check("only the compact voices: nothing better to choose",
+          SpeechVoices.betterVoiceCount(in: [voice("s", "Samantha", "en-US"), voice("d", "Daniel", "en-GB")]) == 0 && SpeechVoices.betterVoiceCount(in: []) == 0)
+    check("an Enhanced, a Premium or a Siri voice counts",
+          SpeechVoices.betterVoiceCount(in: [voice("e", "Evan (Enhanced)", "en-US", .enhanced)]) == 1
+          && SpeechVoices.betterVoiceCount(in: [siriLegacy]) == 1 && SpeechVoices.betterVoiceCount(in: ranked) == 4)
+    check("…but not a novelty voice, however good it claims to be",
+          SpeechVoices.betterVoiceCount(in: [voice("w", "Whisper (Premium)", "en-US", .premium, novelty: true)]) == 0)
+    check("Automatic does not switch to a Siri voice that is only compact (it might not speak)",
+          SpeechVoices.upgrade(for: "en-US", among: [siriLegacy, voice("s", "Samantha", "en-US")], preferred: ["en-US"]) == nil)
+
     section("Read-aloud voices: the speed scale")
-    let steps = stride(from: 0.5, through: 3.0, by: 0.05).map { SpeechRateMap.avRate(forMultiplier: $0) }
+    let steps = stride(from: 0.5, through: 5.0, by: 0.05).map { SpeechRateMap.avRate(forMultiplier: $0) }
     check("faster never sounds slower", zip(steps, steps.dropFirst()).allSatisfy { $0 <= $1 })
     check("1× is the voice's normal pace", SpeechRateMap.avRate(forMultiplier: 1) == 0.5)
-    check("the top speed is the fastest rate the engine has, and nothing is offered beyond it",
-          SpeechRateMap.avRate(forMultiplier: SpeechRateMap.range.upperBound) == 1 && SpeechRateMap.avRate(forMultiplier: 5) == 1)
+    check("the fastest rate the engine has is about four times normal, and nothing beyond it is asked for",
+          SpeechRateMap.avRate(forMultiplier: 4) == 1 && SpeechRateMap.avRate(forMultiplier: 5) == 1
+          && SpeechRateMap.range.upperBound <= 3 && SpeechRateMap.avRate(forMultiplier: SpeechRateMap.range.upperBound) < 1)
+    // seconds the simulator's voices took for one text, per rate: the multiplier a rate really is = 13.03 / seconds
+    let measured: [(rate: Float, seconds: Double)] = [(0.3, 16.93), (0.5, 13.03), (0.6, 8.19), (0.7, 6.18), (0.8, 4.66), (0.9, 3.71), (1.0, 3.23)]
+    check("a multiplier lands on the rate that really makes that speed (measured, within 0.05 of a rate)",
+          measured.allSatisfy { m in abs(Double(SpeechRateMap.avRate(forMultiplier: 13.03 / m.seconds)) - Double(m.rate)) < 0.05 },
+          "\(measured.map { SpeechRateMap.avRate(forMultiplier: 13.03 / $0.seconds) })")
+    check("2× is nowhere near the fastest rate", SpeechRateMap.avRate(forMultiplier: 2) < 0.7 && SpeechRateMap.avRate(forMultiplier: 2) > 0.6)
     check("always a valid AVSpeechUtterance rate", steps.allSatisfy { $0 >= 0 && $0 <= 1 }
           && SpeechRateMap.avRate(forMultiplier: 0) >= 0 && SpeechRateMap.avRate(forMultiplier: 1_000) <= 1
           && SpeechRateMap.avRate(forMultiplier: -3) >= 0)
@@ -118,7 +150,8 @@ func runVoiceChecks() {
           Set(offered.map { SpeechRateMap.avRate(forMultiplier: $0) }).count == offered.count, "\(offered.map { SpeechRateMap.avRate(forMultiplier: $0) })")
     check("the button's steps climb and sit inside the range",
           zip(SpeechRateMap.cycle, SpeechRateMap.cycle.dropFirst()).allSatisfy { $0 < $1 }
-          && SpeechRateMap.cycle.allSatisfy { SpeechRateMap.range.contains($0) })
+          && SpeechRateMap.cycle.allSatisfy { SpeechRateMap.range.contains($0) }
+          && SpeechRateMap.neuralCycle.allSatisfy { SpeechRateMap.neuralRange.contains($0) })
     check("labels", SpeechRateMap.label(1) == "1×" && SpeechRateMap.label(1.25) == "1.25×" && SpeechRateMap.label(0.75) == "0.75×"
           && SpeechRateMap.label(1.75) == "1.75×" && SpeechRateMap.label(2.5) == "2.5×",
           "\([1, 1.25, 0.75, 1.75, 2.5].map(SpeechRateMap.label))")

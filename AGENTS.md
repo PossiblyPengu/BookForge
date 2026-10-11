@@ -20,7 +20,7 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
 - `.github/workflows/ios-sim.yml` is the nearest thing to looking at the app: a **Debug** build in the
   iOS Simulator, launched once per screen (`ios/scripts/simulator-shots.sh`) and photographed; the
   `simulator-screens` artifact holds PNGs, the app's log and any crash report. The launch arguments
-  (`-PTDebugScreen`, `-PTDebugSeed`, `-PTDebugReaderSheet`, `-PTDebugSettingsPush`, `-PTDebugVoiceSource`,
+  (`-PTDebugScreen`, `-PTDebugSeed`, `-PTDebugReaderSheet` (incl. `readaloud` with `-PTDebugHighlights sentence,line,word` and `-PTDebugVoice neural`), `-PTDebugSettingsPush`, `-PTDebugVoiceSource`,
   `-PTDebugNeuralProbe <voice key>`, `-PTDebugSpeechProbe`) are read by `Debug/DebugScenario.swift`,
   which is `#if DEBUG` only — none of it is in the IPA. Download with
   `gh api repos/<owner>/<repo>/actions/artifacts/<id>/zip`.
@@ -102,7 +102,17 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   `NeuralVoiceStore.swift` (download, MD5 check, install into Application Support, delete), `NeuralSynth.swift`
   (loads a model, makes a sentence on one serial queue), `NeuralPlayer.swift` (AVAudioEngine + time-stretch, so speed
   is exact and changes mid-sentence), `NeuralTTSEngine.swift` (Readium `TTSEngine`, and a composite that routes a voice
-  to the right engine). espeak-ng's phoneme data (`ios/Resources/espeak-ng-data`, GPL-3) is bundled; sherpa exits the
+  to the right engine; it also makes the *next* sentence while one is said — `Reader/SentenceLookahead.swift` walks the
+  book's content the way Readium's synthesizer does to find it — so Readium's state stays equal to what is audible). espeak-ng's phoneme data (`ios/Resources/espeak-ng-data`, GPL-3) is bundled; sherpa exits the
   process on a model it can't load, so only files this code wrote itself are ever handed to it.
+- Read-aloud highlights (`Reader/ReadAloud.swift`): three independent options, `ReaderSettings.highlights`
+  (`ReadAloudHighlights`, stored tolerantly — `ReaderSettings.init(from:)` must list every new key): sentence (Readium's
+  `.highlight`, group `tts`), line (`tts-line`: a custom `HTMLDecorationTemplate`, `width: .page`, drawn in `currentColor` so it
+  suits every theme) and word (`tts-word`). Both templates are registered in `ReaderModel` (`ReadAloudStyle.swift`). The word
+  comes from Readium's state for device voices and from `NeuralTTSEngine` for neural ones, which has no word callbacks:
+  `SpokenWords` (pure, Linux-checked) estimates each word's start from its length plus a pause per comma / full stop, spread over
+  the audio's speech part, and `NeuralPlayer` reports how far the audio has played (~30×/s). The constants were fitted against
+  ~190 sentences by three Piper voices with an ASR's word timestamps as the reference (about 105 ms mean error; the web app's
+  proportional-by-character estimate scores 136 ms). The ASR lags the sound by ~0.33 s — measured with isolated words.
 - Not built, on purpose: a Home Screen widget (app extension + App Group, which free-Apple-ID signing
   doesn't reliably provide) and CarPlay (entitlement).

@@ -89,7 +89,7 @@ struct ReaderView: View {
             .task {
                 guard let sheet = DebugScenario.readerSheet else { return }
                 // the ones that act on the open book wait for it to open
-                let needsBook = ["jump", "pdfsearch"].contains(sheet)
+                let needsBook = ["jump", "pdfsearch", "readaloud"].contains(sheet)
                 try? await Task.sleep(nanoseconds: needsBook ? 7_000_000_000 : 3_000_000_000)
                 switch sheet {
                 case "pdfsearch":
@@ -100,6 +100,10 @@ struct ReaderView: View {
                 case "voices": showVoices = true
                 case "search": showSearch = true
                 case "hidechrome": model.toggleChrome()
+                // read aloud with the highlights and voice the launch asks for, to see them on the page
+                case "readaloud":
+                    DebugScenario.configureReadAloud(&model.settings)
+                    model.toggleReadAloud()
                 // a jump far ahead: the Back chip should appear
                 case "jump": model.go(toProgression: 0.8)
                 case "footnote":

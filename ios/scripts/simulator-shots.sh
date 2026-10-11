@@ -121,6 +121,21 @@ cat "$OUT/neural-probe.txt"
 grep -q "PTNeuralProbe ok" "$OUT/neural-probe.txt" || { echo "::error::the neural voice probe did not report ok"; FAILED=1; }
 shot 56-neural-list 12 -PTDebugScreen settings -PTDebugSettingsPush voices -PTDebugVoiceSource neural
 
+# read-aloud on the page: what each highlight option looks like while the voice speaks — with the
+# voice iOS ships with, and with the neural voice that was just downloaded (its word positions are
+# worked out from the sound). The log lists the words the voice reported.
+RA="-PTDebugScreen reader -PTDebugReaderSheet readaloud -PTDebugKeepChrome 1"
+shot 60-readaloud-all 20 $RA -PTDebugHighlights sentence,line,word
+xcrun simctl spawn "$UDID" log show --style compact --last 2m \
+  --predicate 'process == "Pageturner" AND eventMessage CONTAINS "PTReadAloud"' > "$OUT/readaloud-device.txt" 2>/dev/null || true
+shot 61-readaloud-word 20 $RA -PTDebugHighlights word
+shot 62-readaloud-line 20 $RA -PTDebugHighlights line
+shot 63-readaloud-sentence 20 $RA -PTDebugHighlights sentence
+shot 64-readaloud-neural 30 $RA -PTDebugVoice neural -PTDebugHighlights sentence,line,word
+xcrun simctl spawn "$UDID" log show --style compact --last 2m \
+  --predicate 'process == "Pageturner" AND eventMessage CONTAINS "PTReadAloud"' > "$OUT/readaloud-neural.txt" 2>/dev/null || true
+shot 65-readaloud-neural-word 30 $RA -PTDebugVoice neural -PTDebugHighlights word
+
 # crash reports from the host (the simulator writes them there)
 mkdir -p "$OUT/crashes"
 find ~/Library/Logs/DiagnosticReports -name 'Pageturner*' -newer "$APP" -exec cp {} "$OUT/crashes/" \; 2>/dev/null || true

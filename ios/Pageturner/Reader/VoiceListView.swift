@@ -93,6 +93,7 @@ struct VoiceListView: View {
             voices, query: query, preferred: Locale.preferredLanguages,
             languageName: Self.languageName, regionName: Self.regionName)
         if query.isEmpty { automatic }
+        if query.isEmpty && looked && !voices.isEmpty && SpeechVoices.betterVoiceCount(in: voices) == 0 { betterVoices }
         if voices.isEmpty && looked {
             none
         } else {
@@ -130,6 +131,25 @@ struct VoiceListView: View {
         }
     }
 
+    /// Shown while only the basic voices are installed: how to get the natural ones.
+    private var betterVoices: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Only the basic voices are installed", systemImage: "waveform")
+                    .font(.headline)
+                Text("iOS has Premium and Enhanced voices that sound far more natural. To add one, open Settings → Accessibility → Spoken Content → Voices, choose a language and a voice (Premium is the best), and tap the download button. It shows up here when you come back.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("Or choose a Neural voice, which downloads inside Pageturner.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Button("Choose a Neural Voice") { source = .neural }
+                    .buttonStyle(.bordered)
+            }
+            .padding(.vertical, 6)
+        }
+    }
+
     private var none: some View {
         Section {
             VStack(alignment: .leading, spacing: 10) {
@@ -147,7 +167,7 @@ struct VoiceListView: View {
 
     private var more: some View {
         Section {
-            Text("Enhanced and Premium voices sound far more natural. To add one, open Settings → Accessibility → Spoken Content → Voices (Read & Speak on newer iOS), choose a language and voice, and tap the download button. It appears here the next time you come back. Or choose Neural above for voices that download inside Pageturner.")
+            Text("Enhanced and Premium voices sound far more natural. To add one, open Settings → Accessibility → Spoken Content → Voices (Read & Speak on newer iOS), choose a language and voice, and tap the download button. It appears here the next time you come back. iOS decides which of Siri’s voices apps may use; any it offers is marked Siri here. For speech closer to that, choose Neural above — those voices download inside Pageturner and run on this iPhone.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -164,7 +184,9 @@ struct VoiceListView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 8)
-                    if let badge = voice.quality.badge { QualityBadge(text: badge, premium: voice.quality == .premium) }
+                    ForEach(voice.badges, id: \.self) { badge in
+                        QualityBadge(text: badge, premium: badge != "Enhanced")
+                    }
                     if selection == voice.id { chosenMark }
                 }
                 .contentShape(Rectangle())
@@ -210,7 +232,7 @@ struct VoiceListView: View {
 
     private var neuralNote: some View {
         Section {
-            Text("Neural voices sound more natural and keep reading with the screen locked. Choosing one downloads it once (about 63 MB) and keeps it on this iPhone, so it works offline.")
+            Text("Neural voices sound more natural and keep reading with the screen locked. Choosing one downloads it once (the size is shown on each) and keeps it on this iPhone, so it works offline.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
