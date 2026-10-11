@@ -89,6 +89,7 @@ final class NeuralTTSEngine: TTSEngine {
 
             // the word being spoken, as far into the audio as the player says it has got
             let words = reportsWords ? Self.schedule(text, audio: audio) : []
+            Self.log("playing \(String(format: "%.2f", Double(audio.samples.count) / audio.sampleRate)) s, \(words.count) words timed")
             var lit = -1
             func follow(_ seconds: TimeInterval) {
                 guard let next = SpokenWords.index(at: seconds, in: words), next != lit else { return }
@@ -118,14 +119,31 @@ final class NeuralTTSEngine: TTSEngine {
     @MainActor
     private func sentence(_ text: String, entry: NeuralVoiceIndex.Entry) async throws -> NeuralSynth.Audio {
         let key = Self.key(text, entry)
-        if let recent, recent.key == key { return recent.audio }
+        if let recent, recent.key == key {
+            Self.log("sentence again, from memory")
+            return recent.audio
+        }
+        let started = Date()
         if let ahead = made.removeValue(forKey: key), let audio = try? await ahead.value {
             recent = (key, audio)
+            Self.log("sentence made ahead, waited \(Self.ms(since: started)) ms")
             return audio
         }
         let audio = try await NeuralSynth.shared.generate(text: text, directory: entry.directory, info: entry.info)
         recent = (key, audio)
+        Self.log("sentence made on the spot in \(Self.ms(since: started)) ms")
         return audio
+    }
+
+    /// What the simulator run reads back to see whether sentences really follow without a wait.
+    private static func log(_ message: String) {
+        #if DEBUG
+        NSLog("PTReadAloud neural %@", message)
+        #endif
+    }
+
+    private static func ms(since date: Date) -> Int {
+        Int(Date().timeIntervalSince(date) * 1000)
     }
 
     /// Start making the sentence that follows `text`, to have it by the time this one is done.
@@ -133,7 +151,11 @@ final class NeuralTTSEngine: TTSEngine {
     private func makeNext(after text: String, entry: NeuralVoiceIndex.Entry) {
         guard let upcoming else { return }
         Task { @MainActor [weak self] in
-            guard let next = await upcoming(text) else { return }
+            guard let next = await upcoming(text) else {
+                Self.log("no next sentence found")
+                return
+            }
+            Self.log("next sentence found: \(next.text.prefix(24))")
             // a passage in another language goes to a voice for that language, not to this one
             if let other = next.language?.code.bcp47,
                SpeechVoices.baseLanguage(other) != SpeechVoices.baseLanguage(entry.voice.language)

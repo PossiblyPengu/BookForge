@@ -63,7 +63,9 @@ final class ReadAloud: NSObject, ObservableObject {
     private var wordTimeout: Task<Void, Never>?
     /// What is lit while it reads.
     @Published private(set) var highlights: ReadAloudHighlights
-    private let spokenWord = PassthroughSubject<Locator, Never>()
+    /// Where the page is taken to follow the narration: the word being said in a paged book, the
+    /// sentence in a scrolling one (a scrolling page that put each word at the top would never be still).
+    private let followTarget = PassthroughSubject<Locator, Never>()
     private var isTurning = false
     private var consecutiveFailures = 0
     private var subscriptions: Set<AnyCancellable> = []
@@ -134,7 +136,7 @@ final class ReadAloud: NSObject, ObservableObject {
         }
 
         // follow the narration, turning pages mid-sentence when needed
-        spokenWord
+        followTarget
             .removeDuplicates()
             .throttle(for: .seconds(1), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] locator in
@@ -237,6 +239,11 @@ final class ReadAloud: NSObject, ObservableObject {
 
     // MARK: - Highlights
 
+    /// Whether the book is laid out as one long scrolling page.
+    private var scrolls: Bool {
+        (navigator as? EPUBNavigatorViewController)?.settings.scroll ?? false
+    }
+
     /// If the voice has named no word of `sentence` in a moment, it won't: stop marking the first.
     private func waitForAWord(in sentence: Locator) {
         wordTimeout?.cancel()
@@ -320,11 +327,15 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
             } else {
                 waitForAWord(in: utterance.locator)
             }
+            if scrolls {
+                followTarget.send(utterance.locator)
+            } else if let word {
+                followTarget.send(word)
+            }
             // the state is published before every sentence, spoken or not — only a word being
             // spoken proves the voice works
             if let word {
                 consecutiveFailures = 0
-                spokenWord.send(word)
                 #if DEBUG
                 NSLog("PTReadAloud word %@", word.text.highlight ?? "?")
                 #endif

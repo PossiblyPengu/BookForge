@@ -1,3 +1,4 @@
+import Foundation
 import ReadiumNavigator
 import ReadiumShared
 
@@ -47,7 +48,9 @@ final class SentenceLookahead {
         }
         if at == nil {
             // the first question, or a skip or a jump: begin again from here
-            guard await restart(at: current) else { return nil }
+            let found = await restart(at: current)
+            Self.log("restart \(found ? "found" : "did not find") the sentence; paragraph has \(paragraph.count)")
+            guard found else { return nil }
             at = Self.index(of: current, in: paragraph)
         }
         guard let at else { return nil }
@@ -100,6 +103,12 @@ final class SentenceLookahead {
         default:
             return []
         }
+    }
+
+    private static func log(_ message: String) {
+        #if DEBUG
+        NSLog("PTReadAloud lookahead %@", message)
+        #endif
     }
 
     /// Where `utterance` is among `sentences`: the same place in the book, else the same words.

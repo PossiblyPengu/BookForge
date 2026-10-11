@@ -18,6 +18,15 @@ func runSpokenWordsChecks() {
     check("digits are words", words("In 1999, at 3.5%") == ["In", "1999", "at", "3.5"])
     check("nothing but punctuation is no word at all", words("— … —").isEmpty && words("").isEmpty)
     check("newlines and tabs separate words", words("one\ntwo\tthree  four") == ["one", "two", "three", "four"])
+    check("an em dash with no spaces round it divides two words", words("Some years ago—never mind how long—having little money") ==
+          ["Some", "years", "ago", "never", "mind", "how", "long", "having", "little", "money"], "\(words("Some years ago—never mind how long—having little money"))")
+    check("…and is a pause after the first of them", {
+        let text = "ago—never"
+        return SpokenWords.tokens(in: text).map(\.pause) == [.clause, .none]
+    }())
+    check("a dash that starts a word, two together, or one at the end do not make empty words",
+          words("—and then") == ["and", "then"] && words("ago——never") == ["ago", "never"] && words("wait—") == ["wait"])
+    check("an en dash in a range stays inside the word", words("1990–2000") == ["1990–2000"])
 
     let sample = "Mr. Darcy bowed, but said nothing; then — slowly — he left. “Never!” she cried…"
     let tokens = SpokenWords.tokens(in: sample)

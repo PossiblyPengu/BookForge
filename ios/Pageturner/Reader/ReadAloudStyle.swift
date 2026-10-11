@@ -39,7 +39,7 @@ extension HTMLDecorationTemplate {
 
     /// A band across the page at the height of the line — in the colour of the text, so it suits every
     /// page theme — pulled in a little from the edges.
-    static func spokenLine(opacity: Double = 0.12) -> HTMLDecorationTemplate {
+    static func spokenLine(opacity: Double = 0.16) -> HTMLDecorationTemplate {
         HTMLDecorationTemplate(
             layout: .boxes,
             width: .page,

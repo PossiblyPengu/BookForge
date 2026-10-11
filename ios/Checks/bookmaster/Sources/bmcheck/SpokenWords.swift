@@ -76,22 +76,35 @@ enum SpokenWords {
         return found
     }
 
-    /// Pieces of text between white space.
+    /// Pieces of text between white space — and after a dash that joins two words ("ago—never"): the dash
+    /// stays with the word before it, which is how the voice pauses there.
     private static func spaced(_ text: String) -> [Range<String.Index>] {
         var pieces: [Range<String.Index>] = []
         var start: String.Index?
         var index = text.startIndex
         while index < text.endIndex {
-            if text[index].isWhitespace {
+            let character = text[index]
+            if character.isWhitespace {
                 if let from = start { pieces.append(from ..< index); start = nil }
-            } else if start == nil {
-                start = index
+            } else {
+                let from = start ?? index
+                start = from
+                if joiningDashes.contains(character), index > from {
+                    let next = text.index(after: index)
+                    pieces.append(from ..< next)
+                    start = nil
+                    index = next
+                    continue
+                }
             }
             index = text.index(after: index)
         }
         if let from = start { pieces.append(from ..< text.endIndex) }
         return pieces
     }
+
+    /// Em dashes (and the horizontal bar), which books set between words without spaces.
+    private static let joiningDashes: Set<Character> = ["—", "―"]
 
     private static func isWordCharacter(_ character: Character) -> Bool {
         character.isLetter || character.isNumber

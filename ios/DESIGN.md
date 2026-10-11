@@ -34,7 +34,7 @@ TabView                       (iOS 26: minimises on scroll, mini player docks ab
 ├─ Stats        this phone's time and streaks; BookMaster's numbers join them when linked
 └─ Search       role: .search — library search, books and audiobooks
 tabViewBottomAccessory:  mini player (audiobook or read-aloud) → tap opens Now Playing sheet
-Settings:  gear in the Library toolbar → sheet (BookMaster, read-aloud voice and speed, watched folder, backup)
+Settings:  gear in the Library toolbar → sheet (BookMaster, read-aloud voice, speed and highlights, watched folder, backup)
 ```
 
 ## Screens

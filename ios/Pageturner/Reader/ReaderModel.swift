@@ -334,12 +334,19 @@ final class ReaderModel: ObservableObject {
         }
         flatten(toc)
         let base = locator.href.string.split(separator: "#").first.map(String.init) ?? locator.href.string
-        var match: ReadiumShared.Link?
+        // a file with several entries in the contents (one per section, `file.xhtml#section`): without
+        // knowing where the sections lie, the entry for the whole file — else the first — is the safe
+        // answer; the last would name the end of the chapter on its first page
+        var wholeFile: ReadiumShared.Link?
+        var first: ReadiumShared.Link?
         for link in flat {
-            let lbase = link.url().string.split(separator: "#").first.map(String.init) ?? link.url().string
-            if lbase == base { match = link }
+            let url = link.url().string
+            let parts = url.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+            guard (parts.first.map(String.init) ?? url) == base else { continue }
+            if first == nil { first = link }
+            if parts.count < 2 || parts[1].isEmpty, wholeFile == nil { wholeFile = link }
         }
-        return match?.title
+        return (wholeFile ?? first)?.title
     }
 
     // MARK: - Search

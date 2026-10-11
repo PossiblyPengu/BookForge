@@ -26,9 +26,9 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   `gh api repos/<owner>/<repo>/actions/artifacts/<id>/zip`.
 - `ios/Checks/bookmaster/` compiles the app's **real** pure-logic sources (BookMaster client and
   models, the `Book` model, text→EPUB converter, chapters, resume offer, notification plan, jump
-  history, highlight export, reading stats, voice lists, neural voice conversion) on Linux with a Swift 6 toolchain and runs them: against a
+  history, highlight export, reading stats, voice lists, neural voice conversion, word timings and the playhead clock) on Linux with a Swift 6 toolchain and runs them: against a
   live local BookMaster (`run.sh`, needs a BookMaster checkout, `wrangler`, `python3`) or alone
-  (`run.sh data`, ~330 checks, no servers). Anything that can be written without UIKit/Readium should
+  (`run.sh data`, ~420 checks, no servers). Anything that can be written without UIKit/Readium should
   be, so it can be checked there; `assemble.sh` lists the files it copies. `run.sh` stops if the target fails to
   build (it used to run the previous binary and report green).
 - When touching Readium calls, verify signatures against the toolkit source — the 3.x API changed a lot
