@@ -112,6 +112,15 @@ struct LibraryView: View {
                 selected = selected.intersection(Set(books.map(\.id)))
                 if books.isEmpty { selecting = false }
             }
+            #if DEBUG
+            // CI simulator run: start in select mode with two books ticked (Debug/DebugScenario.swift)
+            .task {
+                guard UserDefaults.standard.string(forKey: "PTDebugLibraryMode") == "select" else { return }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                selecting = true
+                selected = Set(library.books.prefix(2).map(\.id))
+            }
+            #endif
         }
     }
 

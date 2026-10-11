@@ -62,6 +62,11 @@ shot 13-reader-settings 14 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugRe
 shot 14-reader-search 14 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugReaderSheet search
 # no flag: the controls step aside on their own a few seconds after the book opens
 shot 15-reader-autohide 14 -PTDebugScreen reader
+shot 16-reader-jump 18 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugReaderSheet jump
+shot 17-reader-footnote 14 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugReaderSheet footnote
+shot 18-reader-highlight 14 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugReaderSheet highlight
+shot 19-resume-prompt 8 -PTDebugScreen resume
+shot 19b-library-select 10 -PTDebugScreen library -PTDebugLibraryMode select
 
 # dark
 xcrun simctl ui "$UDID" appearance dark 2>/dev/null || true

@@ -26,7 +26,8 @@ enum DebugScenario {
         guard let screen else { return }
 
         try? await Task.sleep(nanoseconds: 800_000_000)
-        let text = library.books.first { !$0.isAudio }
+        // Moby-Dick is the one with progress, shelves, highlights and a bookmark
+        let text = library.books.first { $0.title == "Moby-Dick" } ?? library.books.first { !$0.isAudio }
         let audio = library.books.first { $0.isAudio }
         switch screen {
         case "library": selectTab(.library)
@@ -39,6 +40,12 @@ enum DebugScenario {
         case "shelves": if let text { router.openShelves([text.id]) }
         case "reader": router.reading = text
         case "player": if let audio { PlaybackCoordinator.shared.start(audio, library: library) }
+        case "resume":
+            // BookMaster has Alice at 62% and this phone has never opened her: opening asks
+            if let alice = library.books.first(where: { $0.title.hasPrefix("Alice") }) {
+                library.updateBookMaster(alice.id) { $0.bmRemotePercent = 62; $0.bmStatus = "reading" }
+                router.open(library.books.first { $0.id == alice.id } ?? alice, library: library)
+            }
         default: break
         }
     }
@@ -120,6 +127,18 @@ enum DebugScenario {
             b.progression = 0.42
             b.lastOpenedAt = Date()
             b.author = "Herman Melville"
+            // highlights and a bookmark for the Contents sheet to list (their locators are
+            // empty on purpose — they can be shown and edited, just not jumped to)
+            let day = Date().addingTimeInterval(-86_400)
+            b.highlights = [
+                Highlight(locatorJSON: "{}", text: "Call me Ishmael. Some years ago—never mind how long precisely—having little or no money in my purse…",
+                          createdAt: day, chapter: "Chapter 1", progression: 0.02),
+                Highlight(locatorJSON: "{}", text: "It is a way I have of driving off the spleen and regulating the circulation.",
+                          createdAt: day.addingTimeInterval(60), color: "blue", note: "Love this line.", chapter: "Chapter 1", progression: 0.03),
+                Highlight(locatorJSON: "{}", text: "This is my substitute for pistol and ball.",
+                          createdAt: day.addingTimeInterval(120), color: "pink", chapter: "Chapter 2", progression: 0.2),
+            ]
+            b.bookmarks = [Bookmark(title: "Chapter 3", locatorJSON: "{}", progression: 0.25, createdAt: day)]
             library.update(b)
         }
         if let second = books.first(where: { $0.title == "Pride and Prejudice" }) {

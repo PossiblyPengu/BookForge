@@ -21,7 +21,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PossiblyPengu/BookForge.git"
+    "url": "git+https://github.com/PossiblyPengu/PageTurner.git"
   },
   "keywords": [
     "ebook",
@@ -34,7 +34,7 @@
   "author": "",
   "license": "UNLICENSED",
   "bugs": {
-    "url": "https://github.com/PossiblyPengu/BookForge/issues"
+    "url": "https://github.com/PossiblyPengu/PageTurner/issues"
   },
   "homepage": "https://pageturner.pages.dev",
   "dependencies": {

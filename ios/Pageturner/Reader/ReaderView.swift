@@ -92,6 +92,16 @@ struct ReaderView: View {
                 case "settings": showSettings = true
                 case "search": showSearch = true
                 case "hidechrome": model.toggleChrome()
+                // a jump far ahead: the Back chip should appear
+                case "jump": model.go(toProgression: 0.8)
+                case "footnote":
+                    model.footnote = Footnote(
+                        text: "Ishmael is the narrator; the name is an invitation, not a claim.",
+                        label: "1", link: ReadiumShared.Link(href: "chapter-1.xhtml"))
+                case "highlight":
+                    model.editingHighlight = Highlight(
+                        locatorJSON: "{}", text: "It is a way I have of driving off the spleen and regulating the circulation.",
+                        color: "blue", note: "Love this line.", chapter: "Chapter 1", progression: 0.03)
                 default: break
                 }
             }
@@ -166,7 +176,7 @@ struct ReaderView: View {
                     Text(model.book.title)
                         .font(.footnote.weight(.semibold))
                         .lineLimit(1)
-                    if let chapter = model.chapterTitle ?? (model.book.author.isEmpty ? nil : model.book.author) {
+                    if let chapter = secondLine {
                         Text(chapter)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -241,6 +251,15 @@ struct ReaderView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
         }
+    }
+
+    /// Under the title: the chapter — unless that is only the title again — or else the author.
+    private var secondLine: String? {
+        let author = model.book.author.isEmpty ? nil : model.book.author
+        guard let chapter = model.chapterTitle, !chapter.isEmpty,
+              chapter.caseInsensitiveCompare(model.book.title) != .orderedSame
+        else { return author }
+        return chapter
     }
 
     private var shownProgress: Double {
