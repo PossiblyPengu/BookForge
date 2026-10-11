@@ -10,6 +10,7 @@ struct NowPlayingView: View {
     @State private var scrubbing: TimeInterval?
     @State private var tint: Color = .ptAccent
     @State private var showChapters = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var shownPosition: TimeInterval { scrubbing ?? player.position }
 
@@ -253,13 +254,23 @@ struct NowPlayingView: View {
         }
     }
 
+    /// A glass pill with an icon and a word; just the icon once the text is large
+    /// enough that three words won't fit in a row (each control has its own VoiceOver label).
     private func chip(_ text: String, symbol: String) -> some View {
-        Label(text, systemImage: symbol)
-            .font(.subheadline.weight(.medium).monospacedDigit())
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 16)
-            .frame(height: 40)
-            .ptGlassCapsule(interactive: true)
+        Group {
+            if typeSize.isAccessibilitySize {
+                Image(systemName: symbol)
+                    .font(.title3)
+                    .frame(minWidth: 56, minHeight: 48)
+            } else {
+                Label(text, systemImage: symbol)
+                    .font(.subheadline.weight(.medium).monospacedDigit())
+                    .padding(.horizontal, 16)
+                    .frame(height: 40)
+            }
+        }
+        .foregroundStyle(.primary)
+        .ptGlassCapsule(interactive: true)
     }
 
     private func format(_ seconds: TimeInterval) -> String {

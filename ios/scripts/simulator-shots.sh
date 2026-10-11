@@ -56,18 +56,19 @@ shot 08-search 6 -PTDebugScreen search
 shot 09-settings 6 -PTDebugScreen settings
 shot 10-player 8 -PTDebugScreen player
 shot 10b-player-chapters 12 -PTDebugScreen player -PTDebugPlayerSheet chapters
-shot 11-reader 10 -PTDebugScreen reader
-shot 12-reader-contents 12 -PTDebugScreen reader -PTDebugReaderSheet contents
-shot 13-reader-settings 12 -PTDebugScreen reader -PTDebugReaderSheet settings
-shot 14-reader-search 12 -PTDebugScreen reader -PTDebugReaderSheet search
-shot 15-reader-nochrome 12 -PTDebugScreen reader -PTDebugReaderSheet hidechrome
+shot 11-reader 14 -PTDebugScreen reader -PTDebugKeepChrome 1
+shot 12-reader-contents 14 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugReaderSheet contents
+shot 13-reader-settings 14 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugReaderSheet settings
+shot 14-reader-search 14 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugReaderSheet search
+# no flag: the controls step aside on their own a few seconds after the book opens
+shot 15-reader-autohide 14 -PTDebugScreen reader
 
 # dark
 xcrun simctl ui "$UDID" appearance dark 2>/dev/null || true
 shot 20-dark-library 8 -PTDebugScreen library
 shot 21-dark-stats 6 -PTDebugScreen stats
 shot 22-dark-player 8 -PTDebugScreen player
-shot 23-dark-reader 10 -PTDebugScreen reader
+shot 23-dark-reader 14 -PTDebugScreen reader -PTDebugKeepChrome 1
 shot 24-dark-settings 6 -PTDebugScreen settings
 xcrun simctl ui "$UDID" appearance light 2>/dev/null || true
 

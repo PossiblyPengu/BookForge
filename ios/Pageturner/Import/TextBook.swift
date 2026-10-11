@@ -866,7 +866,7 @@ enum TextBook {
         </nav>
         """))
         zip.add("OEBPS/style.css", text: """
-        h1, h2, h3 { line-height: 1.25; margin: 1.4em 0 0.6em; }
+        h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.4em 0 0.6em; text-align: start; hyphens: none; }
         p { margin: 0 0 0.9em; }
         p.verse { margin-left: 1em; }
         pre { white-space: pre-wrap; }

@@ -60,6 +60,8 @@ final class ReaderModel: ObservableObject {
     private var previousLocator: Locator?
     /// Set while "Back" is navigating, so returning isn't recorded as a jump.
     private var returning = false
+    /// Whether the reader has shown or hidden the controls themselves.
+    private var chromeTouched = false
     static let highlightGroup = "user-highlights"
 
     init(book: Book, library: LibraryStore) {
@@ -126,6 +128,7 @@ final class ReaderModel: ObservableObject {
             // a comic's reading order is every page — not a contents worth listing
             if toc.isEmpty, !publication.conforms(to: .divina) { toc = publication.readingOrder }
             phase = .ready
+            autoHideChrome()
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -158,7 +161,25 @@ final class ReaderModel: ObservableObject {
     }
 
     func toggleChrome() {
+        chromeTouched = true
         withAnimation { showChrome.toggle() }
+    }
+
+    /// A book opens with the controls showing — long enough to find them — and
+    /// then they step aside, so the first page isn't read from under a bar. Not
+    /// with VoiceOver on (it needs them), and not once the reader has touched them.
+    private func autoHideChrome() {
+        guard !UIAccessibility.isVoiceOverRunning else { return }
+        #if DEBUG
+        // CI simulator run: keep the controls up for the screenshots (Debug/DebugScenario.swift)
+        if UserDefaults.standard.bool(forKey: "PTDebugKeepChrome") { return }
+        #endif
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            if showChrome, !chromeTouched, readAloud?.isActive != true {
+                withAnimation { showChrome = false }
+            }
+        }
     }
 
     func go(to link: ReadiumShared.Link) {

@@ -47,7 +47,7 @@ struct BookDetailSheet: View {
                 Section {
                     VStack(spacing: 14) {
                         BookCoverView(book: book, cover: cover, showsBadges: false, corner: 12)
-                            .frame(width: 150)
+                            .frame(width: 124)
                         VStack(spacing: 4) {
                             Text(book.title)
                                 .font(.title3.weight(.bold))
@@ -59,8 +59,13 @@ struct BookDetailSheet: View {
                             }
                         }
                         Button(action: onOpen) {
-                            Label(openLabel, systemImage: book.isAudio ? "play.fill" : "book.fill")
-                                .frame(maxWidth: .infinity)
+                            // not a Label: inside a List it tints its icon with the accent colour,
+                            // which vanishes on the accent-filled button
+                            HStack(spacing: 8) {
+                                Image(systemName: book.isAudio ? "play.fill" : "book.fill")
+                                Text(openLabel)
+                            }
+                            .frame(maxWidth: .infinity)
                         }
                         .ptButtonStyle(prominent: true)
                         .controlSize(.large)

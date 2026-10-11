@@ -308,11 +308,16 @@ private struct ContinueCard: View {
     let book: Book
     let cover: UIImage?
     let action: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(spacing: 16) {
+        // beside the cover normally; under it when the text is large enough to need the width
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+        layout {
             BookCoverView(book: book, cover: cover, showsBadges: false, corner: 8)
-                .frame(width: 84)
+                .frame(width: typeSize.isAccessibilitySize ? 110 : 84)
             VStack(alignment: .leading, spacing: 6) {
                 Text(book.isAudio ? "Keep listening" : "Continue reading")
                     .font(.caption.weight(.semibold))
@@ -320,12 +325,12 @@ private struct ContinueCard: View {
                     .textCase(.uppercase)
                 Text(book.title)
                     .font(.headline)
-                    .lineLimit(2)
+                    .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
                 if !book.author.isEmpty {
                     Text(book.author)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
                 }
                 ProgressView(value: min(max(book.progression ?? 0, 0), 1))
                     .tint(.ptAccent)

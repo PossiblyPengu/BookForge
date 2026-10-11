@@ -21,6 +21,8 @@ struct BookCoverView: View {
             if showsBadges { badges }
         }
         .aspectRatio(2 / 3, contentMode: .fit)
+        // a cover is artwork with a fixed shape: its lettering and badges don't grow with the text size
+        .dynamicTypeSize(...DynamicTypeSize.large)
         .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
         .overlay(alignment: .topTrailing) {
             if let selected {
@@ -93,8 +95,14 @@ struct BookGrid: View {
     var selection: Binding<Set<UUID>>?
     @EnvironmentObject private var library: LibraryStore
     @Environment(AppRouter.self) private var router
+    @Environment(\.dynamicTypeSize) private var typeSize
 
-    private let columns = [GridItem(.adaptive(minimum: 108, maximum: 168), spacing: 18)]
+    /// Wider cells at accessibility sizes, so titles under the covers have room.
+    private var columns: [GridItem] {
+        typeSize.isAccessibilitySize
+            ? [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 18)]
+            : [GridItem(.adaptive(minimum: 108, maximum: 168), spacing: 18)]
+    }
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 24) {

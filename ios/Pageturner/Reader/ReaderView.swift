@@ -19,11 +19,13 @@ struct ReaderView: View {
         _model = StateObject(wrappedValue: ReaderModel(book: book, library: library))
     }
 
+    /// The page's own light or dark — the chrome, the sheets and the status bar follow it.
+    private var scheme: ColorScheme { model.settings.theme.isDark ? .dark : .light }
+
     var body: some View {
         // grouped, so no one expression is a long chain the compiler has to solve at once
         sheets(lifecycle(layout))
-            // the chrome, the sheets and the status bar take the page's own light or dark
-            .preferredColorScheme(model.settings.theme.isDark ? .dark : .light)
+            .preferredColorScheme(scheme)
     }
 
     private var layout: some View {
@@ -60,7 +62,7 @@ struct ReaderView: View {
     private func lifecycle<V: View>(_ content: V) -> some View {
         content
             .task { await model.open() }
-            .onChange(of: model.settings) { _ in model.applySettings() }
+            .onChange(of: model.settings) { _, _ in model.applySettings() }
             .onAppear { BookMaster.shared.place = "reader" }
             .onDisappear {
                 model.flushSave()
@@ -98,11 +100,13 @@ struct ReaderView: View {
 
     private func sheets<V: View>(_ content: V) -> some View {
         content
-            .sheet(isPresented: $showContents) { contentsSheet }
-            .sheet(isPresented: $showSettings) { settingsSheet }
-            .sheet(isPresented: $showSearch) { searchSheet }
+            // a sheet is its own presentation: it doesn't inherit the reader's colour scheme
+            .sheet(isPresented: $showContents) { contentsSheet.preferredColorScheme(scheme) }
+            .sheet(isPresented: $showSettings) { settingsSheet.preferredColorScheme(scheme) }
+            .sheet(isPresented: $showSearch) { searchSheet.preferredColorScheme(scheme) }
             .sheet(item: $model.footnote) { note in
                 FootnoteSheet(note: note) { model.goToFootnote(note) }
+                    .preferredColorScheme(scheme)
             }
             .sheet(item: $model.editingHighlight) { highlight in
                 HighlightEditorSheet(
@@ -112,6 +116,7 @@ struct ReaderView: View {
                     onDelete: { model.removeHighlight(highlight) },
                     onQuote: { model.quoteHighlight(highlight) }
                 )
+                .preferredColorScheme(scheme)
             }
             .alert("Pageturner", isPresented: Binding(
                 get: { model.notice != nil },
@@ -349,6 +354,7 @@ struct ReaderView: View {
             .sheet(item: $exportFile) { item in
                 ShareSheet(items: [item.url])
                     .presentationDetents([.medium, .large])
+                    .preferredColorScheme(scheme)
             }
         }
         .presentationDetents([.medium, .large])
@@ -588,7 +594,7 @@ private struct SearchResultsView: View {
                 }
             }
         }
-        .onChange(of: query) { q in
+        .onChange(of: query) { _, q in
             debounceTask?.cancel()
             debounceTask = Task {
                 try? await Task.sleep(nanoseconds: 400_000_000)
