@@ -91,19 +91,50 @@ final class NeuralTTSEngine: TTSEngine {
             let words = reportsWords ? Self.schedule(text, audio: audio) : []
             Self.log("playing \(String(format: "%.2f", Double(audio.samples.count) / audio.sampleRate)) s, \(words.count) words timed")
             var lit = -1
+            let cancellation = Cancellation()
             func follow(_ seconds: TimeInterval) {
-                guard let next = SpokenWords.index(at: seconds, in: words), next != lit else { return }
+                guard !cancellation.isSet, let next = SpokenWords.index(at: seconds, in: words), next != lit else { return }
                 lit = next
                 onSpeakRange(words[next].range)
             }
+            // Without words to follow (only the sentence is marked), the sentence is the range: that is
+            // what has the page follow the narration, and what shows the voice works
+            func sentenceStarted() {
+                guard !cancellation.isSet else { return }
+                onSpeakRange(text.startIndex ..< text.endIndex)
+            }
             let played = await withTaskCancellationHandler {
-                await player.enqueue(audio.samples, sampleRate: audio.sampleRate, lead: 0, progress: words.isEmpty ? nil : follow)
+                await player.enqueue(
+                    audio.samples, sampleRate: audio.sampleRate, lead: 0,
+                    started: words.isEmpty ? sentenceStarted : nil,
+                    progress: words.isEmpty ? nil : follow)
             } onCancel: {
+                cancellation.set()
                 Task { @MainActor in NeuralPlayer.shared.stop() }
             }
             return played ? .success(()) : .failure(.other(Failure.playback))
         } catch {
             return .failure(.other(error))
+        }
+    }
+
+    /// Set the moment `speak` is cancelled — by whichever thread cancels it, ahead of the hop to the main
+    /// actor that stops the player — so that a word report already on its way is not handed to Readium
+    /// after it has paused or stopped (it would put the state back to playing).
+    private final class Cancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancelled = false
+
+        var isSet: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancelled
+        }
+
+        func set() {
+            lock.lock()
+            cancelled = true
+            lock.unlock()
         }
     }
 

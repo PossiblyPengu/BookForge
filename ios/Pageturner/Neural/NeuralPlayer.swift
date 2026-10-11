@@ -93,10 +93,12 @@ final class NeuralPlayer {
     /// left (0: until it has all been heard). True when that happened or `stop()` cut it short;
     /// false when the engine could not be started.
     ///
-    /// `progress` hears how far the voice has got — seconds into `samples` at the voice's own pace,
-    /// not the stretched one — about 30 times a second while it plays.
+    /// `started` is told once the sound has been started; `progress` hears how far the voice has got
+    /// — seconds into `samples` at the voice's own pace, not the stretched one — about 30 times a
+    /// second while it plays.
     func enqueue(
         _ samples: [Float], sampleRate: Double, lead: TimeInterval,
+        started: (@MainActor () -> Void)? = nil,
         progress: (@MainActor (TimeInterval) -> Void)? = nil
     ) async -> Bool {
         guard !Task.isCancelled, !samples.isEmpty, sampleRate > 0,
@@ -118,6 +120,7 @@ final class NeuralPlayer {
         }
         // the ticker is for whoever follows the voice, or returns early
         if progress != nil || lead > 0 { startTicker() }
+        started?()
         progress?(0)
         return await wait(untilRemainingAtMost: lead)
     }

@@ -53,6 +53,15 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   moved dates forward 31 years per save. Anything with a `Date` inside `Book` decodes it through
   `StoredDate.read` (see the `Book`, `Bookmark` and `Highlight` decoders).
 - Foundation `Process` can hang on Linux; `pkill -f <pattern>` can match its own command line.
+- A `Set` literal with a repeated element traps at launch ("Duplicate elements of type … were found in a Set").
+- Fuzz pure helpers with random Unicode and odd numbers before trusting them (a speech-range finder crashed on a
+  sample rate of 0): 200k random strings through `SpokenWords.tokens/schedule` take seconds on Linux.
+- Decoration templates (HTML + CSS for Readium highlights) can be tried without a device: Readium's compiled
+  `readium-reflowable.js` (Sources/Navigator/EPUB/Assets/Static/scripts in the toolkit) runs in headless Chromium
+  with a stub `window.webkit.messageHandlers`; call `readium.registerDecorationTemplates({...})` and
+  `readium.getDecorations(group).add({id, locator, style, element})` the way `DecorationChange` does, then
+  `chrome --headless --screenshot` (or `--dump-dom` to read results back). That is how the word locators and the
+  line band were checked.
 
 ### UI structure (Liquid Glass; see `ios/DESIGN.md`)
 
