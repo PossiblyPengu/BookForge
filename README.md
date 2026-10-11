@@ -17,7 +17,7 @@ A native SwiftUI app (iOS 17+) built on the [Readium](https://readium.org) toolk
 - **Read aloud, in your choice of voice:** Settings → Read Aloud (and the voice button on the read-aloud bar) — every voice installed on the iPhone by language with a sample button
   on each (Automatic picks the best Enhanced/Premium voice for the book's language; add them in Settings → Accessibility → Spoken Content), or **neural voices** —
   Piper's, the same ones as the web app, 170 of them in 50 languages. A neural voice downloads once (20–140 MB, most about 63), is checked, and lives on the iPhone, so it works offline and with the
-  screen locked; **Saved Voices** lists and deletes them. Speed 0.5–2× (3× for neural), changeable while it speaks. **Highlight as it reads** — three switches, any mix: the
+  screen locked; **Saved Voices** lists and deletes them. Speed 0.75–3× (0.5× too for neural voices), changeable while it speaks. **Highlight as it reads** — three switches, any mix: the
   **sentence**, the **line** (a soft band across the page at the line the voice is on) and the **word**. Device voices report each word; for a neural voice the word is worked out from
   how far the audio has played, and the next sentence is made while the current one is said so they follow without a gap. Voices are labelled Siri / Enhanced / Premium (iOS decides which of Siri's
   voices apps may use; whatever it offers is listed), and the neural ones cover the rest

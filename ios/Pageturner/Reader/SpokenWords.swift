@@ -164,7 +164,8 @@ enum SpokenWords {
     /// The stretch of `samples` that is speech: from the first to the last 10 ms that is louder than
     /// 2% of the loud parts. Voices start and end with a little silence.
     static func speech(in samples: [Float], sampleRate: Double) -> ClosedRange<TimeInterval> {
-        let duration = sampleRate > 0 ? Double(samples.count) / sampleRate : 0
+        guard sampleRate > 0, sampleRate.isFinite else { return 0 ... 0 }
+        let duration = Double(samples.count) / sampleRate
         let window = max(Int(sampleRate * 0.01), 1)
         let count = samples.count / window
         guard count >= 3 else { return 0 ... duration }
@@ -181,6 +182,7 @@ enum SpokenWords {
               let last = level.lastIndex(where: { $0 > threshold })
         else { return 0 ... duration }
         let seconds = Double(window) / sampleRate
-        return (Double(first) * seconds) ... min(Double(last + 1) * seconds, duration)
+        let from = Double(first) * seconds
+        return from ... max(min(Double(last + 1) * seconds, duration), from)
     }
 }

@@ -147,6 +147,9 @@ func runSpokenWordsChecks() {
     check("all silence is all of it", SpokenWords.speech(in: [Float](repeating: 0, count: 8000), sampleRate: rate) == 0 ... 0.5)
     check("a clip too short to measure is all of it", SpokenWords.speech(in: [0.1, 0.2], sampleRate: rate) == 0 ... 2 / rate)
     check("nothing is nothing", SpokenWords.speech(in: [], sampleRate: rate) == 0 ... 0)
+    check("a sample rate that makes no sense is no speech, not a crash",
+          SpokenWords.speech(in: [0.5, 0.5, 0.5, 0.5], sampleRate: 0) == 0 ... 0 && SpokenWords.speech(in: [0.5, 0.5, 0.5, 0.5], sampleRate: -1) == 0 ... 0
+          && SpokenWords.speech(in: [0.5, 0.5, 0.5, 0.5], sampleRate: .nan) == 0 ... 0 && SpokenWords.speech(in: [0.5, 0.5, 0.5, 0.5], sampleRate: .infinity) == 0 ... 0)
 
     section("Highlights: the stored choices")
     check("sentence and word are on, line is off, until chosen", ReadAloudHighlights() == ReadAloudHighlights(sentence: true, line: false, word: true))
