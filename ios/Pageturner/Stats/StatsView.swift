@@ -18,7 +18,7 @@ struct StatsView: View {
                 if !BookMaster.shared.isLinked {
                     Section {
                         Button {
-                            router.showSettings = true
+                            router.showLink = true
                         } label: {
                             Label("Link BookMaster for goals and achievements", systemImage: "link")
                         }

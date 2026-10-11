@@ -313,6 +313,41 @@ func runStatsChecks() {
     check("sessions round-trip through the log file", round == [original], "\(String(describing: round))")
 }
 
+
+@MainActor
+func runLinkURLChecks() {
+    section("BookMaster link addresses")
+    let code = "0123456789abcdef0123456789abcdef"
+    func u(_ s: String) -> URL { URL(string: s)! }
+
+    check("the flow starts on BookMaster's link page", BMLinkURL.start.host == "bookmaster.pages.dev" && BMLinkURL.start.path == "/link/pageturner", BMLinkURL.start.absoluteString)
+    let from = URLComponents(url: BMLinkURL.start, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "from" }?.value
+    check("…telling it production Pageturner asked (an origin BookMaster accepts)", from == "https://pageturner.pages.dev", from ?? "nil")
+
+    check("the return address yields the code", BMLinkURL.code(fromReturn: u("https://pageturner.pages.dev/?bm-link=\(code)")) == code)
+    check("a preview build's address does too", BMLinkURL.code(fromReturn: u("https://feature-x.pageturner.pages.dev/?bm-link=\(code)")) == code)
+    check("a path and fragment around it don't matter", BMLinkURL.code(fromReturn: u("https://pageturner.pages.dev/index.html?x=1&bm-link=\(code)#top")) == code)
+    check("another host is refused", BMLinkURL.code(fromReturn: u("https://evil.example/?bm-link=\(code)")) == nil)
+    check("a host that merely contains the name is refused", BMLinkURL.code(fromReturn: u("https://pageturner.pages.dev.evil.example/?bm-link=\(code)")) == nil
+          && BMLinkURL.code(fromReturn: u("https://notpageturner.pages.dev/?bm-link=\(code)")) == nil)
+    check("plain http is refused", BMLinkURL.code(fromReturn: u("http://pageturner.pages.dev/?bm-link=\(code)")) == nil)
+    check("no code, no link", BMLinkURL.code(fromReturn: u("https://pageturner.pages.dev/")) == nil
+          && BMLinkURL.code(fromReturn: u("https://pageturner.pages.dev/?bm-link=")) == nil)
+    check("a code that is too short or has odd characters is refused", BMLinkURL.code(fromReturn: u("https://pageturner.pages.dev/?bm-link=abc")) == nil
+          && BMLinkURL.code(fromReturn: u("https://pageturner.pages.dev/?bm-link=abcdefgh%22%3Ex")) == nil)
+
+    check("the app's own scheme yields the code", BMLinkURL.code(fromAppURL: u("pageturner://link?code=\(code)")) == code)
+    check("…only on the link host", BMLinkURL.code(fromAppURL: u("pageturner://open?code=\(code)")) == nil)
+    check("…and only for this scheme", BMLinkURL.code(fromAppURL: u("other://link?code=\(code)")) == nil)
+    check("either shape through code(from:)", BMLinkURL.code(from: u("pageturner://link?code=\(code)")) == code
+          && BMLinkURL.code(from: u("https://pageturner.pages.dev/?bm-link=\(code)")) == code
+          && BMLinkURL.code(from: u("https://bookmaster.pages.dev/dashboard")) == nil)
+
+    check("BookMaster's pages open in the sheet", BMLinkURL.isBookMasterPage(u("https://bookmaster.pages.dev/link/pageturner?from=x")))
+    check("nothing else does", !BMLinkURL.isBookMasterPage(u("https://evil.example/")) && !BMLinkURL.isBookMasterPage(u("https://bookmaster.pages.dev.evil.example/"))
+          && !BMLinkURL.isBookMasterPage(u("http://bookmaster.pages.dev/")) && !BMLinkURL.isBookMasterPage(u("https://sub.bookmaster.pages.dev/")))
+}
+
 private extension JumpHistory {
     /// `record` on a throwaway copy, to ask "would it be kept?" in one expression.
     func recordedCopy(origin: Spot, landed: Spot) -> Bool {

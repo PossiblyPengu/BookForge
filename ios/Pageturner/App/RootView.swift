@@ -78,6 +78,24 @@ struct RootView: View {
             .sheet(item: $r.editing) { book in editSheet(book) }
             .sheet(item: $r.shelfTarget) { ShelvesSheet(target: $0) }
             .sheet(isPresented: $r.showSettings) { SettingsView() }
+            .sheet(isPresented: $r.showLink) { linkSheet }
+    }
+
+    /// BookMaster's sign-in; the code it ends with is spent here and the shelf pulled.
+    private var linkSheet: some View {
+        BookMasterLinkSheet(
+            onCode: { code in
+                router.showLink = false
+                Task {
+                    if let message = await BookMasterLinker.shared.finish(code: code) {
+                        bookMaster.notice = "Couldn’t link BookMaster: \(message)"
+                    } else {
+                        await bookMaster.pullShelf(into: library)
+                        await bookMaster.beat()
+                    }
+                }
+            },
+            onCancel: { router.showLink = false })
     }
 
     private func detailSheet(_ book: Book) -> some View {
@@ -282,7 +300,7 @@ private struct LinkPrompt: View {
             } description: {
                 Text(message)
             } actions: {
-                Button("Link BookMaster") { router.showSettings = true }
+                Button("Link BookMaster") { router.showLink = true }
                     .ptButtonStyle(prominent: true)
             }
             .navigationTitle(title)

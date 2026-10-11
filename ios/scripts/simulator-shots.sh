@@ -67,6 +67,11 @@ shot 17-reader-footnote 14 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugRe
 shot 18-reader-highlight 14 -PTDebugScreen reader -PTDebugKeepChrome 1 -PTDebugReaderSheet highlight
 shot 19-resume-prompt 8 -PTDebugScreen resume
 shot 19b-library-select 10 -PTDebugScreen library -PTDebugLibraryMode select
+# BookMaster's sign-in sheet: the real site, and then the redirect home intercepted — a data: page
+# sends the web view to the return address with a made-up code, so the app should close the sheet,
+# try to spend the code and report that BookMaster refused it
+shot 50-link-sheet 20 -PTDebugScreen link
+shot 51-link-intercept 18 -PTDebugScreen link -PTDebugLinkStart "data:text/html,%3Cscript%3Elocation.replace('https://pageturner.pages.dev/?bm-link=0123456789abcdef0123456789abcdef')%3C/script%3E"
 # the other two readers: a PDF (and Readium's own search through it) and a CBZ comic
 shot 40-pdf 14 -PTDebugScreen pdf -PTDebugKeepChrome 1
 shot 41-pdf-search 20 -PTDebugScreen pdf -PTDebugKeepChrome 1 -PTDebugReaderSheet pdfsearch

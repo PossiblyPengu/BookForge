@@ -116,6 +116,7 @@ func runData() {
     runBookText()
     runLogic()
     runStatsChecks()
+    runLinkURLChecks()
     runTextBook()
 }
 
@@ -127,6 +128,12 @@ func run() async {
 
     // ------------------------------------------------------------------ link
     section("Link")
+    // the code BookMaster really minted, as BookMaster's own return address carries it
+    // (pageturnerLinkUrl in src/lib/presence.ts: `<from>/?bm-link=<code>`)
+    check("the app reads the real minted code off BookMaster's return address",
+          URL(string: "https://pageturner.pages.dev/?bm-link=\(code)").flatMap(BMLinkURL.code(from:)) == code, code)
+    check("…and off a preview build's address",
+          URL(string: "https://abc123.pageturner.pages.dev/?bm-link=\(code)").flatMap(BMLinkURL.code(from:)) == code)
     do {
         try await bm.redeem(code: code)
         check("redeems a real one-time code", bm.isLinked)

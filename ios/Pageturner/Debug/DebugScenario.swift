@@ -42,6 +42,7 @@ enum DebugScenario {
         case "pdf": router.reading = library.books.first { $0.ext == "pdf" }
         case "cbz": router.reading = library.books.first { $0.ext == "cbz" }
         case "player": if let audio { PlaybackCoordinator.shared.start(audio, library: library) }
+        case "link": router.showLink = true
         case "resume":
             // BookMaster has Alice at 62% and this phone has never opened her: opening asks
             if let alice = library.books.first(where: { $0.title.hasPrefix("Alice") }) {

@@ -23,6 +23,8 @@ final class AppRouter {
     var detail: Book?
     var editing: Book?
     var showSettings = false
+    /// BookMaster's sign-in sheet (the Together and Stats prompts open it directly).
+    var showLink = false
     /// Books waiting on "Remove from Library?" — removing deletes their files.
     var pendingDelete: [Book] = []
     var shelfTarget: ShelfTarget?

@@ -1,4 +1,3 @@
-import AuthenticationServices
 import SwiftUI
 
 /// Link (or unlink) this device's BookMaster account — sections for the settings form.
@@ -6,6 +5,7 @@ struct BookMasterSection: View {
     @EnvironmentObject private var library: LibraryStore
     @State private var working = false
     @State private var error: String?
+    @State private var showLink = false
     private let bookMaster = BookMaster.shared
     private let notifier = Notifier.shared
 
@@ -54,7 +54,7 @@ struct BookMasterSection: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Button {
-                        Task { await link() }
+                        showLink = true
                     } label: {
                         if working { ProgressView() } else { Text("Link BookMaster") }
                     }
@@ -66,18 +66,26 @@ struct BookMasterSection: View {
             }
         }
         .task { await notifier.refreshAuthorization() }
+        .sheet(isPresented: $showLink) {
+            BookMasterLinkSheet(
+                onCode: { code in
+                    showLink = false
+                    Task { await finishLink(code) }
+                },
+                onCancel: { showLink = false })
+        }
     }
 
-    private func link() async {
+    /// The sheet gave back a code: spend it, then let the app know who it is now.
+    private func finishLink(_ code: String) async {
         working = true
         error = nil
         defer { working = false }
-        do {
-            try await BookMasterLinker.shared.link()
-        } catch let e as ASWebAuthenticationSessionError where e.code == .canceledLogin {
-            // the reader closed the sheet — not an error
-        } catch {
-            self.error = error.localizedDescription
+        if let message = await BookMasterLinker.shared.finish(code: code) {
+            error = "Couldn’t link BookMaster: \(message)"
+        } else {
+            await bookMaster.pullShelf(into: library)
+            await bookMaster.beat()
         }
     }
 }
