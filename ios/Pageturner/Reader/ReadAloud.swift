@@ -5,14 +5,27 @@ import ReadiumNavigator
 import ReadiumShared
 import UIKit
 
-/// Sets the speaking rate on every utterance Readium's AVTTSEngine creates
-/// (its own configuration has no rate setting).
-final class SpeechRate: AVTTSEngineDelegate {
+/// Tunes every utterance Readium's AVTTSEngine creates (its own configuration has no
+/// rate setting, and it asks iOS for "a voice for this language", which answers with the
+/// compact default even when a better one is installed).
+final class SpeechTuning: AVTTSEngineDelegate {
+    /// 1 = the voice's normal pace.
     var multiplier: Double = 1.0
+    /// The voice the reader picked, if any: the one thing never to second-guess.
+    var chosenVoiceID: String?
+    private lazy var installed = SystemVoices.installed()
 
     func avTTSEngine(_ engine: AVTTSEngine, didCreateUtterance utterance: AVSpeechUtterance) {
-        let rate = Float(Double(AVSpeechUtteranceDefaultSpeechRate) * multiplier)
-        utterance.rate = min(max(rate, AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
+        utterance.rate = SpeechRateMap.avRate(forMultiplier: multiplier)
+        // Not the chosen voice (no choice, or a voice for another language than this
+        // passage): "Automatic" — the best Enhanced/Premium voice for its language.
+        guard let voice = utterance.voice, voice.identifier != chosenVoiceID,
+              let better = SpeechVoices.upgrade(
+                  for: voice.language, among: installed, preferred: Locale.preferredLanguages),
+              better.id != voice.identifier,
+              let upgraded = AVSpeechSynthesisVoice(identifier: better.id)
+        else { return }
+        utterance.voice = upgraded
     }
 }
 
@@ -30,7 +43,7 @@ final class ReadAloud: NSObject, ObservableObject {
     private let publication: Publication
     private weak var navigator: VisualNavigator?
     private let synthesizer: PublicationSpeechSynthesizer
-    private let speechRate: SpeechRate
+    private let tuning: SpeechTuning
     /// The library record's values — the publication's own metadata can name
     /// a different edition than the title the user edited.
     private let displayTitle: String
@@ -57,18 +70,19 @@ final class ReadAloud: NSObject, ObservableObject {
     init?(publication: Publication, navigator: VisualNavigator, settings: ReaderSettings,
           displayTitle: String, displayAuthor: String)
     {
-        let speechRate = SpeechRate()
-        speechRate.multiplier = settings.speechRate
+        let tuning = SpeechTuning()
+        tuning.multiplier = settings.speechRate
+        tuning.chosenVoiceID = settings.voiceIdentifier
         guard let synthesizer = PublicationSpeechSynthesizer(
             publication: publication,
             config: .init(voiceIdentifier: settings.voiceIdentifier),
-            engineFactory: { AVTTSEngine(delegate: speechRate) }
+            engineFactory: { AVTTSEngine(delegate: tuning) }
         ) else { return nil }
 
         self.publication = publication
         self.navigator = navigator
         self.synthesizer = synthesizer
-        self.speechRate = speechRate
+        self.tuning = tuning
         self.displayTitle = displayTitle
         self.displayAuthor = displayAuthor
         rate = settings.speechRate
@@ -172,13 +186,14 @@ final class ReadAloud: NSObject, ObservableObject {
     /// Takes effect from the next sentence.
     func setRate(_ value: Double) {
         rate = value
-        speechRate.multiplier = value
+        tuning.multiplier = value
     }
 
     var availableVoices: [TTSVoice] { synthesizer.availableVoices }
 
     func setVoice(_ identifier: String?) {
         synthesizer.config.voiceIdentifier = identifier
+        tuning.chosenVoiceID = identifier
     }
 
     // MARK: - Lock screen / Control Center
@@ -268,6 +283,7 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
         if consecutiveFailures >= 3 {
             if synthesizer.config.voiceIdentifier != nil {
                 synthesizer.config.voiceIdentifier = nil
+                tuning.chosenVoiceID = nil
                 consecutiveFailures = 0
                 onVoiceFallback?()
                 synthesizer.start(from: utterance.locator)

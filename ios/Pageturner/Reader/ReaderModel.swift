@@ -510,7 +510,7 @@ final class ReaderModel: ObservableObject {
     }
 
     func cycleRate() {
-        let steps: [Double] = [0.75, 1, 1.25, 1.5, 1.75, 2]
+        let steps = SpeechRateMap.cycle
         settings.speechRate = steps.first { $0 > settings.speechRate + 0.001 } ?? steps[0]
     }
 

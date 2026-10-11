@@ -117,6 +117,7 @@ func runData() {
     runLogic()
     runStatsChecks()
     runLinkURLChecks()
+    runVoiceChecks()
     runTextBook()
 }
 

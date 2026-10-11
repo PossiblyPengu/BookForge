@@ -1,8 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Everything that used to crowd the library's menu: the BookMaster link,
-/// the watched folder, and backup.
+/// Everything that used to crowd the library's menu: the BookMaster link, the
+/// read-aloud voice, the watched folder, and backup.
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var library: LibraryStore
@@ -23,9 +23,28 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            switches(form)
+            debugHooks(switches(form))
         }
     }
+
+    #if DEBUG
+    @State private var debugVoices = false
+
+    /// CI simulator run: open the voice list without a tap (Debug/DebugScenario.swift).
+    private func debugHooks<V: View>(_ content: V) -> some View {
+        content
+            .navigationDestination(isPresented: $debugVoices) {
+                VoiceListView(selection: .constant(nil), rate: 1)
+            }
+            .task {
+                guard DebugScenario.settingsPush == "voices" else { return }
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                debugVoices = true
+            }
+    }
+    #else
+    private func debugHooks<V: View>(_ content: V) -> some View { content }
+    #endif
 
     /// The Spotlight switch and the reset confirmation, kept apart from the form's
     /// own modifiers so no single chain is too long for the compiler.
@@ -46,6 +65,8 @@ struct SettingsView: View {
     private var form: some View {
         Form {
             BookMasterSection()
+
+            ReadAloudSection()
 
             Section {
                 if watcher.isWatching {

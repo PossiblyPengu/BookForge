@@ -26,4 +26,8 @@ final class AudioFocus {
     func claim(_ id: String) {
         for (other, pause) in owners where other != id { pause() }
     }
+
+    /// Nothing of ours is open, playing or paused — a brief sound (a voice sample)
+    /// may then give the audio session back when it is done.
+    var isIdle: Bool { owners.isEmpty }
 }

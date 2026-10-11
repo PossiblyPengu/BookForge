@@ -119,8 +119,12 @@ struct ReaderSettings: Codable, Equatable {
 
     static func load() -> ReaderSettings {
         guard let data = UserDefaults.standard.data(forKey: key),
-              let settings = try? JSONDecoder().decode(ReaderSettings.self, from: data)
+              var settings = try? JSONDecoder().decode(ReaderSettings.self, from: data)
         else { return ReaderSettings() }
+        // earlier builds offered speeds the engine can't reach (2.25×, 2.5×) — and a bad value is no speed
+        settings.speechRate = settings.speechRate.isFinite
+            ? min(max(settings.speechRate, SpeechRateMap.range.lowerBound), SpeechRateMap.range.upperBound)
+            : 1
         return settings
     }
 

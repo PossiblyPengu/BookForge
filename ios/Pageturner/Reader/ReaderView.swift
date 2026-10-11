@@ -9,6 +9,7 @@ struct ReaderView: View {
     @State private var showContents = false
     @State private var showSettings = false
     @State private var showSearch = false
+    @State private var showVoices = false
     /// The scrubber's value while the finger is on it (or until the page catches up).
     @State private var scrubbing: Double?
     @State private var dragging = false
@@ -43,6 +44,7 @@ struct ReaderView: View {
                             readAloud: readAloud,
                             rate: model.settings.speechRate,
                             onRate: { model.cycleRate() },
+                            onVoice: { showVoices = true },
                             onStop: { model.stopReadAloud() }
                         )
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -95,6 +97,7 @@ struct ReaderView: View {
                     showSearch = true
                 case "contents": showContents = true
                 case "settings": showSettings = true
+                case "voices": showVoices = true
                 case "search": showSearch = true
                 case "hidechrome": model.toggleChrome()
                 // a jump far ahead: the Back chip should appear
@@ -114,6 +117,11 @@ struct ReaderView: View {
     }
 
     private func sheets<V: View>(_ content: V) -> some View {
+        panels(content)
+            .sheet(isPresented: $showVoices) { voiceSheet.preferredColorScheme(scheme) }
+    }
+
+    private func panels<V: View>(_ content: V) -> some View {
         content
             // a sheet is its own presentation: it doesn't inherit the reader's colour scheme
             .sheet(isPresented: $showContents) { contentsSheet.preferredColorScheme(scheme) }
@@ -468,6 +476,19 @@ struct ReaderView: View {
         .presentationDetents([.medium, .large])
     }
 
+    /// Who reads aloud — reachable from the read-aloud bar, so a voice can be tried mid-page.
+    private var voiceSheet: some View {
+        NavigationStack {
+            VoiceListView(selection: $model.settings.voiceIdentifier, rate: model.settings.speechRate)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showVoices = false }
+                    }
+                }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
     private var settingsSheet: some View {
         NavigationStack {
             ReaderSettingsView(settings: $model.settings)
@@ -512,6 +533,7 @@ private struct ReadAloudBar: View {
     @ObservedObject var readAloud: ReadAloud
     let rate: Double
     let onRate: () -> Void
+    let onVoice: () -> Void
     let onStop: () -> Void
 
     var body: some View {
@@ -530,6 +552,8 @@ private struct ReadAloudBar: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Speaking speed")
+
+            barButton("person.wave.2", label: "Voice", action: onVoice)
 
             Menu {
                 Button("Off") { readAloud.setSleepTimer(minutes: nil) }

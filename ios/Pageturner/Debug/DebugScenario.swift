@@ -9,7 +9,9 @@ import UIKit
 ///
 ///     -PTDebugSeed 1            fill an empty library with sample books, a listen and some history
 ///     -PTDebugScreen library    which screen to put up (see `run`)
-///     -PTDebugReaderSheet …     with `reader`: contents | settings | search
+///     -PTDebugReaderSheet …     with `reader`: contents | settings | search | voices
+///     -PTDebugSettingsPush …    with `settings`: voices (open the voice list)
+///     -PTDebugSpeechProbe 1     log the installed voices and how long speech takes at each rate
 ///
 /// Debug builds only — none of this is in the IPA.
 @MainActor
@@ -17,8 +19,10 @@ enum DebugScenario {
     private static let defaults = UserDefaults.standard
 
     static var readerSheet: String? { defaults.string(forKey: "PTDebugReaderSheet") }
+    static var settingsPush: String? { defaults.string(forKey: "PTDebugSettingsPush") }
 
     static func run(library: LibraryStore, router: AppRouter, selectTab: @escaping (AppTab) -> Void) async {
+        if defaults.bool(forKey: "PTDebugSpeechProbe") { Task { await SpeechProbe.run() } }
         let seeding = defaults.bool(forKey: "PTDebugSeed")
         let screen = defaults.string(forKey: "PTDebugScreen")
         guard seeding || screen != nil else { return }
