@@ -1,6 +1,7 @@
 name: Publish iOS build
 
-# Run by hand from the Actions tab. Takes the IPA that "iOS IPA" built and puts it, with an AltStore / SideStore
+# Run by hand from the Actions tab (every green build on main is published by ios.yml already; this is for re-publishing a
+# build — an older run, or one from a branch). Takes the IPA that "iOS IPA" built and puts it, with an AltStore / SideStore
 # source, on a rolling release (tag `ios-latest`) whose download links never change — add the source to the app
 # once and it offers each new build as an update.
 #

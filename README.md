@@ -55,7 +55,7 @@ Add this source once in AltStore or SideStore (Sources → +) and each new build
 
 `https://github.com/PossiblyPengu/PageTurner/releases/download/ios-latest/altstore.json`
 
-The builds go there when **Actions → Publish iOS build → Run workflow** is run (it publishes the latest successful iOS build, or the run number you give it). Every build has a higher build number than the one before, which is what makes the app offer it as an update.
+Every green build on `main` is published there automatically (the **Publish iOS build** workflow does the same by hand for any run you pick). Every build has a higher build number than the one before, which is what makes the app offer it as an update.
 
 ### Build
 
