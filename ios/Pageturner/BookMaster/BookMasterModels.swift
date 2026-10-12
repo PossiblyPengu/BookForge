@@ -75,6 +75,28 @@ struct BMProgressPush: Encodable {
     }
 }
 
+/// A jacket for BookMaster to show on the shelf: the book fields at the top level, then the image.
+struct BMCoverPush: Encodable {
+    var username: String
+    var book: BMBookRef
+    var coverB64: String
+    var coverMime: String
+
+    enum CodingKeys: String, CodingKey {
+        case username
+        case coverB64 = "cover_b64"
+        case coverMime = "cover_mime"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try book.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(username, forKey: .username)
+        try c.encode(coverB64, forKey: .coverB64)
+        try c.encode(coverMime, forKey: .coverMime)
+    }
+}
+
 struct BMSessionPush: Encodable {
     var username: String
     var book: BMBookRef

@@ -24,6 +24,15 @@ final class BookMaster {
 
     var isLinked: Bool { user != nil }
 
+    /// The reader's whole BookMaster shelf as of the last pull — kept so the Shelf screen opens at once, offline too.
+    private(set) var shelfRows: [BMShelfRow] = []
+    private let shelfKey = "bm-shelf-rows"
+
+    func keepShelf(_ rows: [BMShelfRow]) {
+        shelfRows = rows
+        if let data = try? JSONEncoder().encode(rows) { defaults.set(data, forKey: shelfKey) }
+    }
+
     /// Whether reading progress, sessions and presence are sent while linked.
     /// Off keeps the account linked (comments, suggestions and quotes still work)
     /// but stops the automatic reporting. Stored in UserDefaults, observable.
@@ -64,6 +73,9 @@ final class BookMaster {
         if let data = defaults.data(forKey: userKey) {
             user = try? JSONDecoder().decode(BMUser.self, from: data)
         }
+        if let data = defaults.data(forKey: shelfKey) {
+            shelfRows = (try? JSONDecoder().decode([BMShelfRow].self, from: data)) ?? []
+        }
         if let data = try? Data(contentsOf: queueURL) {
             queue = ((try? JSONDecoder().decode([QueueEntry].self, from: data)) ?? []).map {
                 var entry = $0
@@ -92,6 +104,8 @@ final class BookMaster {
     /// belong to the reader who just left.
     func unlink() {
         setUser(nil)
+        shelfRows = []
+        defaults.removeObject(forKey: shelfKey)
         queue.removeAll()
         lastPush.removeAll()
         try? FileManager.default.removeItem(at: queueURL)
@@ -148,6 +162,14 @@ final class BookMaster {
             at: (at.timeIntervalSince1970 * 1000).rounded())
         guard let body = try? JSONEncoder().encode(payload) else { return }
         _ = await send(kind: "session", title: ref.title, body: body)
+    }
+
+    /// A book's jacket, for BookMaster's shelf. True when it was accepted or parked for later.
+    func pushCover(ref: BMBookRef, jpeg: Data) async -> Bool {
+        guard let user, syncEnabled else { return false }
+        let payload = BMCoverPush(username: user.username, book: ref, coverB64: jpeg.base64EncodedString(), coverMime: "image/jpeg")
+        guard let body = try? JSONEncoder().encode(payload) else { return false }
+        return await sendRaw(kind: "cover", title: ref.title, body: body)
     }
 
     /// A line worth keeping, from the reader's selection menu.

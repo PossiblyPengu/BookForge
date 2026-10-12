@@ -54,6 +54,7 @@ struct PageturnerApp: App {
                     await BookMaster.shared.flush()
                     await FolderWatcher.shared.scan(library: library)
                     await BookMaster.shared.pullShelf(into: library)
+                    await BookMaster.shared.pushCovers(from: library)
                     await Notifier.shared.refresh(notify: false)
                     SpotlightIndexer.shared.libraryChanged(library)
                     while !Task.isCancelled {

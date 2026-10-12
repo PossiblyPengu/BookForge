@@ -122,6 +122,7 @@ func runData() {
     runReadingSpanChecks()
     runNeuralChecks()
     runSpokenWordsChecks()
+    runShelfChecks()
     runPlayheadChecks()
     runTextBook()
 }

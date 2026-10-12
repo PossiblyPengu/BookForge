@@ -91,6 +91,7 @@ struct RootView: View {
                         bookMaster.notice = "Couldn’t link BookMaster: \(message)"
                     } else {
                         await bookMaster.pullShelf(into: library)
+                        await bookMaster.pushCovers(from: library)
                         await bookMaster.beat()
                     }
                 }
@@ -120,6 +121,8 @@ struct RootView: View {
         } onRestart: {
             library.restart(book.id)
             router.detail = nil
+        } onRate: { stars in
+            library.rate(book.id, stars: stars)
         }
     }
 

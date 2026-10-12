@@ -9,6 +9,9 @@ struct BookDetailSheet: View {
     let onShelves: () -> Void
     let onFinish: () -> Void
     let onRestart: () -> Void
+    /// Rating, when the book can be rated on BookMaster (it is linked).
+    var onRate: ((Int) -> Void)? = nil
+    @State private var picked: Int?
     @State private var showNotes = false
     @State private var tint: Color = .ptAccent
     @State private var descriptionExpanded = false
@@ -114,7 +117,23 @@ struct BookDetailSheet: View {
                     if let remote = book.bmRemotePercent {
                         LabeledContent("BookMaster position", value: "\(Int(remote.rounded()))%")
                     }
-                    if let rating = book.bmRating {
+                    if BookMaster.shared.isLinked, let onRate {
+                        HStack {
+                            Text("Your Rating")
+                            Spacer()
+                            ForEach(1...5, id: \.self) { n in
+                                Button {
+                                    picked = n
+                                    onRate(n)
+                                } label: {
+                                    Image(systemName: n <= (picked ?? book.bmRating ?? 0) ? "star.fill" : "star")
+                                        .foregroundStyle(Color.ptAccent)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel(n == 1 ? "1 star" : "\(n) stars")
+                            }
+                        }
+                    } else if let rating = book.bmRating {
                         LabeledContent("Rating", value: String(repeating: "★", count: max(0, min(5, rating))))
                     }
                     if book.isAudio, book.fileNames.count > 1 {

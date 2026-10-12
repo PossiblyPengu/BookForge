@@ -18,7 +18,7 @@ struct LibraryView: View {
 
     /// Comics and Markdown have no system type everywhere — match them by extension.
     private static let extraTypes = ["cbz", "md", "markdown"].compactMap { UTType(filenameExtension: $0) }
-    private static let pickerTypes: [UTType] = [.epub, .pdf, .audio, .plainText, .html, .zip] + extraTypes
+    static let pickerTypes: [UTType] = [.epub, .pdf, .audio, .plainText, .html, .zip] + extraTypes
 
     /// Built-in shelf filters carry a "~" a shelf name can't start with.
     private static let allKey = "~all"

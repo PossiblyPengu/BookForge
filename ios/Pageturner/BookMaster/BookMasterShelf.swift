@@ -1,7 +1,8 @@
 import Foundation
 
-/// One row of the reader's BookMaster shelf, slimmed for matching.
-struct BMShelfRow: Decodable {
+/// One row of the reader's BookMaster shelf. The shelf is kept on the phone (`BookMaster.shelfRows`), so
+/// every field the screens use is optional: a row cached by an older build still reads.
+struct BMShelfRow: Codable, Hashable, Identifiable {
     var userBookId: String
     var bookId: String
     var title: String
@@ -10,6 +11,20 @@ struct BMShelfRow: Decodable {
     var rating: Int?
     var upNext: Int?
     var percent: Double?
+    var format: String?
+    var totalPages: Int?
+    var openLibraryId: String?
+    var isbn: String?
+
+    var id: String { userBookId }
+    var isAudio: Bool { format == "audio" }
+
+    /// A jacket for the row: Open Library knows covers by ISBN and by its own id.
+    var coverURL: URL? {
+        if let isbn, !isbn.isEmpty { return URL(string: "https://covers.openlibrary.org/b/isbn/\(isbn)-M.jpg?default=false") }
+        if let ol = openLibraryId, !ol.isEmpty { return URL(string: "https://covers.openlibrary.org/b/olid/\(ol)-M.jpg?default=false") }
+        return nil
+    }
 }
 
 private struct BMShelfReply: Decodable { var books: [BMShelfRow] }
@@ -85,6 +100,45 @@ enum BMShelf {
     }
 }
 
+/// The shelf as the Shelf screen shows it: what BookMaster has that this iPhone has no file for.
+extension BMShelf {
+    struct Group: Identifiable, Equatable {
+        var title: String
+        var rows: [BMShelfRow]
+        var id: String { title }
+    }
+
+    static func label(forStatus status: String) -> String {
+        switch status {
+        case "reading": return "Reading"
+        case "read": return "Read"
+        case "want_to_read": return "Want to read"
+        case "dnf": return "Didn’t finish"
+        default: return status.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    /// The rows no book in `books` is — by the pin, then by title and author, as `match` does.
+    static func missing(from rows: [BMShelfRow], on books: [Book]) -> [BMShelfRow] {
+        rows.filter { row in !books.contains { match($0, in: [row]) != nil } }
+    }
+
+    /// Up next first (in its own order), then what is being read, wanted and finished, then anything else.
+    static func groups(_ rows: [BMShelfRow]) -> [Group] {
+        let queued = rows.filter { $0.upNext != nil }.sorted { ($0.upNext ?? 0) < ($1.upNext ?? 0) }
+        let rest = rows.filter { $0.upNext == nil }
+        let known: Set<String> = ["reading", "want_to_read", "read"]
+        let all: [Group] = [
+            Group(title: "Up next", rows: queued),
+            Group(title: "Reading", rows: rest.filter { $0.status == "reading" }),
+            Group(title: "Want to read", rows: rest.filter { $0.status == "want_to_read" }),
+            Group(title: "Finished", rows: rest.filter { $0.status == "read" }),
+            Group(title: "Other", rows: rest.filter { !known.contains($0.status) }),
+        ]
+        return all.filter { !$0.rows.isEmpty }
+    }
+}
+
 extension BookMaster {
     /// Decorate the library with what the shelf knows. Pageturner's own
     /// position stays the local truth — a remote percent is shown, never imposed.
@@ -94,6 +148,7 @@ extension BookMaster {
               (200..<300).contains(status),
               let reply = try? JSONDecoder().decode(BMShelfReply.self, from: data)
         else { return }
+        keepShelf(reply.books)
         var changes: [(UUID, (inout Book) -> Void)] = []
         for book in library.books {
             guard let row = BMShelf.match(book, in: reply.books) else { continue }

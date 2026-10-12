@@ -12,6 +12,15 @@ struct TogetherView: View {
     var body: some View {
         NavigationStack {
             List {
+                if BookMaster.shared.isLinked {
+                    Section {
+                        NavigationLink {
+                            BookMasterShelfView()
+                        } label: {
+                            Label("Your BookMaster Shelf", systemImage: "books.vertical")
+                        }
+                    }
+                }
                 if let together {
                     partnerSection(together.partner)
                     if !together.nudges.isEmpty { nudgeSection(together.nudges) }

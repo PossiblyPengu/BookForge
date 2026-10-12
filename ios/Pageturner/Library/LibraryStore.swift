@@ -618,6 +618,22 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    /// A rating from the book's sheet: kept on the book, and sent to BookMaster with the place the reader is
+    /// at (never a place behind BookMaster's own).
+    func rate(_ id: UUID, stars: Int) {
+        guard (1...5).contains(stars), let i = books.firstIndex(where: { $0.id == id }) else { return }
+        books[i].bmRating = stars
+        save()
+        let book = books[i]
+        let place = max(book.progression ?? 0, (book.bmRemotePercent ?? 0) / 100)
+        Task {
+            await BookMaster.shared.syncProgress(
+                bookKey: book.title, ref: book.bookMasterRef, percent: place,
+                isAudio: book.isAudio, rating: stars, force: true,
+                pinned: { [weak self] pin in self?.updateBookMaster(id) { $0.bookmasterId = pin } })
+        }
+    }
+
     /// Back to the start — for a re-read, or one abandoned part way.
     func restart(_ id: UUID) {
         guard let i = books.firstIndex(where: { $0.id == id }) else { return }
