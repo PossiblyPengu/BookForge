@@ -62,6 +62,20 @@ final class ReaderContainerViewController: UIViewController {
         view.addSubview(holder)
         turning = holder
 
+        // a photograph of the turn part way: the page drawn at that angle, no animation to pause
+        if let frozenAt, style == .flip {
+            let progress = CGFloat(min(max(frozenAt, 0), 1))
+            let hinge: CGFloat = towardLeft ? 0 : 1
+            page.layer.anchorPoint = CGPoint(x: hinge, y: 0.5)
+            page.layer.position = CGPoint(x: bounds.width * hinge, y: bounds.midY)
+            var start = CATransform3DIdentity
+            start.m34 = -1 / 1400
+            page.layer.transform = CATransform3DRotate(start, (towardLeft ? -1 : 1) * .pi / 2 * progress, 0, 1, 0)
+            veil.alpha = 0.55 * progress
+            shade.alpha = 0.38
+            return
+        }
+
         let d = style == .flip ? Self.turnDuration : 0.3
         let ease = CAMediaTimingFunction(controlPoints: 0.32, 0, 0.2, 1)
         func animation(_ key: String, from: Any, to: Any) -> CABasicAnimation {
@@ -77,7 +91,6 @@ final class ReaderContainerViewController: UIViewController {
 
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak holder, weak self] in
-            guard frozenAt == nil else { return }
             holder?.removeFromSuperview()
             if self?.turning === holder { self?.turning = nil }
         }
@@ -100,10 +113,6 @@ final class ReaderContainerViewController: UIViewController {
             shade.layer.add(shadow, forKey: "shadow")
         case .fade, .slide:
             page.layer.add(animation("opacity", from: 1, to: 0), forKey: "fade")
-        }
-        if let frozenAt {
-            holder.layer.speed = 0
-            holder.layer.timeOffset = d * min(max(frozenAt, 0), 1)
         }
         CATransaction.commit()
     }

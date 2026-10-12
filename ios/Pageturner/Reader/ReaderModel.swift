@@ -222,7 +222,7 @@ final class ReaderModel: ObservableObject {
     func debugTurn() async {
         guard let raw = UserDefaults.standard.string(forKey: "PTDebugTurn"), let style = PageTurnStyle(rawValue: raw),
               let navigator else { return }
-        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        try? await Task.sleep(nanoseconds: 6_000_000_000)   // until the page has painted, or the turn is of a spinner
         settings.pageTurn = style
         pageIsTurning(frozenAt: 0.5)
         _ = await navigator.goForward(options: NavigatorGoOptions(animated: false))
