@@ -38,12 +38,38 @@ enum DebugScenario {
         }
     }
 
+    /// A reader linked to a made-up BookMaster: a shelf (one book of which is in the seeded library), numbers, a partner.
+    private static func linkForPhotos() {
+        func decode<T: Decodable>(_ json: String) -> T? { try? JSONDecoder().decode(T.self, from: Data(json.utf8)) }
+        let shelf: [BMShelfRow] = decode("""
+        [{"userBookId":"u1","bookId":"b1","title":"Moby-Dick","author":"Herman Melville","status":"reading","percent":18},
+         {"userBookId":"u2","bookId":"b2","title":"Piranesi","author":"Susanna Clarke","status":"want_to_read","upNext":1,"isbn":"9781635575637"},
+         {"userBookId":"u3","bookId":"b3","title":"The Dispossessed","author":"Ursula K. Le Guin","status":"want_to_read","upNext":2},
+         {"userBookId":"u4","bookId":"b4","title":"Hyperion","author":"Dan Simmons","status":"reading","percent":64,"format":"paper"},
+         {"userBookId":"u5","bookId":"b5","title":"Emma","author":"Jane Austen","status":"read","rating":4},
+         {"userBookId":"u6","bookId":"b6","title":"Walden","author":"Henry David Thoreau","status":"dnf"}]
+        """) ?? []
+        let together: BMTogether? = decode("""
+        {"partner":{"name":"Sam","online":true,"reading":{"title":"Dune","author":"Frank Herbert","percent":41}},
+         "nudges":[{"id":"n1","note":"You would love this one","fromName":"Sam","title":"Piranesi","author":"Susanna Clarke"}],
+         "notices":[]}
+        """)
+        let overview: BMOverview? = decode("""
+        {"stats":{"currentStreak":12,"longestStreak":31,"booksFinished":18,"minutesRead":5230,"quotesSaved":44},
+         "goals":[{"id":"g1","type":"yearly_books","target":24,"current":18,"progress":0.75},
+                  {"id":"g2","type":"monthly_books","target":2,"current":1,"progress":0.5}],
+         "recentAchievements":[{"id":"a1","name":"Week-long streak","icon":"🔥"},{"id":"a2","name":"Ten books","icon":"📚"}]}
+        """)
+        BookMaster.shared.debugLink(shelf: shelf, together: together, overview: overview)
+    }
+
     static func run(library: LibraryStore, router: AppRouter, selectTab: @escaping (AppTab) -> Void) async {
         if defaults.bool(forKey: "PTDebugSpeechProbe") { Task { await SpeechProbe.run() } }
         if let voice = defaults.string(forKey: "PTDebugNeuralProbe") {
             let play = defaults.bool(forKey: "PTDebugNeuralPlay")
             Task { await NeuralProbe.run(key: voice, play: play) }
         }
+        if defaults.bool(forKey: "PTDebugLinked") { linkForPhotos() }
         let seeding = defaults.bool(forKey: "PTDebugSeed")
         let screen = defaults.string(forKey: "PTDebugScreen")
         guard seeding || screen != nil else { return }
@@ -57,7 +83,7 @@ enum DebugScenario {
         switch screen {
         case "library": selectTab(.library)
         case "stats": selectTab(.stats)
-        case "together": selectTab(.together)
+        case "together", "shelf": selectTab(.together)
         case "search": selectTab(.search)
         case "settings": router.showSettings = true
         case "detail": router.detail = text

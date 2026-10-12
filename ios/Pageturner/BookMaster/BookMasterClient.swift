@@ -28,6 +28,19 @@ final class BookMaster {
     private(set) var shelfRows: [BMShelfRow] = []
     private let shelfKey = "bm-shelf-rows"
 
+    #if DEBUG
+    /// CI simulator run: a linked reader with a shelf and numbers, and no server (Debug/DebugScenario.swift).
+    var debugTogether: BMTogether?
+    var debugOverview: BMOverview?
+
+    func debugLink(shelf: [BMShelfRow], together: BMTogether?, overview: BMOverview?) {
+        user = BMUser(username: "debug", displayName: "Debug Reader")
+        shelfRows = shelf
+        debugTogether = together
+        debugOverview = overview
+    }
+    #endif
+
     func keepShelf(_ rows: [BMShelfRow]) {
         shelfRows = rows
         if let data = try? JSONEncoder().encode(rows) { defaults.set(data, forKey: shelfKey) }
@@ -199,6 +212,9 @@ final class BookMaster {
     /// The other reader, the suggestions waiting on you, and notices from the
     /// rest of the suite. A solo instance answers with no partner.
     func fetchTogether() async throws -> BMTogether {
+        #if DEBUG
+        if let debugTogether { return debugTogether }
+        #endif
         guard let user else { throw BMError.notLinked }
         let (data, status) = try await get("together", query: ["username": user.username])
         guard (200..<300).contains(status) else {
@@ -210,6 +226,9 @@ final class BookMaster {
 
     /// Streaks, totals, goal progress and recent achievements.
     func fetchOverview() async throws -> BMOverview {
+        #if DEBUG
+        if let debugOverview { return debugOverview }
+        #endif
         guard let user else { throw BMError.notLinked }
         let (data, status) = try await get("overview", query: ["username": user.username])
         guard (200..<300).contains(status) else {

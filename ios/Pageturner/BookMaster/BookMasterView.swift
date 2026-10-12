@@ -8,6 +8,7 @@ struct BookMasterView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var together: BMTogether?
     @State private var overview: BMOverview?
+    @State private var showShelf = false
     @State private var error: String?
     @State private var loading = true
 
@@ -27,6 +28,10 @@ struct BookMasterView: View {
                     ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear)
                 }
             }
+            .navigationDestination(isPresented: $showShelf) { BookMasterShelfView() }
+            #if DEBUG
+            .task { if UserDefaults.standard.string(forKey: "PTDebugScreen") == "shelf" { showShelf = true } }
+            #endif
             .navigationTitle("BookMaster")
             .navigationBarTitleDisplayMode(embedded ? .large : .inline)
             .toolbar {
