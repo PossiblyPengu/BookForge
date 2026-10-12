@@ -117,7 +117,7 @@ struct BookDetailSheet: View {
                     if let remote = book.bmRemotePercent {
                         LabeledContent("BookMaster position", value: "\(Int(remote.rounded()))%")
                     }
-                    if BookMaster.shared.isLinked, let onRate {
+                    if BookMaster.shared.isLinked, BookMaster.shared.syncEnabled, let onRate {
                         HStack {
                             Text("Your Rating")
                             Spacer()

@@ -21,7 +21,8 @@ struct BMShelfRow: Codable, Hashable, Identifiable {
 
     /// A jacket for the row: Open Library knows covers by ISBN and by its own id.
     var coverURL: URL? {
-        if let isbn, !isbn.isEmpty { return URL(string: "https://covers.openlibrary.org/b/isbn/\(isbn)-M.jpg?default=false") }
+        let digits = (isbn ?? "").filter { $0.isNumber || $0 == "X" || $0 == "x" }
+        if digits.count >= 10 { return URL(string: "https://covers.openlibrary.org/b/isbn/\(digits)-M.jpg?default=false") }
         if let ol = openLibraryId, !ol.isEmpty { return URL(string: "https://covers.openlibrary.org/b/olid/\(ol)-M.jpg?default=false") }
         return nil
     }

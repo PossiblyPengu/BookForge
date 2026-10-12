@@ -119,6 +119,7 @@ final class BookMaster {
         setUser(nil)
         shelfRows = []
         defaults.removeObject(forKey: shelfKey)
+        defaults.removeObject(forKey: "bm-covers-sent")   // the next account has none of them
         queue.removeAll()
         lastPush.removeAll()
         try? FileManager.default.removeItem(at: queueURL)

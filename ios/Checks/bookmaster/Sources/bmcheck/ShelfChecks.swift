@@ -44,6 +44,9 @@ func runShelfChecks() {
           row("a", "T", nil, "read", isbn: "9780441172719").coverURL?.absoluteString.contains("/isbn/9780441172719-M.jpg") == true
           && row("b", "T", nil, "read", ol: "OL123M").coverURL?.absoluteString.contains("/olid/OL123M-M.jpg") == true
           && row("c", "T", nil, "read").coverURL == nil)
+    check("an ISBN with hyphens or spaces still finds a jacket, and a junk one does not",
+          row("a", "T", nil, "read", isbn: "978-0-441-17271-9").coverURL?.absoluteString.contains("/isbn/9780441172719-M") == true
+          && row("b", "T", nil, "read", isbn: "n/a").coverURL == nil)
 
     // the shelf is cached as JSON: a row cached by an earlier build (without the newer fields) still reads
     let old = Data(#"[{"userBookId":"u","bookId":"b","title":"Old","status":"reading"}]"#.utf8)

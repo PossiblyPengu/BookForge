@@ -8,12 +8,21 @@ struct BookMasterShelfView: View {
     @EnvironmentObject private var library: LibraryStore
     @Environment(AppRouter.self) private var router
     @State private var chosen: BMShelfRow?
+    /// Which shelf row is which book in the library — worked out when either changes, not on every redraw.
+    @State private var owned: [String: UUID] = [:]
 
     private var groups: [BMShelf.Group] { BMShelf.groups(BookMaster.shared.shelfRows) }
 
-    /// The book in the library that is this shelf row, if any.
     private func local(_ row: BMShelfRow) -> Book? {
-        library.books.first { BMShelf.match($0, in: [row]) != nil }
+        owned[row.userBookId].flatMap { id in library.books.first { $0.id == id } }
+    }
+
+    private func matchBooks() {
+        var found: [String: UUID] = [:]
+        for row in BookMaster.shared.shelfRows {
+            if let book = library.books.first(where: { BMShelf.match($0, in: [row]) != nil }) { found[row.userBookId] = book.id }
+        }
+        owned = found
     }
 
     var body: some View {
@@ -40,6 +49,7 @@ struct BookMasterShelfView: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await BookMaster.shared.pullShelf(into: library) }
         .sheet(item: $chosen) { ShelfBookSheet(row: $0) }
+        .task(id: "\(library.books.count)-\(BookMaster.shared.shelfRows.count)") { matchBooks() }
     }
 }
 
