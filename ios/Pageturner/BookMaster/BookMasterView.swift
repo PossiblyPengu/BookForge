@@ -1,11 +1,13 @@
 import SwiftUI
 
-/// BookMaster inside Pageturner: the reader's streak, goals and achievements, the shelf, the other reader
-/// and the suggestions waiting. Reading is Pageturner's job; this is where it is tracked.
+/// The tracking tab: what this phone has seen of your reading (always), and — once BookMaster is linked —
+/// its streak, goals and achievements, the shelf, the other reader and the suggestions waiting.
+/// Reading is Pageturner's job; this is where it is tracked.
 struct BookMasterView: View {
     /// Inside a tab: no Done button, the tab bar is the way out.
     var embedded = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppRouter.self) private var router
     @State private var together: BMTogether?
     @State private var overview: BMOverview?
     @State private var showShelf = false
@@ -15,17 +17,25 @@ struct BookMasterView: View {
     var body: some View {
         NavigationStack {
             List {
-                accountSection
-                if let overview { overviewSections(overview) }
-                shelfSection
-                if let together {
-                    partnerSection(together.partner)
-                    if !together.nudges.isEmpty { nudgeSection(together.nudges) }
-                    if !together.notices.isEmpty { noticeSection(together.notices) }
+                if linked {
+                    accountSection
+                    if let overview { overviewSections(overview) }
+                } else {
+                    linkSection
                 }
-                if let error { Section { Text(error).foregroundStyle(.secondary) } }
-                if loading, together == nil, overview == nil {
-                    ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear)
+                // this phone's own record — with BookMaster linked its streaks and totals are the ones above
+                LocalStatsSection(compact: linked)
+                if linked {
+                    shelfSection
+                    if let together {
+                        partnerSection(together.partner)
+                        if !together.nudges.isEmpty { nudgeSection(together.nudges) }
+                        if !together.notices.isEmpty { noticeSection(together.notices) }
+                    }
+                    if let error { Section { Text(error).foregroundStyle(.secondary) } }
+                    if loading, together == nil, overview == nil {
+                        ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear)
+                    }
                 }
             }
             .navigationDestination(isPresented: $showShelf) { BookMasterShelfView() }
@@ -40,7 +50,23 @@ struct BookMasterView: View {
                 }
             }
             .refreshable { await load() }
-            .task { await load() }
+            // again when the account is linked or unlinked while the tab is up
+            .task(id: BookMaster.shared.isLinked) { await load() }
+            .onAppear { if embedded { BookMaster.shared.place = "stats" } }
+            .onDisappear { if embedded { BookMaster.shared.place = "library" } }
+        }
+    }
+
+    private var linked: Bool { BookMaster.shared.isLinked }
+
+    /// Not linked yet: the way in, in a line.
+    private var linkSection: some View {
+        Section {
+            Button { router.showLink = true } label: {
+                Label("Link BookMaster", systemImage: "link")
+            }
+        } footer: {
+            Text("Track streaks and goals, keep your shelf, and see what the other reader is on. Your reading time below is kept on this phone either way.")
         }
     }
 
@@ -190,6 +216,13 @@ struct BookMasterView: View {
     }
 
     private func load() async {
+        guard BookMaster.shared.isLinked else {
+            together = nil
+            overview = nil
+            error = nil
+            loading = false
+            return
+        }
         async let fetchedTogether = try? await BookMaster.shared.fetchTogether()
         async let fetchedOverview = try? await BookMaster.shared.fetchOverview()
         let (fresh, stats) = await (fetchedTogether, fetchedOverview)

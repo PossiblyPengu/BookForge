@@ -82,8 +82,7 @@ enum DebugScenario {
         let audio = library.books.first { $0.isAudio }
         switch screen {
         case "library": selectTab(.library)
-        case "stats": selectTab(.stats)
-        case "together", "shelf": selectTab(.together)
+        case "stats", "together", "shelf": selectTab(.together)
         case "search": selectTab(.search)
         case "settings": router.showSettings = true
         case "detail": router.detail = text

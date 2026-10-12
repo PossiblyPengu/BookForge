@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 enum AppTab: Hashable {
-    case library, together, stats, search
+    case library, together, search
 }
 
 /// BookMaster has a book further on than this device — asked before it opens.

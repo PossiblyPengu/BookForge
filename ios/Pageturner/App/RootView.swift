@@ -221,9 +221,6 @@ struct RootView: View {
                 togetherTab
             }
             .badge(notifier.pendingCount)
-            Tab("Stats", systemImage: "chart.bar", value: AppTab.stats) {
-                statsTab
-            }
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
                 SearchTab()
             }
@@ -241,9 +238,6 @@ struct RootView: View {
                 .tabItem { Label("BookMaster", systemImage: "bookmark.circle") }
                 .badge(notifier.pendingCount)
                 .tag(AppTab.together)
-            withMiniPlayer(statsTab)
-                .tabItem { Label("Stats", systemImage: "chart.bar") }
-                .tag(AppTab.stats)
             withMiniPlayer(SearchTab())
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 .tag(AppTab.search)
@@ -271,42 +265,9 @@ struct RootView: View {
         }
     }
 
-    @ViewBuilder
+    /// Tracking: this phone's reading time always, BookMaster's side once it is linked.
     private var togetherTab: some View {
-        if bookMaster.isLinked {
-            BookMasterView(embedded: true)
-        } else {
-            LinkPrompt(
-                title: "BookMaster",
-                message: "Link BookMaster to track your reading — streaks, goals and your shelf — and to see what the other reader is on.",
-                symbol: "bookmark.circle")
-        }
-    }
-
-    /// Reading time from this phone; BookMaster's own numbers join it when linked.
-    private var statsTab: some View {
-        StatsView(embedded: true)
+        BookMasterView(embedded: true)
     }
 }
 
-/// Shown on the BookMaster tabs until an account is linked.
-private struct LinkPrompt: View {
-    let title: String
-    let message: String
-    let symbol: String
-    @Environment(AppRouter.self) private var router
-
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView {
-                Label(title, systemImage: symbol)
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Link BookMaster") { router.showLink = true }
-                    .ptButtonStyle(prominent: true)
-            }
-            .navigationTitle(title)
-        }
-    }
-}

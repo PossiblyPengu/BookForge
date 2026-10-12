@@ -4,6 +4,8 @@ import SwiftUI
 /// What the phone itself has seen: time read and listened, streaks, the last two
 /// weeks as bars, and the books that took the most time. Works with no account.
 struct LocalStatsSection: View {
+    /// BookMaster is linked and shows the streaks and the all-time total itself: leave those rows out here.
+    var compact = false
     @ObservedObject private var log = ReadingLog.shared
 
     var body: some View {
@@ -17,13 +19,15 @@ struct LocalStatsSection: View {
                 } else {
                     LabeledContent("Today", value: ReadingStats.duration(minutes: stats.minutesToday))
                     LabeledContent("Last 7 days", value: ReadingStats.duration(minutes: stats.minutesLast7Days))
-                    LabeledContent("Current streak", value: Self.days(stats.currentStreak))
-                    LabeledContent("Longest streak", value: Self.days(stats.longestStreak))
-                    LabeledContent("All time", value: ReadingStats.duration(minutes: stats.minutesTotal))
+                    if !compact {
+                        LabeledContent("Current streak", value: Self.days(stats.currentStreak))
+                        LabeledContent("Longest streak", value: Self.days(stats.longestStreak))
+                        LabeledContent("All time", value: ReadingStats.duration(minutes: stats.minutesTotal))
+                    }
                     chart(stats.daily)
                 }
             } header: {
-                Text("On this device")
+                Text(compact ? "Lately, on this phone" : "On this device")
             }
 
             if !stats.perBook.isEmpty {

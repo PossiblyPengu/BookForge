@@ -31,7 +31,7 @@ A native SwiftUI app (iOS 17+) built on the [Readium](https://readium.org) toolk
   see the other reader, accept their suggestions, comment on a book, send a passage as a quote, and see your streaks and goals. When BookMaster has you further on
   than this phone, opening the book asks whether to jump there. New suggestions can arrive as notifications. Books are matched by ISBN / Open Library id as well as title.
   Pushes made offline are queued and replayed in order.
-- **Stats:** time read and listened, streaks and a two-week chart from the phone itself — no account needed; BookMaster's numbers join them when linked
+- **BookMaster tab (tracking):** time read and listened, streaks and a two-week chart from the phone itself — no account needed; when BookMaster is linked its streaks, goals, achievements, your shelf, the other reader and suggestions are on the same screen
 - **Siri, Shortcuts and Spotlight:** "Continue reading in Pageturner", "Open *Dune* in Pageturner"; every book is a Spotlight result (switch it off in Settings)
 - **Backup:** export the whole library to one zip and restore it here — also restores a backup made by the old web app
 
