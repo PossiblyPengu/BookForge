@@ -214,6 +214,9 @@ struct RootView: View {
     @available(iOS 26.1, *)
     private var modernShell: some View {
         TabView(selection: $tab) {
+            Tab("Reading", systemImage: "book", value: AppTab.reading) {
+                ReadingNowView(onBrowse: { tab = .library })
+            }
             Tab("Library", systemImage: "books.vertical", value: AppTab.library) {
                 LibraryView()
             }
@@ -231,6 +234,9 @@ struct RootView: View {
 
     private var classicShell: some View {
         TabView(selection: $tab) {
+            withMiniPlayer(ReadingNowView(onBrowse: { tab = .library }))
+                .tabItem { Label("Reading", systemImage: "book") }
+                .tag(AppTab.reading)
             withMiniPlayer(LibraryView())
                 .tabItem { Label("Library", systemImage: "books.vertical") }
                 .tag(AppTab.library)

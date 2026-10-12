@@ -29,7 +29,8 @@ it: floating reader chrome, the mini player, the library's hero card.
 
 ```
 TabView                       (iOS 26: minimises on scroll, mini player docks above it)
-├─ Library      NavigationStack: Continue hero · filter (All / Books / Audiobooks) · cover grid
+├─ Reading      the book you are in (Continue card, time left) and the others you have begun — one tap back in
+├─ Library      NavigationStack: shelf chips · filter (All / Books / Audiobooks) · status · cover grid
 ├─ BookMaster   tracking: this phone's reading time always; linked: streak, goals, achievements, shelf, partner, suggestions — badge = suggestions waiting
 └─ Search       role: .search — library search, books and audiobooks
 tabViewBottomAccessory:  mini player (audiobook or read-aloud) → tap opens Now Playing sheet

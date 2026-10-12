@@ -83,7 +83,6 @@ struct LibraryView: View {
         }
     }
 
-    private var continueBook: Book? { library.continueBook }
 
     var body: some View {
         NavigationStack {
@@ -147,11 +146,6 @@ struct LibraryView: View {
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                if !selecting, let book = continueBook {
-                    ContinueCard(book: book, cover: library.cover(for: book)) {
-                        router.open(book, library: library)
-                    }
-                }
                 Picker("Show", selection: $filter) {
                     ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -342,51 +336,3 @@ struct LibraryView: View {
     }
 }
 
-/// "Continue reading" — the cover, how far along you are, and one button.
-private struct ContinueCard: View {
-    let book: Book
-    let cover: UIImage?
-    let action: () -> Void
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        // beside the cover normally; under it when the text is large enough to need the width
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
-        layout {
-            BookCoverView(book: book, cover: cover, showsBadges: false, corner: 8)
-                .frame(width: typeSize.isAccessibilitySize ? 110 : 84)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(book.isAudio ? "Keep listening" : "Continue reading")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.ptAccent)
-                    .textCase(.uppercase)
-                Text(book.title)
-                    .font(.headline)
-                    .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
-                if !book.author.isEmpty {
-                    Text(book.author)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
-                }
-                ProgressView(value: min(max(book.progression ?? 0, 0), 1))
-                    .tint(.ptAccent)
-                    .ptAnimation(.smooth(duration: 0.6), value: book.progression)
-                    .padding(.top, 2)
-                Button(action: action) {
-                    Label(book.isAudio ? "Play" : "Read", systemImage: book.isAudio ? "play.fill" : "book.fill")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .ptButtonStyle(prominent: true)
-                .controlSize(.small)
-                .padding(.top, 2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .background(Color.ptAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .accessibilityElement(children: .contain)
-    }
-}

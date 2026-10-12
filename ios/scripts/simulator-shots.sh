@@ -65,6 +65,7 @@ shot 04-edit 6 -PTDebugScreen edit
 shot 05-shelves 6 -PTDebugScreen shelves
 shot 06-stats 6 -PTDebugScreen stats
 shot 07-together 6 -PTDebugScreen together
+shot 72-reading-now 8 -PTDebugScreen reading
 shot 70-bookmaster 8 -PTDebugSeed 1 -PTDebugLinked 1 -PTDebugScreen together
 shot 71-bookmaster-shelf 10 -PTDebugSeed 1 -PTDebugLinked 1 -PTDebugScreen shelf
 shot 08-search 6 -PTDebugScreen search
