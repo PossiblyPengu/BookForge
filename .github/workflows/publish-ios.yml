@@ -1,0 +1,57 @@
+name: Publish iOS build
+
+# Run by hand from the Actions tab. Takes the IPA that "iOS IPA" built and puts it, with an AltStore / SideStore
+# source, on a rolling release (tag `ios-latest`) whose download links never change — add the source to the app
+# once and it offers each new build as an update.
+#
+#   source:  https://github.com/<owner>/<repo>/releases/download/ios-latest/altstore.json
+#   ipa:     https://github.com/<owner>/<repo>/releases/download/ios-latest/Pageturner.ipa
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Run of 'iOS IPA' to publish (blank: the latest successful one on main)"
+        required: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find the build
+        id: build
+        run: |
+          RUN="${{ inputs.run_id }}"
+          if [ -z "$RUN" ]; then
+            RUN=$(gh run list --workflow ios.yml --branch main --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          fi
+          [ -n "$RUN" ] || { echo "::error::no successful iOS IPA run to publish"; exit 1; }
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          gh run download "$RUN" --name Pageturner-ipa --dir out
+          ls -la out
+
+      - name: Write the source
+        run: |
+          URL="https://github.com/$REPO/releases/download/ios-latest/Pageturner.ipa"
+          python3 ios/scripts/make-altstore-source.py out/Pageturner.ipa "$REPO" "$URL" out/altstore.json
+
+      - name: Replace the rolling release
+        run: |
+          gh release delete ios-latest --cleanup-tag --yes || true
+          SHA=$(gh run view "${{ steps.build.outputs.run }}" --json headSha -q .headSha)
+          cat > notes.md <<NOTES
+          The latest Pageturner build (from run ${{ steps.build.outputs.run }}, commit ${SHA:0:7}). Unsigned: sideload it, or add the source below to AltStore / SideStore once and it will offer every new build as an update.
+
+          **Source URL:** \`https://github.com/$REPO/releases/download/ios-latest/altstore.json\`
+          NOTES
+          gh release create ios-latest out/Pageturner.ipa out/altstore.json \
+            --title "Pageturner — latest build" --notes-file notes.md --prerelease --target "$SHA"

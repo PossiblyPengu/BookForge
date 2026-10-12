@@ -49,6 +49,14 @@ The app isn't on the App Store. CI builds an unsigned IPA on every change to `io
 
 To link BookMaster, tap the gear in the library → **Link BookMaster** (or the button on the BookMaster tab).
 
+### Update without reinstalling by hand
+
+Add this source once in AltStore or SideStore (Sources → +) and each new build shows up as an update:
+
+`https://github.com/PossiblyPengu/PageTurner/releases/download/ios-latest/altstore.json`
+
+The builds go there when **Actions → Publish iOS build → Run workflow** is run (it publishes the latest successful iOS build, or the run number you give it). Every build has a higher build number than the one before, which is what makes the app offer it as an update.
+
 ### Build
 
 There is no Xcode project in the repo; it is generated from `ios/project.yml`:
@@ -67,6 +75,7 @@ which adds the secret and forwards to BookMaster. Linking opens BookMaster's own
 (`/link/pageturner`) in a sheet inside the app; when BookMaster sends the browser home to
 `https://pageturner.pages.dev/?bm-link=<code>` the app catches that address before it loads, closes the
 sheet and trades the code for a link — so the web site doesn't have to be deployed for it to work.
+
 
 ## The web app (being retired)
 
