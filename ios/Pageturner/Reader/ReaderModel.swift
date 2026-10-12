@@ -136,6 +136,9 @@ final class ReaderModel: ObservableObject {
             if toc.isEmpty, !publication.conforms(to: .divina) { toc = publication.readingOrder }
             phase = .ready
             autoHideChrome()
+            #if DEBUG
+            Task { await debugTurn() }
+            #endif
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -152,7 +155,17 @@ final class ReaderModel: ObservableObject {
         container.onQuoteSelection = { [weak self] in self?.quoteSelection() }
         navigatorController = container
 
-        let adapter = DirectionalNavigationAdapter(animatedTransition: true)
+        // which side of the page was tapped, for the way a page turn leaves (the adapter's own callback has no side)
+        navigator.addObserver(.tap { [weak self] event in
+            if let width = self?.navigatorController?.view.bounds.width, width > 0 {
+                self?.tapOnLeft = event.location.x < width / 2
+            }
+            return false
+        }).store(in: &inputTokens)
+
+        let adapter = DirectionalNavigationAdapter(
+            animatedTransition: settings.pageTurn == .slide,
+            onNavigation: { [weak self] in self?.pageIsTurning() })
         adapter.bind(to: navigator)
         directionalAdapter = adapter
 
@@ -166,6 +179,32 @@ final class ReaderModel: ObservableObject {
             self?.highlightActivated(event.decoration.id)
         }
     }
+
+    private var tapOnLeft = false
+
+    /// Called just before the adapter changes the page: when the reader has chosen another turn than
+    /// Readium's slide, the page as it is now leaves over what comes next.
+    private func pageIsTurning(frozenAt: Double? = nil) {
+        defer { tapOnLeft = false }
+        guard settings.pageTurn != .slide, !(navigator?.presentation.scroll ?? false),
+              let container = navigatorController as? ReaderContainerViewController
+        else { return }
+        // less motion asked for: a cross-fade, never a swing
+        let style: PageTurnStyle = UIAccessibility.isReduceMotionEnabled ? .fade : settings.pageTurn
+        container.beginTurn(towardLeft: !tapOnLeft, style: style, frozenAt: frozenAt)
+    }
+
+    #if DEBUG
+    /// CI simulator run: turn the page once and hold the turn part way for the photograph (-PTDebugTurn flip).
+    func debugTurn() async {
+        guard let raw = UserDefaults.standard.string(forKey: "PTDebugTurn"), let style = PageTurnStyle(rawValue: raw),
+              let navigator else { return }
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        settings.pageTurn = style
+        pageIsTurning(frozenAt: 0.5)
+        _ = await navigator.goForward(options: NavigatorGoOptions(animated: false))
+    }
+    #endif
 
     func toggleChrome() {
         chromeTouched = true
@@ -393,6 +432,7 @@ final class ReaderModel: ObservableObject {
         settings.save()
         (navigator as? EPUBNavigatorViewController)?
             .submitPreferences(settings.epubPreferences)
+        directionalAdapter?.animatedTransition = settings.pageTurn == .slide
         readAloud?.setRate(settings.speechRate)
         readAloud?.setVoice(settings.voiceIdentifier)
         readAloud?.setHighlights(settings.highlights)

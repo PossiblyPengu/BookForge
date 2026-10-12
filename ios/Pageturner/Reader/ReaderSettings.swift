@@ -90,6 +90,8 @@ struct ReaderSettings: Codable, Equatable {
     var spacing: Spacing = .book
     var justify: Bool = true
     var scroll: Bool = false
+    /// How a tap on the page edge turns the page.
+    var pageTurn: PageTurnStyle = .slide
     var margins: Double = 1.0
 
     /// Read-aloud speed multiplier (1 = the voice's normal pace).
@@ -110,6 +112,7 @@ struct ReaderSettings: Codable, Equatable {
         spacing = try c.decodeIfPresent(Spacing.self, forKey: .spacing) ?? spacing
         justify = try c.decodeIfPresent(Bool.self, forKey: .justify) ?? justify
         scroll = try c.decodeIfPresent(Bool.self, forKey: .scroll) ?? scroll
+        pageTurn = try c.decodeIfPresent(PageTurnStyle.self, forKey: .pageTurn) ?? pageTurn
         margins = try c.decodeIfPresent(Double.self, forKey: .margins) ?? margins
         speechRate = try c.decodeIfPresent(Double.self, forKey: .speechRate) ?? speechRate
         voiceIdentifier = try c.decodeIfPresent(String.self, forKey: .voiceIdentifier)

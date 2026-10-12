@@ -32,6 +32,11 @@ struct ReaderSettingsView: View {
                 }
                 Toggle("Justify text", isOn: $settings.justify)
                 Toggle("Scroll instead of pages", isOn: $settings.scroll)
+                if !settings.scroll {
+                    Picker("Page turn", selection: $settings.pageTurn) {
+                        ForEach(PageTurnStyle.allCases) { Text($0.label).tag($0) }
+                    }
+                }
             }
 
             Section("Read aloud") {

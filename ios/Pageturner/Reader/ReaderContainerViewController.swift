@@ -28,6 +28,86 @@ final class ReaderContainerViewController: UIViewController {
         contentController.didMove(toParent: self)
     }
 
+    // MARK: Turning the page
+
+    private var turning: UIView?
+    private static let turnDuration: CFTimeInterval = 0.55
+
+    /// Lay the page as it is over the navigator and turn it away, while the navigator moves on to the next
+    /// beneath it. `towardLeft`: the page leaves to the left (a tap on the right edge turns forward).
+    /// `frozenAt` holds the turn part way (0...1), for the simulator's photographs.
+    func beginTurn(towardLeft: Bool, style: PageTurnStyle, frozenAt: Double? = nil) {
+        guard style != .slide else { return }
+        turning?.removeFromSuperview()
+        let bounds = view.bounds
+        guard bounds.width > 0 else { return }
+        let image = UIGraphicsImageRenderer(bounds: bounds).image { _ in
+            view.drawHierarchy(in: bounds, afterScreenUpdates: false)
+        }
+
+        let holder = UIView(frame: bounds)
+        holder.isUserInteractionEnabled = false
+        let shade = UIView(frame: bounds)       // the page beneath, in the turning page's shadow
+        shade.backgroundColor = .black
+        shade.alpha = 0
+        let page = UIImageView(image: image)
+        page.frame = bounds
+        page.clipsToBounds = true
+        let veil = UIView(frame: bounds)        // the turning page darkens as it goes edge-on
+        veil.backgroundColor = .black
+        veil.alpha = 0
+        page.addSubview(veil)
+        holder.addSubview(shade)
+        holder.addSubview(page)
+        view.addSubview(holder)
+        turning = holder
+
+        let d = style == .flip ? Self.turnDuration : 0.3
+        let ease = CAMediaTimingFunction(controlPoints: 0.32, 0, 0.2, 1)
+        func animation(_ key: String, from: Any, to: Any) -> CABasicAnimation {
+            let a = CABasicAnimation(keyPath: key)
+            a.fromValue = from
+            a.toValue = to
+            a.duration = d
+            a.timingFunction = ease
+            a.fillMode = .both
+            a.isRemovedOnCompletion = false
+            return a
+        }
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak holder, weak self] in
+            guard frozenAt == nil else { return }
+            holder?.removeFromSuperview()
+            if self?.turning === holder { self?.turning = nil }
+        }
+        switch style {
+        case .flip:
+            let hinge: CGFloat = towardLeft ? 0 : 1
+            page.layer.anchorPoint = CGPoint(x: hinge, y: 0.5)
+            page.layer.position = CGPoint(x: bounds.width * hinge, y: bounds.midY)
+            var start = CATransform3DIdentity
+            start.m34 = -1 / 1400
+            let end = CATransform3DRotate(start, (towardLeft ? -1 : 1) * .pi / 2, 0, 1, 0)
+            page.layer.add(animation("transform", from: start, to: end), forKey: "turn")
+            veil.layer.add(animation("opacity", from: 0, to: 0.55), forKey: "veil")
+            let shadow = CAKeyframeAnimation(keyPath: "opacity")
+            shadow.values = [0, 0.38, 0.0]
+            shadow.keyTimes = [0, 0.45, 1]
+            shadow.duration = d
+            shadow.fillMode = .both
+            shadow.isRemovedOnCompletion = false
+            shade.layer.add(shadow, forKey: "shadow")
+        case .fade, .slide:
+            page.layer.add(animation("opacity", from: 1, to: 0), forKey: "fade")
+        }
+        if let frozenAt {
+            holder.layer.speed = 0
+            holder.layer.timeOffset = d * min(max(frozenAt, 0), 1)
+        }
+        CATransaction.commit()
+    }
+
     /// "Highlight" item in the text-selection menu — the current selection is
     /// read off the navigator when this fires.
     @objc func highlightSelection() {
