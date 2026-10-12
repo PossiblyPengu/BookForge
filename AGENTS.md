@@ -61,7 +61,11 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   with a stub `window.webkit.messageHandlers`; call `readium.registerDecorationTemplates({...})` and
   `readium.getDecorations(group).add({id, locator, style, element})` the way `DecorationChange` does, then
   `chrome --headless --screenshot` (or `--dump-dom` to read results back). That is how the word locators and the
-  line band were checked.
+  line band were checked. **Load Readium CSS too** (`Assets/Static/readium-css/ReadiumCSS-{before,default,after}.css`,
+  with `--USER__backgroundColor` / `--USER__textColor` set on `<html>`'s `style`, as the navigator does): its
+  `:root[style*="--USER__backgroundColor"] * { background-color: transparent !important }` blanks any decoration
+  whose background comes from a stylesheet, which a bare page does not show. Only a declaration in the element's own
+  `style` (with `!important`) survives — the line band's whole look is inline for that reason.
 
 ### UI structure (Liquid Glass; see `ios/DESIGN.md`)
 
@@ -117,7 +121,7 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
 - Read-aloud highlights (`Reader/ReadAloud.swift`): three independent options, `ReaderSettings.highlights`
   (`ReadAloudHighlights`, stored tolerantly — `ReaderSettings.init(from:)` must list every new key): sentence (Readium's
   `.highlight`, group `tts`), line (`tts-line`: a custom `HTMLDecorationTemplate`, `width: .page`, drawn in `currentColor` so it
-  suits every theme) and word (`tts-word`). Both templates are registered in `ReaderModel` (`ReadAloudStyle.swift`). The word
+  suits every theme, with its look inline in the element's `style` — see the Readium CSS note above) and word (`tts-word`). Both templates are registered in `ReaderModel` (`ReadAloudStyle.swift`). The word
   comes from Readium's state for device voices and from `NeuralTTSEngine` for neural ones, which has no word callbacks:
   `SpokenWords` (pure, Linux-checked) estimates each word's start from its length plus a pause per comma / full stop, spread over
   the audio's speech part, and `NeuralPlayer` reports how far the audio has played (~30×/s). The constants were fitted against

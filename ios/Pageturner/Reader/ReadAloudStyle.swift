@@ -39,16 +39,17 @@ extension HTMLDecorationTemplate {
 
     /// A band across the page at the height of the line — in the colour of the text, so it suits every
     /// page theme — pulled in a little from the edges.
+    ///
+    /// The look is in the element's own `style`, not in the stylesheet: Readium CSS gives every element
+    /// `background-color: transparent !important` whenever the reader has chosen a page colour (always,
+    /// here), and only a declaration on the element itself gets past that.
     static func spokenLine(opacity: Double = 0.16) -> HTMLDecorationTemplate {
         HTMLDecorationTemplate(
             layout: .boxes,
             width: .page,
-            element: "<div class=\"pt-spoken-line\"/>",
+            element: "<div class=\"pt-spoken-line\" style=\"background-color: currentColor !important; opacity: \(opacity); clip-path: inset(0 6px round 5px);\"/>",
             stylesheet: """
             .pt-spoken-line {
-                background-color: currentColor !important;
-                opacity: \(opacity);
-                clip-path: inset(0 6px round 5px);
                 box-sizing: border-box;
             }
             """)
