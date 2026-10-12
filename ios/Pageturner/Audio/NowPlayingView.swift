@@ -119,7 +119,9 @@ struct NowPlayingView: View {
         .frame(maxWidth: 300, maxHeight: 300)
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: tint.opacity(0.5), radius: 30, y: 14)
+        .shadow(color: tint.opacity(player.isPlaying ? 0.5 : 0.2), radius: player.isPlaying ? 30 : 12, y: player.isPlaying ? 14 : 6)
+        .scaleEffect(player.isPlaying ? 1 : 0.88)
+        .ptAnimation(.spring(duration: 0.5, bounce: 0.25), value: player.isPlaying)
         .padding(.horizontal, 40)
         .accessibilityHidden(true)
     }
@@ -192,6 +194,7 @@ struct NowPlayingView: View {
                 Button { player.togglePlay() } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 34, weight: .semibold))
+                        .ptSymbolSwap(on: player.isPlaying)
                         .frame(width: 88, height: 88)
                         .contentShape(Circle())
                 }
@@ -234,6 +237,7 @@ struct NowPlayingView: View {
                     }
                 } label: {
                     chip(speedLabel(Double(player.rate)), symbol: "speedometer")
+                        .ptNumberRoll(on: player.rate)
                 }
                 .accessibilityLabel("Playback speed")
 

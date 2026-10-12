@@ -343,6 +343,7 @@ private struct ContinueCard: View {
                 }
                 ProgressView(value: min(max(book.progression ?? 0, 0), 1))
                     .tint(.ptAccent)
+                    .ptAnimation(.smooth(duration: 0.6), value: book.progression)
                     .padding(.top, 2)
                 Button(action: action) {
                     Label(book.isAudio ? "Play" : "Read", systemImage: book.isAudio ? "play.fill" : "book.fill")

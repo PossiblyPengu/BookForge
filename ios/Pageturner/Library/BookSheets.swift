@@ -128,8 +128,10 @@ struct BookDetailSheet: View {
                                 } label: {
                                     Image(systemName: n <= (picked ?? book.bmRating ?? 0) ? "star.fill" : "star")
                                         .foregroundStyle(Color.ptAccent)
+                                        .ptSymbolSwap(on: picked)
                                 }
                                 .buttonStyle(.borderless)
+                                .sensoryFeedback(.selection, trigger: picked)
                                 .accessibilityLabel(n == 1 ? "1 star" : "\(n) stars")
                             }
                         }

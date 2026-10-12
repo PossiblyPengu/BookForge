@@ -50,6 +50,7 @@ struct MiniPlayer: View {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.title3)
                     .frame(width: 36, height: 36)
+                    .ptSymbolSwap(on: player.isPlaying)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(player.isPlaying ? "Pause" : "Play")

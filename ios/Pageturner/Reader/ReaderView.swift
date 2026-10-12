@@ -551,6 +551,7 @@ private struct ReadAloudBar: View {
             Button(action: onRate) {
                 Text(String(format: "%.3g×", rate))
                     .font(.subheadline.weight(.medium).monospacedDigit())
+                    .ptNumberRoll(on: rate)
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())
             }
@@ -591,6 +592,7 @@ private struct ReadAloudBar: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(large ? .title2 : .body)
+                .ptSymbolSwap(on: symbol)
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }

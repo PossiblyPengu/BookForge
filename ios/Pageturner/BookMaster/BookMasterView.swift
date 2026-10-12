@@ -76,6 +76,8 @@ struct BookMasterView: View {
                             Text("\(Int(goal.current)) / \(Int(goal.target ?? 0))").foregroundStyle(.secondary)
                         }
                         ProgressView(value: min(1, max(0, goal.progress)))
+                            .tint(.ptAccent)
+                            .ptAnimation(.smooth(duration: 0.6), value: goal.progress)
                     }
                     .padding(.vertical, 2)
                 }

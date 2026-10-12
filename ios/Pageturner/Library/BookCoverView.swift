@@ -138,7 +138,7 @@ struct BookGrid: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle())
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(accessibilityLabel(for: book))
                 .contextMenu {
@@ -161,6 +161,9 @@ struct BookGrid: View {
                 }
             }
         }
+        // filtering, sorting, adding and removing glide; ticking a book in select mode eases
+        .ptAnimation(.smooth(duration: 0.35), value: books.map(\.id))
+        .ptAnimation(.snappy(duration: 0.2), value: selection?.wrappedValue)
     }
 
     private func accessibilityLabel(for book: Book) -> String {
