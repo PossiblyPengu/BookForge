@@ -21,7 +21,8 @@ A native SwiftUI app (iOS 17+) built on the [Readium](https://readium.org) toolk
   **sentence**, the **line** (a soft band across the page at the line the voice is on) and the **word**. Device voices report each word; for a neural voice the word is worked out from
   how far the audio has played, and the next sentence is made while the current one is said so they follow without a gap. Voices are labelled Siri / Enhanced / Premium (iOS decides which of Siri's
   voices apps may use; whatever it offers is listed), and the neural ones cover the rest
-- **Library:** a Continue card, All / Books / Audiobooks, **shelves** (named collections), an **Up next** shelf from BookMaster, search, sort, a **select mode** for
+- **Reading tab:** the book you are in — cover, how far along, time left at your pace — one tap back to where you stopped, and the others you have begun.
+- **Library:** All / Books / Audiobooks, a status filter, **shelves** (named collections), an **Up next** shelf from BookMaster, search, sort, a **select mode** for
   bulk shelves / find details / remove, covers (designed jackets when there's no art), book details with description, year and ISBN, metadata lookup
   (BookMaster, Google Books and Open Library), mark as finished / start over; import from Files, a **zip of books**, or "Open in Pageturner";
   **Watch a Folder…** in Settings auto-imports whatever lands in a Files folder
