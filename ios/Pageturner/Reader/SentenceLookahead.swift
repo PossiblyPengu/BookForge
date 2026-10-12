@@ -39,9 +39,17 @@ final class SentenceLookahead {
         busy = true
         defer { busy = false }
 
-        var at = Self.index(of: current, in: paragraph)
-        if at == nil, let next = following, let i = Self.index(of: current, in: next) {
+        // The same place in the book first, in this paragraph and then the next, and only then the same
+        // words: a paragraph that says "No." after one that says "No." would otherwise be taken for it.
+        var at = Self.index(of: current, in: paragraph, exact: true)
+        if at == nil, let next = following, let i = Self.index(of: current, in: next, exact: true) {
             // read-aloud has moved on into the next paragraph
+            paragraph = next
+            following = nil
+            at = i
+        }
+        if at == nil { at = Self.index(of: current, in: paragraph, exact: false) }
+        if at == nil, let next = following, let i = Self.index(of: current, in: next, exact: false) {
             paragraph = next
             following = nil
             at = i
@@ -111,8 +119,15 @@ final class SentenceLookahead {
         #endif
     }
 
-    /// Where `utterance` is among `sentences`: the same place in the book, else the same words.
+    /// Where `utterance` is among `sentences`: the same place in the book (`exact`), or the same words.
+    private static func index(of utterance: PublicationSpeechSynthesizer.Utterance, in sentences: [Sentence], exact: Bool) -> Int? {
+        exact
+            ? sentences.firstIndex { $0.locator == utterance.locator }
+            : sentences.firstIndex { $0.text == utterance.text }
+    }
+
+    /// The same place in the book, else the same words.
     private static func index(of utterance: PublicationSpeechSynthesizer.Utterance, in sentences: [Sentence]) -> Int? {
-        sentences.firstIndex { $0.locator == utterance.locator } ?? sentences.firstIndex { $0.text == utterance.text }
+        index(of: utterance, in: sentences, exact: true) ?? index(of: utterance, in: sentences, exact: false)
     }
 }

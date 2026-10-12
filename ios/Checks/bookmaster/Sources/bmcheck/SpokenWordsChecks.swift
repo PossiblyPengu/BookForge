@@ -27,6 +27,17 @@ func runSpokenWordsChecks() {
     check("a dash that starts a word, two together, or one at the end do not make empty words",
           words("—and then") == ["and", "then"] && words("ago——never") == ["ago", "never"] && words("wait—") == ["wait"])
     check("an en dash in a range stays inside the word", words("1990–2000") == ["1990–2000"])
+    // plain-text books (Project Gutenberg) type a dash as two hyphens
+    check("two hyphens with no spaces round them divide two words, as an em dash does",
+          words("Some years ago--never mind how long--having little money") ==
+          ["Some", "years", "ago", "never", "mind", "how", "long", "having", "little", "money"]
+          && words("wait--what? so---on") == ["wait", "what", "so", "on"],
+          "\(words("Some years ago--never mind how long--having little money")) \(words("wait--what? so---on"))")
+    check("…with a pause after the first of them", SpokenWords.tokens(in: "ago--never").map(\.pause) == [.clause, .none])
+    check("a single hyphen stays in its word; hyphens that start or end a piece make no empty word",
+          words("well-known and a-b-c") == ["well-known", "and", "a-b-c"]
+          && words("--and then") == ["and", "then"] && words("---and") == ["and"] && words("wait--") == ["wait"]
+          && words("a - b -- c") == ["a", "b", "c"])
 
     let sample = "Mr. Darcy bowed, but said nothing; then — slowly — he left. “Never!” she cried…"
     let tokens = SpokenWords.tokens(in: sample)

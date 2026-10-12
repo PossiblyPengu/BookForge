@@ -386,6 +386,10 @@ final class ReaderModel: ObservableObject {
     }
 
     func applySettings() {
+        // whichever way the voice was changed (the Reading sheet, the read-aloud bar, a voice that failed),
+        // the speed has to be one the new voice can do
+        let fitted = settings.fittedSpeechRate
+        if fitted != settings.speechRate { settings.speechRate = fitted }
         settings.save()
         (navigator as? EPUBNavigatorViewController)?
             .submitPreferences(settings.epubPreferences)

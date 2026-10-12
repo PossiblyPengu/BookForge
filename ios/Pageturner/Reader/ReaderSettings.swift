@@ -137,16 +137,19 @@ struct ReaderSettings: Codable, Equatable {
 
     private static let key = "reader-settings"
 
+    /// The speed the chosen voice can do: a bad value is no speed, and a device voice can't go as slow
+    /// as a neural one (so a speed set for a neural voice is brought into range when the voice changes).
+    var fittedSpeechRate: Double {
+        let neural = voiceIdentifier.flatMap(NeuralVoice.key(fromID:)) != nil
+        let range = SpeechRateMap.range(neural: neural)
+        return speechRate.isFinite ? min(max(speechRate, range.lowerBound), range.upperBound) : 1
+    }
+
     static func load() -> ReaderSettings {
         guard let data = UserDefaults.standard.data(forKey: key),
               var settings = try? JSONDecoder().decode(ReaderSettings.self, from: data)
         else { return ReaderSettings() }
-        // a bad value is no speed, and a device voice can't go as slow as a neural one
-        let neural = settings.voiceIdentifier.flatMap(NeuralVoice.key(fromID:)) != nil
-        let range = SpeechRateMap.range(neural: neural)
-        settings.speechRate = settings.speechRate.isFinite
-            ? min(max(settings.speechRate, range.lowerBound), range.upperBound)
-            : 1
+        settings.speechRate = settings.fittedSpeechRate
         return settings
     }
 

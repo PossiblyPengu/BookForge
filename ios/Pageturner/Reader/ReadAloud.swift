@@ -269,21 +269,29 @@ final class ReadAloud: NSObject, ObservableObject {
     /// What is on the page now, so that only what changed is sent to it.
     private var painted: (sentence: [Decoration], line: [Decoration], word: [Decoration]) = ([], [], [])
 
+    /// A mark's id names its chapter file as well as its group. Readium tells only the file a changed
+    /// decoration is now in, so with one id throughout, the marks in the file the voice has just left would
+    /// stay on its page (to be found when the reader turns back); with the file in the id, a move to
+    /// another file is a removal there and an addition here.
+    private func markID(_ group: String, _ locator: Locator) -> Decoration.Id {
+        "\(group)-\(locator.href.string)"
+    }
+
     /// Put the sentence, line and word being said on the page as chosen — and take away the rest.
     private func paint(_ spoken: Spoken, as highlights: ReadAloudHighlights, on navigator: DecorableNavigator) {
         var sentence: [Decoration] = [], line: [Decoration] = [], word: [Decoration] = []
         if highlights.sentence, let locator = spoken.sentence {
-            sentence = [Decoration(id: "tts", locator: locator, style: .highlight(tint: .systemOrange))]
+            sentence = [Decoration(id: markID("tts", locator), locator: locator, style: .highlight(tint: .systemOrange))]
         }
         if let locator = spoken.word, !spoken.wordIsTheSentence {
             if highlights.word {
                 // a navigator that doesn't know the stronger mark gets the plain highlight
                 let style: Decoration.Style = navigator.supports(decorationStyle: .spokenWord)
                     ? .spokenWord(tint: .systemOrange) : .highlight(tint: .systemOrange)
-                word = [Decoration(id: "tts-word", locator: locator, style: style)]
+                word = [Decoration(id: markID("tts-word", locator), locator: locator, style: style)]
             }
             if highlights.line, navigator.supports(decorationStyle: .spokenLine) {
-                line = [Decoration(id: "tts-line", locator: locator, style: .spokenLine)]
+                line = [Decoration(id: markID("tts-line", locator), locator: locator, style: .spokenLine)]
             }
         }
         if sentence != painted.sentence {

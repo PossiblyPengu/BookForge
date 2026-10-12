@@ -76,8 +76,8 @@ enum SpokenWords {
         return found
     }
 
-    /// Pieces of text between white space — and after a dash that joins two words ("ago—never"): the dash
-    /// stays with the word before it, which is how the voice pauses there.
+    /// Pieces of text between white space — and after a dash that joins two words ("ago—never", "ago--never"):
+    /// the dash stays with the word before it, which is how the voice pauses there.
     private static func spaced(_ text: String) -> [Range<String.Index>] {
         var pieces: [Range<String.Index>] = []
         var start: String.Index?
@@ -89,8 +89,7 @@ enum SpokenWords {
             } else {
                 let from = start ?? index
                 start = from
-                if joiningDashes.contains(character), index > from {
-                    let next = text.index(after: index)
+                if index > from, let next = dashEnd(in: text, at: index) {
                     pieces.append(from ..< next)
                     start = nil
                     index = next
@@ -105,6 +104,19 @@ enum SpokenWords {
 
     /// Em dashes (and the horizontal bar), which books set between words without spaces.
     private static let joiningDashes: Set<Character> = ["—", "―"]
+
+    /// Where the dash at `index` ends, if it is one that follows a word and joins it to the next: an em
+    /// dash, or two hyphens or more — plain-text books type a dash that way. One hyphen is part of the word.
+    private static func dashEnd(in text: String, at index: String.Index) -> String.Index? {
+        let character = text[index]
+        let next = text.index(after: index)
+        if joiningDashes.contains(character) { return next }
+        // the first hyphen of a run that does not begin the piece
+        guard character == "-", text[text.index(before: index)] != "-" else { return nil }
+        var end = next
+        while end < text.endIndex, text[end] == "-" { end = text.index(after: end) }
+        return end > next ? end : nil
+    }
 
     private static func isWordCharacter(_ character: Character) -> Bool {
         character.isLetter || character.isNumber
