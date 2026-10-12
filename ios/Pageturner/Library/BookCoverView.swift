@@ -144,6 +144,20 @@ struct BookGrid: View {
                 .contextMenu {
                     // no menu while ticking books
                     if selection == nil {
+                        Button { router.open(book, library: library) } label: {
+                            Label(book.isAudio ? "Play" : "Read", systemImage: book.isAudio ? "play.fill" : "book.fill")
+                        }
+                        if (book.progression ?? 0) < 0.995 {
+                            Button { library.markFinished(book.id) } label: {
+                                Label(book.isAudio ? "Mark as Listened" : "Mark as Finished", systemImage: "checkmark.circle")
+                            }
+                        }
+                        if (book.progression ?? 0) > 0 {
+                            Button { library.restart(book.id) } label: {
+                                Label(book.isAudio ? "Listen from the Beginning" : "Start from the Beginning", systemImage: "arrow.counterclockwise")
+                            }
+                        }
+                        Divider()
                         Button { router.detail = book } label: {
                             Label("Book Info", systemImage: "info.circle")
                         }

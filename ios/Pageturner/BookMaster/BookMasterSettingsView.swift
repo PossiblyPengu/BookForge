@@ -66,6 +66,10 @@ struct BookMasterSection: View {
             }
         }
         .task { await notifier.refreshAuthorization() }
+        // coming back from iOS Settings: the permission may have changed there
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            Task { await notifier.refreshAuthorization() }
+        }
         .sheet(isPresented: $showLink) {
             BookMasterLinkSheet(
                 onCode: { code in

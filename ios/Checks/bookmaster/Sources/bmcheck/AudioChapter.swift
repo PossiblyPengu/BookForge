@@ -15,6 +15,18 @@ struct AudioChapter: Identifiable, Hashable {
 /// Building and searching a chapter list. Pure logic — no AVFoundation — so the
 /// ordering and clean-up rules can be checked off-device.
 enum AudioChapters {
+    /// How far to step back when playing again after `pausedFor` seconds: a long break loses the thread, a
+    /// short one does not. A few seconds of the last sentence is enough to pick it up again.
+    static func smartRewind(pausedFor seconds: TimeInterval) -> TimeInterval {
+        guard seconds.isFinite, seconds >= 10 else { return 0 }
+        switch seconds {
+        case ..<60: return 2
+        case ..<600: return 5
+        case ..<3600: return 10
+        default: return 20
+        }
+    }
+
     /// A multi-file audiobook is one chapter per file.
     static func fromTracks(titles: [String], offsets: [TimeInterval], duration: TimeInterval) -> [AudioChapter] {
         guard !offsets.isEmpty else { return [] }

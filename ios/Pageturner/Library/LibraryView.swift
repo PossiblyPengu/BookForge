@@ -6,7 +6,8 @@ struct LibraryView: View {
     @EnvironmentObject private var library: LibraryStore
     @Environment(AppRouter.self) private var router
     @State private var showImporter = false
-    @State private var filter: Filter = .all
+    @AppStorage("libraryFilter") private var filter: Filter = .all
+    @AppStorage("libraryStatus") private var status: Status = .any
     @AppStorage("librarySort") private var sortOrder = LibraryStore.SortOrder.recent.rawValue
     @AppStorage("libraryShelf") private var shelfKey = LibraryView.allKey
 
@@ -23,6 +24,22 @@ struct LibraryView: View {
     /// Built-in shelf filters carry a "~" a shelf name can't start with.
     private static let allKey = "~all"
     private static let upNextKey = "~upnext"
+
+    /// How far along a book is: none of it, some of it, all of it.
+    enum Status: String, CaseIterable, Identifiable {
+        case any = "Any Status", inProgress = "In Progress", unread = "Unread", finished = "Finished"
+        var id: String { rawValue }
+
+        func includes(_ book: Book) -> Bool {
+            let p = book.progression ?? 0
+            switch self {
+            case .any: return true
+            case .inProgress: return p > 0.001 && p < 0.995
+            case .unread: return p <= 0.001
+            case .finished: return p >= 0.995
+            }
+        }
+    }
 
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All", books = "Books", audiobooks = "Audiobooks"
@@ -58,6 +75,7 @@ struct LibraryView: View {
         case Self.upNextKey: list = list.filter { $0.bmUpNext == true }
         default: list = list.filter { $0.collections.contains(activeShelfKey) }
         }
+        if status != .any { list = list.filter { status.includes($0) } }
         switch filter {
         case .all: return list
         case .books: return list.filter { !$0.isAudio }
@@ -142,10 +160,15 @@ struct LibraryView: View {
                 if !selecting { shelfChips }
 
                 if visible.isEmpty {
-                    ContentUnavailableView(
-                        filter == .audiobooks ? "No Audiobooks" : "No Books",
-                        systemImage: filter == .audiobooks ? "headphones" : "book.closed")
-                        .padding(.top, 40)
+                    ContentUnavailableView {
+                        Label(filter == .audiobooks ? "No Audiobooks" : "No Books",
+                              systemImage: filter == .audiobooks ? "headphones" : "book.closed")
+                    } description: {
+                        if status != .any { Text("Showing only \(status.rawValue.lowercased()) books.") }
+                    } actions: {
+                        if status != .any { Button("Show Every Status") { status = .any } }
+                    }
+                    .padding(.top, 40)
                 } else {
                     BookGrid(books: visible, selection: selecting ? $selected : nil)
                 }
@@ -217,15 +240,22 @@ struct LibraryView: View {
         } else {
             ToolbarItem(placement: .topBarLeading) {
                 Menu {
-                    Picker("Sort", selection: $sortOrder) {
-                        ForEach(LibraryStore.SortOrder.allCases) { o in
-                            Text(o.label).tag(o.rawValue)
+                    Section("Sort") {
+                        Picker("Sort", selection: $sortOrder) {
+                            ForEach(LibraryStore.SortOrder.allCases) { o in
+                                Text(o.label).tag(o.rawValue)
+                            }
+                        }
+                    }
+                    Section("Show") {
+                        Picker("Status", selection: $status) {
+                            ForEach(Status.allCases) { Text($0.rawValue).tag($0) }
                         }
                     }
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down")
+                    Image(systemName: status == .any ? "arrow.up.arrow.down" : "line.3.horizontal.decrease.circle.fill")
                 }
-                .accessibilityLabel("Sort books")
+                .accessibilityLabel(status == .any ? "Sort books" : "Sort and filter books, showing \(status.rawValue)")
             }
             if !library.books.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {

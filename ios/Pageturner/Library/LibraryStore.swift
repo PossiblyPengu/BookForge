@@ -208,6 +208,35 @@ extension Book {
     }
 }
 
+extension Book {
+    /// The title as a library files it: "The Hobbit" under H (an article alone, or the whole title, stays).
+    var sortTitle: String {
+        let t = title.trimmingCharacters(in: .whitespaces)
+        let lower = t.lowercased()
+        for article in ["the ", "an ", "a "] where lower.hasPrefix(article) && t.count > article.count + 1 {
+            return String(t.dropFirst(article.count)).trimmingCharacters(in: .whitespaces)
+        }
+        return t
+    }
+
+    /// The author as a library files it, by last name: "Frank Herbert" as "Herbert, Frank"; "A & B" under A;
+    /// "Herbert, Frank" as it is.
+    var sortAuthor: String {
+        let first = author
+            .replacingOccurrences(of: " and ", with: "&")
+            .split(whereSeparator: { $0 == "&" || $0 == ";" })
+            .first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        guard !first.isEmpty, !first.contains(",") else { return first }
+        let words = first.split(separator: " ").map(String.init)
+        guard words.count >= 2 else { return first }
+        // the surname is the last word, with the particles that belong to it ("Le Guin", "van Gogh")
+        var cut = words.count - 1
+        let particles: Set<String> = ["le", "la", "de", "del", "della", "di", "da", "du", "van", "von", "der", "den", "ten", "ter", "st.", "al", "el"]
+        while cut > 1, particles.contains(words[cut - 1].lowercased()) { cut -= 1 }
+        return "\(words[cut...].joined(separator: " ")), \(words[..<cut].joined(separator: " "))"
+    }
+}
+
 /// The library: book files in Documents/Books (visible in the Files app),
 /// covers and the catalogue in Application Support.
 @MainActor
@@ -700,9 +729,14 @@ final class LibraryStore: ObservableObject {
         case .added:
             return list.sorted { $0.addedAt > $1.addedAt }
         case .title:
-            return list.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            return list.sorted { $0.sortTitle.localizedStandardCompare($1.sortTitle) == .orderedAscending }
         case .author:
-            return list.sorted { $0.author.localizedCaseInsensitiveCompare($1.author) == .orderedAscending }
+            // books with no author last, then by last name, then by title
+            return list.sorted { a, b in
+                if a.author.isEmpty != b.author.isEmpty { return !a.author.isEmpty }
+                let c = a.sortAuthor.localizedStandardCompare(b.sortAuthor)
+                return c == .orderedSame ? a.sortTitle.localizedStandardCompare(b.sortTitle) == .orderedAscending : c == .orderedAscending
+            }
         }
     }
 

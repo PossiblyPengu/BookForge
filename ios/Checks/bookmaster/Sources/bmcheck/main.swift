@@ -123,6 +123,7 @@ func runData() {
     runNeuralChecks()
     runSpokenWordsChecks()
     runShelfChecks()
+    runQolChecks()
     runPlayheadChecks()
     runTextBook()
 }

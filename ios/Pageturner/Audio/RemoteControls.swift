@@ -18,6 +18,9 @@ final class RemoteControls {
         var previous: (() -> Void)?
         var skipForward: (() -> Void)?
         var skipBackward: (() -> Void)?
+        /// The lock screen's scrubber, and its speed choices.
+        var seekTo: ((TimeInterval) -> Void)?
+        var setRate: ((Float) -> Void)?
         /// Put this owner's Now Playing information back on the lock screen.
         var refresh: (() -> Void)?
     }
@@ -79,6 +82,19 @@ final class RemoteControls {
         center.previousTrackCommand.addTarget { [weak self] _ in self?.run(\.previous) ?? .commandFailed }
         center.skipForwardCommand.addTarget { [weak self] _ in self?.run(\.skipForward) ?? .commandFailed }
         center.skipBackwardCommand.addTarget { [weak self] _ in self?.run(\.skipBackward) ?? .commandFailed }
+        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangePlaybackPositionCommandEvent, let seek = self?.active?.seekTo
+            else { return .noActionableNowPlayingItem }
+            seek(event.positionTime)
+            return .success
+        }
+        center.changePlaybackRateCommand.supportedPlaybackRates = [0.75, 1, 1.25, 1.5, 1.75, 2]
+        center.changePlaybackRateCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangePlaybackRateCommandEvent, let set = self?.active?.setRate
+            else { return .noActionableNowPlayingItem }
+            set(event.playbackRate)
+            return .success
+        }
         center.skipForwardCommand.preferredIntervals = [30]
         center.skipBackwardCommand.preferredIntervals = [15]
     }
@@ -100,5 +116,7 @@ final class RemoteControls {
         center.previousTrackCommand.isEnabled = owner?.previous != nil
         center.skipForwardCommand.isEnabled = owner?.skipForward != nil
         center.skipBackwardCommand.isEnabled = owner?.skipBackward != nil
+        center.changePlaybackPositionCommand.isEnabled = owner?.seekTo != nil
+        center.changePlaybackRateCommand.isEnabled = owner?.setRate != nil
     }
 }

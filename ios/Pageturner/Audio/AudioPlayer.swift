@@ -14,6 +14,10 @@ final class AudioPlayer: ObservableObject {
     /// Chapters on the book's timeline — a file each for a multi-file book, the
     /// embedded markers for a single m4b. Empty when the audio has none.
     @Published private(set) var chapters: [AudioChapter] = []
+    /// When it was paused, for the little rewind on playing again; and when an interruption took it away.
+    private var pausedAt: Date?
+    private var interruptedWhilePlaying: Date?
+
     @Published var rate: Float {
         didSet {
             if isPlaying { player?.rate = rate }
@@ -99,9 +103,29 @@ final class AudioPlayer: ObservableObject {
             forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
         ) { [weak self] note in
             guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  AVAudioSession.InterruptionType(rawValue: raw) == .began
+                  let type = AVAudioSession.InterruptionType(rawValue: raw)
             else { return }
-            Task { @MainActor in self?.pause() }
+            let options = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt)
+                .map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
+            Task { @MainActor in
+                guard let self else { return }
+                switch type {
+                case .began:
+                    let wasPlaying = self.isPlaying
+                    self.pause()
+                    self.interruptedWhilePlaying = wasPlaying ? Date() : nil
+                case .ended:
+                    // a call, Siri or an alarm that is over: carry on, unless it has been so long that
+                    // the reader has surely moved on (or anything else paused the book meanwhile)
+                    defer { self.interruptedWhilePlaying = nil }
+                    if options.contains(.shouldResume), let at = self.interruptedWhilePlaying,
+                       Date().timeIntervalSince(at) < 300 {
+                        try? AVAudioSession.sharedInstance().setActive(true)
+                        self.play()
+                    }
+                @unknown default: break
+                }
+            }
         }
         // headphones unplugged: iOS has already stopped the player — make the screen agree
         routeObserver = NotificationCenter.default.addObserver(
@@ -135,6 +159,8 @@ final class AudioPlayer: ObservableObject {
             previous: { [weak self] in self?.skipBackAChapter() },
             skipForward: { [weak self] in self?.skip(by: 30) },
             skipBackward: { [weak self] in self?.skip(by: -15) },
+            seekTo: { [weak self] t in self?.seek(to: t, resume: self?.isPlaying ?? false) },
+            setRate: { [weak self] r in self?.rate = r },
             refresh: { [weak self] in self?.updateNowPlaying() })
     }
 
@@ -178,6 +204,15 @@ final class AudioPlayer: ObservableObject {
         guard player != nil else { return }
         // pressing play on a book that has finished starts it again
         if duration > 0, position >= duration - 0.5 { seek(to: 0, resume: false) }
+        // after a break, a little back from where it stopped (never before the start of the chapter)
+        if let at = pausedAt {
+            pausedAt = nil
+            let back = AudioChapters.smartRewind(pausedFor: Date().timeIntervalSince(at))
+            if back > 0, duration > 0, position < duration - 0.5 {
+                let floor = chapters.count > 1 ? (AudioChapters.index(at: position, in: chapters).map { chapters[$0].start } ?? 0) : 0
+                seek(to: max(position - back, floor), resume: false)
+            }
+        }
         AudioFocus.shared.claim("audiobook")
         if sessionStart == nil, duration > 0 { sessionStart = (Date(), position / duration) }
         resumePlayback()
@@ -194,6 +229,8 @@ final class AudioPlayer: ObservableObject {
     }
 
     func pause() {
+        if isPlaying { pausedAt = Date() }
+        interruptedWhilePlaying = nil   // anything but an interruption's own pause cancels carrying on afterwards
         player?.pause()
         isPlaying = false
         stalledTicks = 0

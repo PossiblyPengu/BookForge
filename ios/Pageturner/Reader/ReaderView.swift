@@ -12,6 +12,7 @@ struct ReaderView: View {
     @State private var showVoices = false
     /// The scrubber's value while the finger is on it (or until the page catches up).
     @State private var scrubbing: Double?
+    @AppStorage("readerShowsTimeLeft") private var showsTimeLeft = false
     @State private var dragging = false
     @State private var exportFile: ShareItem?
     @State private var copied = false
@@ -55,9 +56,17 @@ struct ReaderView: View {
             }
         }
         .statusBarHidden(!model.showChrome)
+        // a bookmark or highlight added is felt, not just seen
+        .sensoryFeedback(trigger: model.book.bookmarks.count) { old, new in new > old ? .impact(weight: .light) : .selection }
+        .sensoryFeedback(trigger: model.book.highlights.count) { old, new in new > old ? .success : nil }
         .animation(.smooth(duration: 0.25), value: model.showChrome)
         .animation(.smooth(duration: 0.25), value: model.readAloud?.isActive)
         .animation(.smooth(duration: 0.25), value: model.backLabel)
+    }
+
+    /// The screen stays on while a book is open and on screen (unless the reader switched that off).
+    private func keepAwake(_ on: Bool) {
+        UIApplication.shared.isIdleTimerDisabled = on && model.settings.keepAwake
     }
 
     /// Opening, saving, and the sitting that BookMaster is told about.
@@ -65,8 +74,10 @@ struct ReaderView: View {
         content
             .task { await model.open() }
             .onChange(of: model.settings) { _, _ in model.applySettings() }
-            .onAppear { BookMaster.shared.place = "reader" }
+            .onChange(of: model.settings.keepAwake) { _, _ in keepAwake(true) }
+            .onAppear { BookMaster.shared.place = "reader"; keepAwake(true) }
             .onDisappear {
+                keepAwake(false)
                 model.flushSave()
                 model.endSession()
                 model.stopReadAloud()
@@ -75,8 +86,8 @@ struct ReaderView: View {
             // a sitting ends when the app leaves the screen — not whenever it is next opened
             .onChange(of: scenePhase) { _, phase in
                 switch phase {
-                case .background: model.flushSave(); model.endSession()
-                case .active: model.beginSession()
+                case .background: model.flushSave(); model.endSession(); keepAwake(false)
+                case .active: model.beginSession(); keepAwake(true)
                 default: break
                 }
             }
@@ -231,10 +242,7 @@ struct ReaderView: View {
                 PTIconButton(systemImage: "textformat.size", label: "Reading settings") { showSettings = true }
 
                 HStack(spacing: 10) {
-                    Text("\(Int((shownProgress * 100).rounded()))%")
-                        .font(.footnote.weight(.semibold))
-                        .monospacedDigit()
-                        .frame(minWidth: 36, alignment: .leading)
+                    progressLabel
                     Slider(
                         value: Binding(get: { shownProgress }, set: { scrubbing = $0 }),
                         in: 0...1,
@@ -277,6 +285,25 @@ struct ReaderView: View {
               chapter.caseInsensitiveCompare(model.book.title) != .orderedSame
         else { return author }
         return chapter
+    }
+
+    /// The percent through — a tap swaps it for the time left at this reader's pace (when there is a pace to go on).
+    @ViewBuilder
+    private var progressLabel: some View {
+        let percent = "\(Int((shownProgress * 100).rounded()))%"
+        let left = showsTimeLeft ? model.timeLeftText(at: shownProgress) : nil
+        Button { showsTimeLeft.toggle() } label: {
+            Text(left ?? percent)
+                .font(.footnote.weight(.semibold))
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minWidth: 36, alignment: .leading)
+                .ptNumberRoll(on: left ?? percent)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(left ?? "\(percent) through the book")
+        .accessibilityHint(model.timeLeftText(at: shownProgress) == nil ? "" : "Switches between percent and time left")
     }
 
     private var shownProgress: Double {
@@ -329,6 +356,7 @@ struct ReaderView: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
+                    ScrollViewReader { proxy in
                     List {
                         if !model.book.highlights.isEmpty {
                             Section {
@@ -370,7 +398,7 @@ struct ReaderView: View {
                         }
                         if !model.toc.isEmpty {
                             Section("Chapters") {
-                                OutlineRows(links: model.toc, depth: 0) { link in
+                                OutlineRows(links: model.toc, depth: 0, current: model.currentChapterURL) { link in
                                     showContents = false
                                     model.go(to: link)
                                 }
@@ -378,6 +406,12 @@ struct ReaderView: View {
                         }
                     }
                     .listStyle(.plain)
+                    // open at the chapter the reader is in
+                    .onAppear {
+                        guard let current = model.currentChapterURL else { return }
+                        DispatchQueue.main.async { proxy.scrollTo(current, anchor: .center) }
+                    }
+                    }
                 }
             }
             .navigationTitle("Contents")
@@ -519,16 +553,28 @@ private struct NavigatorRepresentable: UIViewControllerRepresentable {
 private struct OutlineRows: View {
     let links: [ReadiumShared.Link]
     let depth: Int
+    /// The entry the reader is in.
+    var current: String?
     let onSelect: (ReadiumShared.Link) -> Void
 
     var body: some View {
         ForEach(Array(links.enumerated()), id: \.offset) { _, link in
+            let here = link.url().string == current
             Button { onSelect(link) } label: {
-                Text(link.title ?? "Untitled")
-                    .padding(.leading, CGFloat(depth * 16))
-                    .foregroundStyle(.primary)
+                HStack {
+                    Text(link.title ?? "Untitled")
+                        .padding(.leading, CGFloat(depth * 16))
+                        .foregroundStyle(here ? Color.ptAccent : Color.primary)
+                        .fontWeight(here ? .semibold : .regular)
+                    if here {
+                        Spacer(minLength: 8)
+                        Image(systemName: "location.fill").font(.caption).foregroundStyle(Color.ptAccent)
+                    }
+                }
             }
-            OutlineRows(links: link.children, depth: depth + 1, onSelect: onSelect)
+            .id(link.url().string)
+            .accessibilityAddTraits(here ? .isSelected : [])
+            OutlineRows(links: link.children, depth: depth + 1, current: current, onSelect: onSelect)
         }
     }
 }
@@ -606,6 +652,7 @@ private struct SearchResultsView: View {
     let onPick: () -> Void
     @State private var query = ""
     @State private var debounceTask: Task<Void, Never>?
+    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -614,13 +661,27 @@ private struct SearchResultsView: View {
                 TextField("Search this book", text: $query)
                     .submitLabel(.search)
                     .autocorrectionDisabled()
+                    .focused($focused)
                     .onSubmit { model.search(query) }
                 if model.searchInFlight { ProgressView() }
+                if !query.isEmpty {
+                    Button { query = ""; focused = true } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                }
             }
             .padding(10)
             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
             .padding([.horizontal, .top])
 
+            if !model.searchResults.isEmpty {
+                Text(model.searchResults.count >= 200 ? "200+ matches" : "\(model.searchResults.count) \(model.searchResults.count == 1 ? "match" : "matches")")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal).padding(.top, 8)
+            }
             List(Array(model.searchResults.enumerated()), id: \.offset) { i, locator in
                 Button {
                     onPick()
@@ -649,6 +710,8 @@ private struct SearchResultsView: View {
                 }
             }
         }
+        // the keyboard is up and waiting when the sheet is
+        .onAppear { DispatchQueue.main.async { focused = true } }
         .onChange(of: query) { _, q in
             debounceTask?.cancel()
             debounceTask = Task {

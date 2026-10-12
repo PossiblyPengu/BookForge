@@ -32,6 +32,8 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var isCurrentLocationBookmarked = false
     /// The chapter the reader is in, for the title chip. Nil for comics and PDFs without an outline.
     @Published private(set) var chapterTitle: String?
+    /// The contents entry the reader is in, to mark it and scroll to it in the Contents sheet.
+    @Published private(set) var currentChapterURL: String?
     @Published private(set) var searchInFlight = false
     @Published private(set) var searchResults: [Locator] = []
     /// Where a "Back" button would return to after a jump.
@@ -363,7 +365,9 @@ final class ReaderModel: ObservableObject {
     /// The TOC is an outline — a bookmark's chapter is the deepest entry whose
     /// file matches the locator's href (fragments ignored, last match wins
     /// because the spine is ordered).
-    func chapterTitle(for locator: Locator) -> String? {
+    func chapterTitle(for locator: Locator) -> String? { chapterLink(for: locator)?.title }
+
+    func chapterLink(for locator: Locator) -> ReadiumShared.Link? {
         var flat: [ReadiumShared.Link] = []
         func flatten(_ links: [ReadiumShared.Link]) {
             for link in links {
@@ -385,7 +389,15 @@ final class ReaderModel: ObservableObject {
             if first == nil { first = link }
             if parts.count < 2 || parts[1].isEmpty, wholeFile == nil { wholeFile = link }
         }
-        return (wholeFile ?? first)?.title
+        return wholeFile ?? first
+    }
+
+    /// "~1 h 12 min left" at `progress`, from how fast this reader has read — nil without enough history.
+    func timeLeftText(at progress: Double) -> String? {
+        guard let pace = ReadingPace.minutesPerBook(ReadingLog.shared.sessions, bookID: book.id),
+              let left = ReadingPace.minutesLeft(progress: progress, minutesPerBook: pace)
+        else { return nil }
+        return ReadingPace.label(minutesLeft: left)
     }
 
     // MARK: - Search
@@ -684,7 +696,9 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
         book.locatorJSON = try? locator.jsonString()
         book.progression = locator.locations.totalProgression
         isCurrentLocationBookmarked = bookmark(matching: locator) != nil
-        chapterTitle = self.chapterTitle(for: locator)
+        let link = chapterLink(for: locator)
+        chapterTitle = link?.title
+        currentChapterURL = link?.url().string
         scheduleSave()
         beginSession()
         reading.moved(to: locator.locations.totalProgression)

@@ -38,7 +38,10 @@ final class Notifier {
     }
 
     /// Switched on but refused (or later turned off) in iOS Settings.
-    var blockedBySystem: Bool { enabled && authorization == .denied }
+    var blockedBySystem: Bool { authorization == .denied && (enabled || wasRefused) }
+    /// The reader switched it on and iOS said no — `enabled` stays off then, and without this the toggle
+    /// would just spring back with no word on why or how to fix it.
+    var wasRefused = false
 
     /// What was already announced, kept per account so another one starts fresh.
     private var seenKey: String? {
@@ -55,6 +58,7 @@ final class Notifier {
     func setEnabled(_ on: Bool) async {
         guard on else {
             enabled = false
+            wasRefused = false
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
             await setBadge(0)
             return
@@ -63,6 +67,7 @@ final class Notifier {
             .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
         await refreshAuthorization()
         enabled = granted
+        wasRefused = !granted
         guard granted else { return }
         // what is waiting right now is already known — only new things get announced
         await refresh(notify: false)
@@ -141,6 +146,7 @@ final class Notifier {
     /// Unlinking: forget the count and the badge.
     func reset() {
         pendingCount = 0
+        wasRefused = false
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
         Task { await setBadge(0) }
     }
