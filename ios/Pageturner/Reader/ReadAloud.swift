@@ -54,6 +54,13 @@ final class ReadAloud: NSObject, ObservableObject {
     private struct Spoken: Equatable {
         var sentence: Locator?
         var word: Locator?
+
+        /// The "word" is the whole of a sentence of several: the voice (or a neural voice told to follow
+        /// only the sentence) named no word. That is no word to mark, and no line.
+        var wordIsTheSentence: Bool {
+            guard let said = word?.text.highlight, said == sentence?.text.highlight else { return false }
+            return SpokenWords.words(in: said).count > 1
+        }
     }
 
     @Published private var spoken = Spoken()
@@ -268,7 +275,7 @@ final class ReadAloud: NSObject, ObservableObject {
         if highlights.sentence, let locator = spoken.sentence {
             sentence = [Decoration(id: "tts", locator: locator, style: .highlight(tint: .systemOrange))]
         }
-        if let locator = spoken.word {
+        if let locator = spoken.word, !spoken.wordIsTheSentence {
             if highlights.word {
                 // a navigator that doesn't know the stronger mark gets the plain highlight
                 let style: Decoration.Style = navigator.supports(decorationStyle: .spokenWord)
