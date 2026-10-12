@@ -9,6 +9,7 @@ extension BookMaster {
         guard isLinked, syncEnabled else { return }
         var sent = Set(UserDefaults.standard.stringArray(forKey: Self.sentKey) ?? [])
         for book in library.books where book.bookmasterId != nil && !sent.contains(book.id.uuidString) {
+            guard !Task.isCancelled, isLinked else { return }
             guard let image = library.cover(for: book), let jpeg = Self.thumbnail(image) else { continue }
             if await pushCover(ref: book.bookMasterRef, jpeg: jpeg) {
                 sent.insert(book.id.uuidString)

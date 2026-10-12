@@ -52,6 +52,7 @@ final class Notifier {
 
     func refreshAuthorization() async {
         authorization = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        if authorization != .denied { wasRefused = false }   // allowed in iOS Settings since: nothing left to explain
     }
 
     /// The Settings toggle. Switching on asks iOS for permission the first time.

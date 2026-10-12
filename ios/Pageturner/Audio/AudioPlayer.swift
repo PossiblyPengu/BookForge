@@ -166,6 +166,7 @@ final class AudioPlayer: ObservableObject {
 
     private func load(track index: Int) {
         guard urls.indices.contains(index) else { return }
+        pausedAt = nil
         trackIndex = index
         let item = AVPlayerItem(url: urls[index])
         if let player { player.replaceCurrentItem(with: item) } else { player = AVPlayer(playerItem: item) }
@@ -247,6 +248,7 @@ final class AudioPlayer: ObservableObject {
     /// Global position seek — crosses track boundaries when needed.
     func seek(to target: TimeInterval, resume: Bool) {
         guard !trackOffsets.isEmpty else { return }
+        pausedAt = nil   // a deliberate move is not a place to be stepped back from
         let t = min(max(target, 0), duration)
         let track = AudioChapters.trackIndex(at: t, offsets: trackOffsets) ?? trackIndex
         if track != trackIndex { load(track: track) }

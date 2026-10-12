@@ -291,19 +291,24 @@ struct ReaderView: View {
     @ViewBuilder
     private var progressLabel: some View {
         let percent = "\(Int((shownProgress * 100).rounded()))%"
-        let left = showsTimeLeft ? model.timeLeftText(at: shownProgress) : nil
-        Button { showsTimeLeft.toggle() } label: {
-            Text(left ?? percent)
-                .font(.footnote.weight(.semibold))
-                .monospacedDigit()
-                .lineLimit(1)
-                .fixedSize()
-                .frame(minWidth: 36, alignment: .leading)
-                .ptNumberRoll(on: left ?? percent)
+        let available = model.timeLeftText(at: shownProgress)
+        let left = showsTimeLeft ? available : nil
+        let label = Text(left ?? percent)
+            .font(.footnote.weight(.semibold))
+            .monospacedDigit()
+            .lineLimit(1)
+            .fixedSize()
+            .frame(minWidth: 36, minHeight: 44, alignment: .leading)
+            .ptNumberRoll(on: left ?? percent)
+        // a button only when there is a time left to switch to
+        if available != nil {
+            Button { showsTimeLeft.toggle() } label: { label.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .accessibilityLabel(left ?? "\(percent) through the book")
+                .accessibilityHint("Switches between percent and time left")
+        } else {
+            label.accessibilityLabel("\(percent) through the book")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(left ?? "\(percent) through the book")
-        .accessibilityHint(model.timeLeftText(at: shownProgress) == nil ? "" : "Switches between percent and time left")
     }
 
     private var shownProgress: Double {
@@ -398,7 +403,7 @@ struct ReaderView: View {
                         }
                         if !model.toc.isEmpty {
                             Section("Chapters") {
-                                OutlineRows(links: model.toc, depth: 0, current: model.currentChapterURL) { link in
+                                OutlineRows(links: model.toc, depth: 0, current: model.currentChapterID) { link in
                                     showContents = false
                                     model.go(to: link)
                                 }
@@ -408,8 +413,8 @@ struct ReaderView: View {
                     .listStyle(.plain)
                     // open at the chapter the reader is in
                     .onAppear {
-                        guard let current = model.currentChapterURL else { return }
-                        DispatchQueue.main.async { proxy.scrollTo(current, anchor: .center) }
+                        guard let current = model.currentChapterID else { return }
+                        DispatchQueue.main.async { proxy.scrollTo("toc-" + current, anchor: .center) }
                     }
                     }
                 }
@@ -553,13 +558,15 @@ private struct NavigatorRepresentable: UIViewControllerRepresentable {
 private struct OutlineRows: View {
     let links: [ReadiumShared.Link]
     let depth: Int
-    /// The entry the reader is in.
+    /// Where this level starts in the outline ("" at the top), and the position of the entry the reader is in.
+    var path = ""
     var current: String?
     let onSelect: (ReadiumShared.Link) -> Void
 
     var body: some View {
-        ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-            let here = link.url().string == current
+        ForEach(Array(links.enumerated()), id: \.offset) { i, link in
+            let id = path.isEmpty ? "\(i)" : "\(path).\(i)"
+            let here = id == current
             Button { onSelect(link) } label: {
                 HStack {
                     Text(link.title ?? "Untitled")
@@ -572,9 +579,9 @@ private struct OutlineRows: View {
                     }
                 }
             }
-            .id(link.url().string)
+            .id("toc-" + id)
             .accessibilityAddTraits(here ? .isSelected : [])
-            OutlineRows(links: link.children, depth: depth + 1, current: current, onSelect: onSelect)
+            OutlineRows(links: link.children, depth: depth + 1, path: id, current: current, onSelect: onSelect)
         }
     }
 }
@@ -711,7 +718,10 @@ private struct SearchResultsView: View {
             }
         }
         // the keyboard is up and waiting when the sheet is
-        .onAppear { DispatchQueue.main.async { focused = true } }
+        .onAppear {
+            model.search("")   // matches left from the last time the sheet was up belong to a query that is gone
+            DispatchQueue.main.async { focused = true }
+        }
         .onChange(of: query) { _, q in
             debounceTask?.cancel()
             debounceTask = Task {

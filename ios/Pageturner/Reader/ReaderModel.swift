@@ -33,7 +33,7 @@ final class ReaderModel: ObservableObject {
     /// The chapter the reader is in, for the title chip. Nil for comics and PDFs without an outline.
     @Published private(set) var chapterTitle: String?
     /// The contents entry the reader is in, to mark it and scroll to it in the Contents sheet.
-    @Published private(set) var currentChapterURL: String?
+    @Published private(set) var currentChapterID: String?
     @Published private(set) var searchInFlight = false
     @Published private(set) var searchResults: [Locator] = []
     /// Where a "Back" button would return to after a jump.
@@ -165,6 +165,21 @@ final class ReaderModel: ObservableObject {
             return false
         }).store(in: &inputTokens)
 
+        navigator.addObserver(.click { [weak self] event in
+            if let width = self?.navigatorController?.view.bounds.width, width > 0 {
+                self?.tapOnLeft = event.location.x < width / 2
+            }
+            return false
+        }).store(in: &inputTokens)
+        navigator.addObserver(.key { [weak self] event in
+            switch event.key {
+            case .arrowLeft, .arrowUp: self?.tapOnLeft = true
+            case .arrowRight, .arrowDown, .space: self?.tapOnLeft = false
+            default: break
+            }
+            return false
+        }).store(in: &inputTokens)
+
         let adapter = DirectionalNavigationAdapter(
             animatedTransition: settings.pageTurn == .slide,
             onNavigation: { [weak self] in self?.pageIsTurning() })
@@ -191,6 +206,12 @@ final class ReaderModel: ObservableObject {
         guard settings.pageTurn != .slide, !(navigator?.presentation.scroll ?? false),
               let container = navigatorController as? ReaderContainerViewController
         else { return }
+        // nothing to turn to — the first page tapped backward, the last tapped forward: no turn to show
+        if let navigator {
+            let forward = navigator.presentation.readingProgression == .rtl ? tapOnLeft : !tapOnLeft
+            let place = navigator.currentLocation?.locations.totalProgression ?? 0.5
+            if forward ? place >= 0.9999 : place <= 0.0001 { return }
+        }
         // less motion asked for: a cross-fade, never a swing
         let style: PageTurnStyle = UIAccessibility.isReduceMotionEnabled ? .fade : settings.pageTurn
         container.beginTurn(towardLeft: !tapOnLeft, style: style, frozenAt: frozenAt)
@@ -367,27 +388,32 @@ final class ReaderModel: ObservableObject {
     /// because the spine is ordered).
     func chapterTitle(for locator: Locator) -> String? { chapterLink(for: locator)?.title }
 
-    func chapterLink(for locator: Locator) -> ReadiumShared.Link? {
-        var flat: [ReadiumShared.Link] = []
-        func flatten(_ links: [ReadiumShared.Link]) {
-            for link in links {
-                flat.append(link)
-                flatten(link.children)
+    func chapterLink(for locator: Locator) -> ReadiumShared.Link? { chapterEntry(for: locator)?.link }
+
+    /// The contents entry for a place, with its position in the outline ("2.0.1") — two entries can share a file,
+    /// so the position is what says which one the reader is in.
+    func chapterEntry(for locator: Locator) -> (link: ReadiumShared.Link, id: String)? {
+        var flat: [(link: ReadiumShared.Link, id: String)] = []
+        func flatten(_ links: [ReadiumShared.Link], _ path: String) {
+            for (i, link) in links.enumerated() {
+                let id = path.isEmpty ? "\(i)" : "\(path).\(i)"
+                flat.append((link, id))
+                flatten(link.children, id)
             }
         }
-        flatten(toc)
+        flatten(toc, "")
         let base = locator.href.string.split(separator: "#").first.map(String.init) ?? locator.href.string
         // a file with several entries in the contents (one per section, `file.xhtml#section`): without
         // knowing where the sections lie, the entry for the whole file — else the first — is the safe
         // answer; the last would name the end of the chapter on its first page
-        var wholeFile: ReadiumShared.Link?
-        var first: ReadiumShared.Link?
-        for link in flat {
-            let url = link.url().string
+        var wholeFile: (link: ReadiumShared.Link, id: String)?
+        var first: (link: ReadiumShared.Link, id: String)?
+        for entry in flat {
+            let url = entry.link.url().string
             let parts = url.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
             guard (parts.first.map(String.init) ?? url) == base else { continue }
-            if first == nil { first = link }
-            if parts.count < 2 || parts[1].isEmpty, wholeFile == nil { wholeFile = link }
+            if first == nil { first = entry }
+            if parts.count < 2 || parts[1].isEmpty, wholeFile == nil { wholeFile = entry }
         }
         return wholeFile ?? first
     }
@@ -696,9 +722,9 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
         book.locatorJSON = try? locator.jsonString()
         book.progression = locator.locations.totalProgression
         isCurrentLocationBookmarked = bookmark(matching: locator) != nil
-        let link = chapterLink(for: locator)
-        chapterTitle = link?.title
-        currentChapterURL = link?.url().string
+        let entry = chapterEntry(for: locator)
+        chapterTitle = entry?.link.title
+        currentChapterID = entry?.id
         scheduleSave()
         beginSession()
         reading.moved(to: locator.locations.totalProgression)

@@ -117,7 +117,9 @@ struct BookDetailSheet: View {
                     if let remote = book.bmRemotePercent {
                         LabeledContent("BookMaster position", value: "\(Int(remote.rounded()))%")
                     }
-                    if BookMaster.shared.isLinked, BookMaster.shared.syncEnabled, let onRate {
+                    // rating a book that has not been started would put it on the shelf as being read at 0%
+                    if BookMaster.shared.isLinked, BookMaster.shared.syncEnabled, let onRate,
+                       (book.progression ?? 0) > 0.001 || book.bmStatus == "reading" || book.bmStatus == "read" {
                         HStack {
                             Text("Your Rating")
                             Spacer()
@@ -131,10 +133,12 @@ struct BookDetailSheet: View {
                                         .ptSymbolSwap(on: picked)
                                 }
                                 .buttonStyle(.borderless)
-                                .sensoryFeedback(.selection, trigger: picked)
                                 .accessibilityLabel(n == 1 ? "1 star" : "\(n) stars")
+                                .accessibilityAddTraits(n == (picked ?? book.bmRating ?? 0) ? .isSelected : [])
                             }
                         }
+                        .sensoryFeedback(.selection, trigger: picked)
+                        .onChange(of: book.bmRating) { _, _ in picked = nil }
                     } else if let rating = book.bmRating {
                         LabeledContent("Rating", value: String(repeating: "★", count: max(0, min(5, rating))))
                     }

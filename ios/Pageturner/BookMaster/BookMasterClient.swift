@@ -117,12 +117,18 @@ final class BookMaster {
     /// belong to the reader who just left.
     func unlink() {
         setUser(nil)
-        shelfRows = []
-        defaults.removeObject(forKey: shelfKey)
-        defaults.removeObject(forKey: "bm-covers-sent")   // the next account has none of them
+        resetAccountCaches()
         queue.removeAll()
         lastPush.removeAll()
         try? FileManager.default.removeItem(at: queueURL)
+    }
+
+    /// What was kept for the reader who has left: their shelf, and which covers were sent for them.
+    private func resetAccountCaches() {
+        shelfRows = []
+        defaults.removeObject(forKey: shelfKey)
+        defaults.removeObject(forKey: "bm-covers-sent")
+        lastPush.removeAll()
     }
 
     private func setUser(_ value: BMUser?) {
@@ -183,7 +189,7 @@ final class BookMaster {
         guard let user, syncEnabled else { return false }
         let payload = BMCoverPush(username: user.username, book: ref, coverB64: jpeg.base64EncodedString(), coverMime: "image/jpeg")
         guard let body = try? JSONEncoder().encode(payload) else { return false }
-        return await sendRaw(kind: "cover", title: ref.title, body: body)
+        return await sendRaw(kind: "cover", title: ref.title, body: body, park: false)
     }
 
     /// A line worth keeping, from the reader's selection menu.
@@ -353,15 +359,20 @@ final class BookMaster {
     }
 
     /// `send` for pushes whose only answer that matters is success.
-    private func sendRaw(kind: String, title: String, body: Data) async -> Bool {
+    ///
+    /// `park: false` is for pushes that are worth trying again later but not worth a place in the line (a cover is
+    /// large, and many of them would push real entries out): the answer is true only when it went through.
+    private func sendRaw(kind: String, title: String, body: Data, park: Bool = true) async -> Bool {
         await flush()
         guard queue.isEmpty else {
+            guard park else { return false }
             enqueue(QueueEntry(kind: kind, title: title, body: body))
             return true   // parked for later — report success
         }
         do {
             let (data, status) = try await postResolving(kind, body: body)
             if Self.retriable(status) {
+                guard park else { return false }
                 enqueue(QueueEntry(kind: kind, title: title, body: body))
                 return true
             }
@@ -371,6 +382,7 @@ final class BookMaster {
             }
             return true
         } catch {
+            guard park else { return false }
             enqueue(QueueEntry(kind: kind, title: title, body: body))
             return true
         }
@@ -424,6 +436,7 @@ final class BookMaster {
     private func handleRefusal(status: Int, data: Data) {
         guard status == 404, Self.errorMessage(data) == "Unknown reader" else { return }
         setUser(nil)
+        resetAccountCaches()
         queue.removeAll()
         try? FileManager.default.removeItem(at: queueURL)
         if !warnedBroken {

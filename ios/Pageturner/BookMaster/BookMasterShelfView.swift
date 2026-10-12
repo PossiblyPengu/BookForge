@@ -49,7 +49,9 @@ struct BookMasterShelfView: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await BookMaster.shared.pullShelf(into: library) }
         .sheet(item: $chosen) { ShelfBookSheet(row: $0) }
-        .task(id: "\(library.books.count)-\(BookMaster.shared.shelfRows.count)") { matchBooks() }
+        // again when a book is added, removed, renamed or tied to a row, or the shelf changes
+        .task(id: library.books.map { "\($0.id)\($0.title)\($0.author)\($0.bookmasterId ?? "")" }.hashValue
+                    ^ BookMaster.shared.shelfRows.hashValue) { matchBooks() }
     }
 }
 

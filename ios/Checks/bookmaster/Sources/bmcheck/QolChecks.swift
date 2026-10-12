@@ -41,5 +41,7 @@ func runQolChecks() {
           book("T", "Frank Herbert").sortAuthor == "Herbert, Frank" && book("T", "Herbert, Frank").sortAuthor == "Herbert, Frank"
           && book("T", "Ursula K. Le Guin").sortAuthor == "Le Guin, Ursula K." && book("T", "Vincent van Gogh").sortAuthor == "van Gogh, Vincent"
           && book("T", "Plato").sortAuthor == "Plato"
-          && book("T", "Neil Gaiman & Terry Pratchett").sortAuthor == "Gaiman, Neil" && book("T", "").sortAuthor == "")
+          && book("T", "Neil Gaiman & Terry Pratchett").sortAuthor == "Gaiman, Neil" && book("T", "").sortAuthor == ""
+          && book("T", "Martin Luther King Jr.").sortAuthor == "King, Martin Luther"
+          && book("T", "Frank Herbert, Brian Herbert").sortAuthor == "Herbert, Frank")
 }

@@ -193,6 +193,7 @@ struct BookMasterView: View {
         async let fetchedTogether = try? await BookMaster.shared.fetchTogether()
         async let fetchedOverview = try? await BookMaster.shared.fetchOverview()
         let (fresh, stats) = await (fetchedTogether, fetchedOverview)
+        guard !Task.isCancelled else { return }   // the tab was left mid-load: that is no "can't be reached"
         if let fresh {
             together = fresh
             Notifier.shared.noteSeen(fresh)

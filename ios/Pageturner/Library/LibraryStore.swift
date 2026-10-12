@@ -222,12 +222,20 @@ extension Book {
     /// The author as a library files it, by last name: "Frank Herbert" as "Herbert, Frank"; "A & B" under A;
     /// "Herbert, Frank" as it is.
     var sortAuthor: String {
-        let first = author
+        var first = author
             .replacingOccurrences(of: " and ", with: "&")
             .split(whereSeparator: { $0 == "&" || $0 == ";" })
             .first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
-        guard !first.isEmpty, !first.contains(",") else { return first }
-        let words = first.split(separator: " ").map(String.init)
+        guard !first.isEmpty else { return first }
+        if let comma = first.firstIndex(of: ",") {
+            // "Herbert, Frank" is filed already; "Frank Herbert, Brian Herbert" is a list — the first author's
+            let head = first[..<comma].trimmingCharacters(in: .whitespaces)
+            if !head.contains(" ") { return first }
+            first = head
+        }
+        var words = first.split(separator: " ").map(String.init)
+        let suffixes: Set<String> = ["jr.", "jr", "sr.", "sr", "ii", "iii", "iv", "phd", "ph.d.", "md", "m.d."]
+        while words.count > 2, suffixes.contains(words[words.count - 1].lowercased()) { words.removeLast() }
         guard words.count >= 2 else { return first }
         // the surname is the last word, with the particles that belong to it ("Le Guin", "van Gogh")
         var cut = words.count - 1
@@ -651,10 +659,11 @@ final class LibraryStore: ObservableObject {
     /// at (never a place behind BookMaster's own).
     func rate(_ id: UUID, stars: Int) {
         guard (1...5).contains(stars), let i = books.firstIndex(where: { $0.id == id }) else { return }
+        let place = max(books[i].progression ?? 0, (books[i].bmRemotePercent ?? 0) / 100)
+        guard place > 0 else { return }   // BookMaster takes a rating with a place; none yet, nothing to send
         books[i].bmRating = stars
         save()
         let book = books[i]
-        let place = max(book.progression ?? 0, (book.bmRemotePercent ?? 0) / 100)
         Task {
             await BookMaster.shared.syncProgress(
                 bookKey: book.title, ref: book.bookMasterRef, percent: place,
@@ -670,6 +679,7 @@ final class LibraryStore: ObservableObject {
         books[i].locatorJSON = nil
         books[i].audioPosition = nil
         books[i].lastOpenedAt = nil
+        ResumeOffer.decline(&books[i])   // starting over on purpose is not a question to ask again on the next open
         save()
     }
 
