@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { extractBlocks } from "../docs/js/util.js";
 import { chunk, ttsController } from "../docs/js/tts.js";
 import { web } from "../docs/js/tts-engines.js";
@@ -157,10 +157,16 @@ describe("chunk — sentence boundaries", () => {
 });
 
 describe("ttsController.revoice", () => {
+  // Node 20 (CI) has no global `navigator`, Node 21+ does; the controller reads it (platform sniffing, Media
+  // Session), so give it a bare one rather than depend on the Node version.
+  beforeEach(() => {
+    vi.stubGlobal("navigator", { userAgent: "", platform: "", maxTouchPoints: 0 });
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     ttsController.stop();
+    vi.unstubAllGlobals();
   });
 
   it("re-voices the current sentence instead of advancing", async () => {
