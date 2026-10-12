@@ -217,7 +217,7 @@ struct RootView: View {
             Tab("Library", systemImage: "books.vertical", value: AppTab.library) {
                 LibraryView()
             }
-            Tab("Together", systemImage: "person.2", value: AppTab.together) {
+            Tab("BookMaster", systemImage: "bookmark.circle", value: AppTab.together) {
                 togetherTab
             }
             .badge(notifier.pendingCount)
@@ -238,7 +238,7 @@ struct RootView: View {
                 .tabItem { Label("Library", systemImage: "books.vertical") }
                 .tag(AppTab.library)
             withMiniPlayer(togetherTab)
-                .tabItem { Label("Together", systemImage: "person.2") }
+                .tabItem { Label("BookMaster", systemImage: "bookmark.circle") }
                 .badge(notifier.pendingCount)
                 .tag(AppTab.together)
             withMiniPlayer(statsTab)
@@ -274,12 +274,12 @@ struct RootView: View {
     @ViewBuilder
     private var togetherTab: some View {
         if bookMaster.isLinked {
-            TogetherView(embedded: true)
+            BookMasterView(embedded: true)
         } else {
             LinkPrompt(
-                title: "Together",
-                message: "Link BookMaster to see what the other reader is on and swap suggestions.",
-                symbol: "person.2")
+                title: "BookMaster",
+                message: "Link BookMaster to track your reading — streaks, goals and your shelf — and to see what the other reader is on.",
+                symbol: "bookmark.circle")
         }
     }
 

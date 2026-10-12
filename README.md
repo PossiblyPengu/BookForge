@@ -46,7 +46,7 @@ The app isn't on the App Store. CI builds an unsigned IPA on every change to `io
 2. Install it with [AltStore](https://altstore.io), [SideStore](https://sidestore.io) or [Sideloadly](https://sideloadly.io), signing with your Apple ID.
 3. A free Apple ID signs for 7 days — keep AltStore or SideStore running to refresh it automatically.
 
-To link BookMaster, tap the gear in the library → **Link BookMaster** (or the button on the Together and Stats tabs).
+To link BookMaster, tap the gear in the library → **Link BookMaster** (or the button on the BookMaster tab).
 
 ### Build
 
