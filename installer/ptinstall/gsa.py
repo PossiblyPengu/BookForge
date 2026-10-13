@@ -298,15 +298,27 @@ def authenticate(
     anisette: dict,
     twofa_prompt=None,
     twofa_code: str | None = None,
+    resync=None,
 ) -> Session:
     """Full GSA login. ``twofa_prompt(message) -> str`` is called for the 2FA
-    code; ``twofa_code`` supplies it directly (one-shot, no prompt)."""
+    code; ``twofa_code`` supplies it directly (one-shot, no prompt).
+    ``resync(sim)`` regenerates anisette when GSA demands it (hsc 434)."""
     usr = srp.User(apple_id, bytes(), hash_alg=srp.SHA256, ng_type=srp.NG_2048)
     _, A = usr.start_authentication()
 
-    resp = _gsa_request(
-        {"A2k": A, "ps": ["s2k", "s2k_fo"], "u": apple_id, "o": "init"}, anisette
-    )
+    init = {"A2k": A, "ps": ["s2k", "s2k_fo"], "u": apple_id, "o": "init"}
+    resp = _gsa_request(init, anisette)
+
+    # hsc 434: Apple demands an anisette resync before it will continue.
+    status = resp.get("Status", {})
+    if int(status.get("hsc", 0)) == 434:
+        if resync is None:
+            raise AuthError(
+                "Apple requested an anisette resync (hsc 434) but no resync "
+                "provider is available."
+            )
+        anisette = resync(status.get("X-Apple-I-MD-DATA"))
+        resp = _gsa_request(init, anisette)
 
     sp = resp.get("sp")
     if sp not in ("s2k", "s2k_fo"):
@@ -348,7 +360,7 @@ def authenticate(
         _two_factor(adsid, idms_token, anisette, twofa_prompt, code=twofa_code)
         # Trusted now — run the whole login again.
         return authenticate(apple_id, password, anisette, twofa_prompt,
-                            twofa_code=twofa_code)
+                            twofa_code=twofa_code, resync=resync)
     if "au" in status:
         raise AuthError(f"Unhandled auth type {status['au']!r}")
 

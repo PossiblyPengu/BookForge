@@ -117,6 +117,7 @@ def run(
                 apple_id, password, headers,
                 twofa_prompt=lambda _m: "",
                 twofa_code=twofa or None,
+                resync=lambda _sim: anisette.resync(url=anisette_url),
             )
         except gsa.NeedsTwoFactor as e:
             status.write("needs-2fa", str(e))

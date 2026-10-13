@@ -17,6 +17,7 @@ Only ``X-Apple-I-MD`` and ``X-Apple-I-MD-M`` come from anisette; the remaining
 import base64
 import locale
 import secrets
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -121,6 +122,25 @@ def headers(prefer: str = "auto", url: str | None = None) -> dict:
             if prefer == "local":
                 raise AnisetteError(f"local anisette failed: {e}")
     if otp is None:
+        otp = _remote_otp(url or DEFAULT_ANISETTE_URL)
+    out = dict(_meta_headers())
+    out.update(otp)
+    return out
+
+
+def resync(sim: str | None = None, url: str | None = None) -> dict:
+    """Regenerate anisette after Apple demands a resync (GSA ``hsc 434``).
+
+    pyprovision: wipe the provisioned machine state and re-provision with a
+    fresh ADI identity. Remote endpoints: just fetch another OTP pair — the
+    ``sim`` blob is for stateful providers and the stateless JSON servers
+    have no resync primitive.
+    """
+    prov_dir = config.config_dir() / "anisette"
+    shutil.rmtree(prov_dir, ignore_errors=True)
+    try:
+        otp = _local_otp()
+    except Exception:
         otp = _remote_otp(url or DEFAULT_ANISETTE_URL)
     out = dict(_meta_headers())
     out.update(otp)

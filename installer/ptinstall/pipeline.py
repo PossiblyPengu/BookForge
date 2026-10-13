@@ -57,7 +57,10 @@ def ensure_cert(
 def login(apple_id: str, password: str, anisette_mode: str,
           anisette_url: str | None, twofa_prompt) -> gsa.Session:
     headers = anisette.headers(prefer=anisette_mode, url=anisette_url)
-    return gsa.authenticate(apple_id, password, headers, twofa_prompt=twofa_prompt)
+    return gsa.authenticate(
+        apple_id, password, headers, twofa_prompt=twofa_prompt,
+        resync=lambda _sim: anisette.resync(url=anisette_url),
+    )
 
 
 async def run(
