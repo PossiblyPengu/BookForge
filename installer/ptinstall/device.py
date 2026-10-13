@@ -22,13 +22,20 @@ from pathlib import Path
 
 from pymobiledevice3.bonjour import browse_remotepairing_manual_pairing
 from pymobiledevice3.exceptions import NoDeviceConnectedError, RemotePairingCompletedError
-from pymobiledevice3.remote.tunnel_service import (
-    PairableHostInfo,
-    RemotePairingManualPairingService,
-    serve_pairable_host,
-)
+from pymobiledevice3.remote.tunnel_service import RemotePairingManualPairingService
 from pymobiledevice3.remote.utils import get_rsds
 from pymobiledevice3.services.installation_proxy import InstallationProxyService
+
+# Device-initiated pairable-host pairing exists only on very new pymobiledevice3
+# (master; not yet in the latest release). Optional — pair_manual covers iOS 17.
+try:
+    from pymobiledevice3.remote.tunnel_service import (
+        PairableHostInfo,
+        serve_pairable_host,
+    )
+    _HAS_PAIR_HOST = True
+except ImportError:
+    _HAS_PAIR_HOST = False
 
 
 @dataclass
@@ -38,14 +45,27 @@ class DeviceInfo:
     rsd: object
 
 
+def _prop(props: dict, key: str):
+    """Bonjour TXT properties are bytes-keyed in current releases, str-keyed
+    on master — read either."""
+    for k in (key.encode(), key):
+        if k in props:
+            v = props[k]
+            return v.decode() if isinstance(v, bytes) else v
+    return None
+
+
 async def pair_manual() -> bool:
     """Drive device-advertised remotepairing. Returns True if pairing completed."""
     answers = await browse_remotepairing_manual_pairing()
-    devices = [
-        (addr.full_ip, ans.port, ans.properties["name"], ans.properties["identifier"])
-        for ans in answers
-        for addr in ans.addresses
-    ]
+    devices = []
+    for ans in answers:
+        name = _prop(ans.properties, "name") or "device"
+        identifier = _prop(ans.properties, "identifier") or ""
+        ips = [a.full_ip for a in getattr(ans, "addresses", [])] or list(
+            getattr(ans, "ips", []))
+        for ip in ips:
+            devices.append((ip, ans.port, name, identifier))
     if not devices:
         return False
     ip, port, name, identifier = devices[0]
@@ -60,6 +80,11 @@ async def pair_manual() -> bool:
 
 async def pair_host(pin_echo=print) -> bool:
     """Advertise as a pairable Mac and accept a device-initiated pairing."""
+    if not _HAS_PAIR_HOST:
+        raise RuntimeError(
+            "pairable-host pairing needs a newer pymobiledevice3 than is "
+            "released — use `ptinstall pair` (auto) instead"
+        )
     info = PairableHostInfo(name=platform.node() or "PC", model="Mac17,7")
 
     def on_pin(pin: str) -> None:
