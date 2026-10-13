@@ -41,7 +41,6 @@ jobs:
           path: dist/ptinstall.exe
           if-no-files-found: error
       - name: Publish rolling release
-        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

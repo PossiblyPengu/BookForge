@@ -32,9 +32,9 @@ connection is pure Wi-Fi (remote-pairing + RSD, iOS 17+).
 
 ## Setup
 
-**Easiest:** grab `ptinstall.exe` from the `installer-latest` release (CI
-builds it on every change; publish it with a manual run of *ptinstall exe*) —
-one file, nothing to install, run it from anywhere.
+**Easiest:** grab [`ptinstall.exe`](https://github.com/PossiblyPengu/PageTurner/releases/download/installer-latest/ptinstall.exe)
+from the `installer-latest` release — one file, nothing to install, run it
+from anywhere. CI keeps that release on the latest `main` build.
 
 **Or run from source:**
 
