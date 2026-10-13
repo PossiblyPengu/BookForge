@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
 
+from . import config
 from .gsa import Session, _xcode_headers
 
 BASE = "https://developerservices2.apple.com/services/QH65B2/"
@@ -65,6 +66,7 @@ def _post(action: str, session: Session, params: dict | None = None,
         data=plistlib.dumps(body),
         headers=headers,
         timeout=30,
+        verify=str(config.ca_bundle()),
     )
     resp = plistlib.loads(r.content)
     code = int(resp.get("resultCode", 0))

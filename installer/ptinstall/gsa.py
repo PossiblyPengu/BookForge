@@ -27,6 +27,8 @@ import srp._pysrp as srp
 from cryptography.hazmat.primitives import padding as _padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from . import config
+
 # Apple-flavoured SRP: RFC5054 2048-bit group, SHA-256, username out of x.
 srp.rfc5054_enable()
 srp.no_username_in_x()
@@ -102,6 +104,8 @@ def _gsa_request(params: dict, anisette: dict) -> dict:
             "X-MMe-Client-Info": CLIENT_INFO,
         },
         timeout=30,
+        # gsa.apple.com chains to Apple's private root — certifi alone fails
+        verify=str(config.ca_bundle()),
     )
     resp = plistlib.loads(r.content)["Response"]
     status = resp.get("Status", {})
@@ -215,7 +219,8 @@ def _two_factor(dsid: str, idms_token: str, anisette: dict, prompt,
     presupplied = code is not None and bool(code.strip())
     if not presupplied:
         # Triggers the code prompt on the user's trusted devices.
-        requests.get(VERIFY_TRUSTED_URL, headers=headers, timeout=30)
+        requests.get(VERIFY_TRUSTED_URL, headers=headers, timeout=30,
+                     verify=str(config.ca_bundle()))
         code = prompt(
             "A verification code was sent to your trusted Apple devices.\n"
             "Enter the 6-digit code: "
@@ -223,12 +228,14 @@ def _two_factor(dsid: str, idms_token: str, anisette: dict, prompt,
     if not code:
         raise NeedsTwoFactor("No verification code entered.")
     headers["security-code"] = code.strip()
-    r = requests.get(VALIDATE_URL, headers=headers, timeout=30)
+    r = requests.get(VALIDATE_URL, headers=headers, timeout=30,
+                     verify=str(config.ca_bundle()))
     resp = plistlib.loads(r.content)
     ec = int(resp.get("ec", 0))
     if ec == -21669:
         if presupplied:
-            requests.get(VERIFY_TRUSTED_URL, headers=headers, timeout=30)
+            requests.get(VERIFY_TRUSTED_URL, headers=headers, timeout=30,
+                         verify=str(config.ca_bundle()))
             raise NeedsTwoFactor(
                 "That code was rejected — a fresh one was just pushed "
                 "to your trusted devices."
