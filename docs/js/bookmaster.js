@@ -9,8 +9,8 @@
  * keeping — while every session is a distinct stretch of reading that always
  * rides the queue.
  */
-import { kvGet, kvSet, putBook } from "./db.js";
-import { $, toast } from "./util.js";
+import { kvGet, kvSet, kvUpdate, putBook } from "./db.js";
+import { $, toast, uid } from "./util.js";
 
 const USER_KEY = "bm-user";
 const QUEUE_KEY = "bm-queue";
@@ -71,7 +71,9 @@ export const finishBookmasterLink = async () => {
 
 export const bookmasterUnlink = async () => {
   userCache = null;
+  lastPush.clear();
   await kvSet(USER_KEY, null);
+  await kvSet(QUEUE_KEY, []);
 };
 
 // Throttled push: at most once per 30s per book, unless forced (book closed,
@@ -93,7 +95,7 @@ export const postBookmaster = (path, body) => {
     // keepalive lets a close-time push outlive the page, but the platform
     // caps those bodies near 64KB — a cover-bearing push is far over and
     // would throw every time, parked in the queue blocking what came after.
-    keepalive: json.length < 60_000,
+    keepalive: new TextEncoder().encode(json).byteLength < 60_000,
     body: json,
   });
 };
@@ -126,11 +128,12 @@ const handleFailedPush = async (book, res) => {
 // ---------- offline queue ----------
 
 const readQueue = async () => (await kvGet(QUEUE_KEY, [])) || [];
-const writeQueue = (q) => kvSet(QUEUE_KEY, q);
 
-/** Two pushes name the same book when their pins agree or their titles do. */
-const sameBook = (a, b) =>
-  (a.user_book_id != null && a.user_book_id === b.user_book_id) || a.title === b.title;
+const sameBook = (a, b) => {
+  if (a.username !== b.username) return false;
+  if (a.user_book_id != null && b.user_book_id != null) return a.user_book_id === b.user_book_id;
+  return a.title === b.title && sendableAuthor(a.author) === sendableAuthor(b.author);
+};
 
 /**
  * File metadata spells authors every way — "Herbert, Frank", "Frank Herbert
@@ -150,47 +153,58 @@ export const sendableAuthor = (a) => {
  * stale point for the replay to land. Capped; the oldest give way.
  */
 const enqueue = async (entry) => {
-  const q = await readQueue();
-  if (entry.kind === "progress") {
-    const i = q.findIndex((e) => e.kind === "progress" && sameBook(e.body, entry.body));
-    if (i >= 0) q.splice(i, 1);
-  }
-  q.push(entry);
-  while (q.length > QUEUE_MAX) q.shift();
-  await writeQueue(q);
+  if ((await linkedUser())?.username !== entry.body.username) return;
+  await kvUpdate(QUEUE_KEY, (q) => {
+    if (userCache?.username !== entry.body.username) return q || [];
+    q = q || [];
+    if (entry.kind === "progress")
+      q = q.filter((e) => e.kind !== "progress" || !sameBook(e.body, entry.body));
+    return [...q, { ...entry, id: uid() }].slice(-QUEUE_MAX);
+  }, []);
 };
 
 /** A bridge answer worth retrying later rather than dropping the push. */
-const retriable = (res) => res.status >= 502 && res.status <= 504;
+const retriable = (res) => res.status === 408 || res.status === 429 || res.status >= 500;
 
-let flushing = false;
+const removeQueued = (head) => kvUpdate(QUEUE_KEY, (q) => {
+  q = q || [];
+  const i = q.findIndex((e) => head.id ? e.id === head.id : JSON.stringify(e) === JSON.stringify(head));
+  if (i >= 0) q.splice(i, 1);
+  return q;
+}, []);
+
+let flushPromise;
 /**
  * Drain the queue oldest-first, stopping at the first push the network still
  * won't take — order is the point (a replayed position must not land after
  * a newer one). A 4xx can never succeed, so it's dropped rather than left to
  * block the line behind it.
  */
-export const flushBookmaster = async () => {
-  if (flushing) return;
-  flushing = true;
-  try {
+export const flushBookmaster = () => {
+  if (flushPromise) return flushPromise;
+  flushPromise = (async () => {
     for (;;) {
+      const user = await linkedUser();
+      if (!user?.username) return;
       const q = await readQueue();
       if (!q.length) return;
-      const [head, ...rest] = q;
+      const [head] = q;
+      if (head.body.username !== user.username) {
+        await removeQueued(head);
+        continue;
+      }
       let res;
       try {
-        res = await postBookmaster(head.kind === "session" ? "session" : "progress", head.body);
+        res = await postBookmaster(head.kind, head.body);
       } catch {
         return; // still offline — leave the queue alone
       }
       if (retriable(res)) return;
-      await writeQueue(rest);
+      await removeQueued(head);
       if (!res.ok) await handleFailedPush(null, res);
     }
-  } finally {
-    flushing = false;
-  }
+  })().finally(() => { flushPromise = null; });
+  return flushPromise;
 };
 
 /**
@@ -200,6 +214,11 @@ export const flushBookmaster = async () => {
  */
 const send = async (kind, body) => {
   await flushBookmaster();
+  if ((await linkedUser())?.username !== body.username) return null;
+  if ((await readQueue()).length) {
+    await enqueue({ kind, body });
+    return null;
+  }
   let res;
   try {
     res = await postBookmaster(kind, body);

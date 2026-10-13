@@ -37,4 +37,10 @@ describe("postBookmaster", () => {
     expect(calls[0].init.keepalive).toBe(true);
     expect(calls[1].init.keepalive).toBe(false);
   });
+
+  it("measures the keepalive limit in UTF-8 bytes, not characters", async () => {
+    const calls = sent();
+    await postBookmaster("quote", { content: "本".repeat(30_000) });
+    expect(calls[0].init.keepalive).toBe(false);
+  });
 });

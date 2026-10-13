@@ -31,7 +31,7 @@ const db = () => {
         d.onversionchange = () => { d.close(); dbPromise = null; };
         resolve(d);
       };
-      req.onerror = () => reject(req.error);
+      req.onerror = () => { dbPromise = null; reject(req.error); };
       req.onblocked = () => console.warn("IndexedDB upgrade blocked by another open tab");
     });
   }
@@ -44,12 +44,21 @@ const reqToPromise = (r) =>
     r.onerror = () => reject(r.error);
   });
 
+const transactionDone = (t) => new Promise((resolve, reject) => {
+  t.oncomplete = resolve;
+  t.onabort = t.onerror = () => reject(t.error || new Error("Storage transaction aborted"));
+});
+
+const writeResult = async (t, request) => {
+  const [result] = await Promise.all([reqToPromise(request), transactionDone(t)]);
+  return result;
+};
+
 // ---------- books ----------
 export const putBook = async (book) => {
   const d = await db();
-  return reqToPromise(
-    d.transaction("books", "readwrite").objectStore("books").put(book)
-  );
+  const t = d.transaction("books", "readwrite");
+  return writeResult(t, t.objectStore("books").put(book));
 };
 
 export const getBook = async (id) => {
@@ -72,18 +81,14 @@ export const deleteBook = async (id) => {
   t.objectStore("books").delete(id);
   for (const key of book?.fileKeys || (book?.fileKey ? [book.fileKey] : []))
     t.objectStore("files").delete(key);
-  return new Promise((resolve, reject) => {
-    t.oncomplete = resolve;
-    t.onerror = () => reject(t.error);
-  });
+  return transactionDone(t);
 };
 
 // ---------- files ----------
 export const putFile = async (key, blob, meta = {}) => {
   const d = await db();
-  return reqToPromise(
-    d.transaction("files", "readwrite").objectStore("files").put({ key, blob, ...meta })
-  );
+  const t = d.transaction("files", "readwrite");
+  return writeResult(t, t.objectStore("files").put({ key, blob, ...meta }));
 };
 
 export const getFile = async (key) => {
@@ -113,10 +118,7 @@ export const deleteFiles = async (keys) => {
   const d = await db();
   const t = d.transaction("files", "readwrite");
   for (const k of keys) t.objectStore("files").delete(k);
-  return new Promise((resolve, reject) => {
-    t.oncomplete = resolve;
-    t.onerror = () => reject(t.error);
-  });
+  return transactionDone(t);
 };
 
 // ---------- kv ----------
@@ -128,9 +130,30 @@ export const kvGet = async (k, fallback = null) => {
 
 export const kvSet = async (k, v) => {
   const d = await db();
-  return reqToPromise(
-    d.transaction("kv", "readwrite").objectStore("kv").put({ k, v })
-  );
+  const t = d.transaction("kv", "readwrite");
+  return writeResult(t, t.objectStore("kv").put({ k, v }));
+};
+
+/** Read-modify-write in one transaction, so concurrent tabs cannot lose updates. */
+export const kvUpdate = async (k, update, fallback = null) => {
+  const d = await db();
+  const t = d.transaction("kv", "readwrite");
+  const store = t.objectStore("kv");
+  return new Promise((resolve, reject) => {
+    let value;
+    t.oncomplete = () => resolve(value);
+    t.onabort = t.onerror = () => reject(t.error || new Error("Storage transaction aborted"));
+    const request = store.get(k);
+    request.onsuccess = () => {
+      try {
+        value = update(request.result ? request.result.v : fallback);
+        store.put({ k, v: value });
+      } catch (err) {
+        reject(err);
+        t.abort();
+      }
+    };
+  });
 };
 
 export const allKv = async () => {

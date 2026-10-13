@@ -830,8 +830,14 @@ const testFn = async (withPiper) => {
       await wait(150);
 
       // visual parity: the suite accent is BookMaster's terracotta
-      const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim().toLowerCase();
-      log(accent === "#cd844f", `suite accent is BookMaster terracotta → ${accent}`);
+      const root = document.documentElement;
+      const savedTheme = root.dataset.theme;
+      for (const [theme, expected] of [["dark", "#cd844f"], ["light", "#a0532a"], ["black", "#cd844f"]]) {
+        root.dataset.theme = theme;
+        const accent = getComputedStyle(root).getPropertyValue("--accent").trim().toLowerCase();
+        log(accent === expected, `${theme} suite accent is BookMaster terracotta → ${accent}`);
+      }
+      root.dataset.theme = savedTheme;
       const dispFont = getComputedStyle(document.querySelector(".nav-wordmark-text") || document.body).fontFamily;
       log(/fraunces/i.test(dispFont), `display face is Fraunces → "${dispFont.split(",")[0]}"`);
 

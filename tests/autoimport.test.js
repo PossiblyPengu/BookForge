@@ -28,7 +28,11 @@ globalThis.indexedDB = {
       r.result = {
         objectStoreNames: { contains: () => true },
         createObjectStore: () => {},
-        transaction: () => ({ objectStore: (n) => oss[n] }),
+        transaction: () => {
+          const t = { objectStore: (n) => oss[n] };
+          tick().then(() => tick()).then(() => t.oncomplete?.());
+          return t;
+        },
       };
       r.onupgradeneeded?.();
       r.onsuccess?.();

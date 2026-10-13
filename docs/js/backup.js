@@ -80,9 +80,11 @@ export const restoreBackup = async (file, onMsg = () => {}) => {
   const dataEntry = byName.get("data.json");
   if (!dataEntry) throw new Error("Not a Pageturner backup (missing data.json)");
   const data = JSON.parse(await (await dataEntry.blob()).text());
+  if (!data || typeof data !== "object") throw new Error("Invalid backup: the index is damaged.");
   if (data.app !== "pageturner") throw new Error("That zip isn't a Pageturner backup.");
-  if (typeof data.v !== "number" || data.v > 1)
+  if (typeof data.v === "number" && data.v > 1)
     throw new Error("This backup was made by a newer version of Pageturner.");
+  if (data.v !== 1) throw new Error("Invalid backup: the index version is damaged.");
   if (!Array.isArray(data.books)) throw new Error("Invalid backup format");
 
   const prefix = "files/";
@@ -91,18 +93,21 @@ export const restoreBackup = async (file, onMsg = () => {}) => {
   let doneBytes = 0;
   const restored = new Set();
   for (const e of fileEntries) {
-    const key = decodeURIComponent(e.name.slice(prefix.length));
-    const meta = data.fileMeta?.[key] || {};
+    let key, blob;
     onMsg(`Restoring files… ${pct(doneBytes, totalBytes)}%`);
     try {
-      // a stored entry is a slice of the backup file: wrapping it sets the
-      // type without copying it
-      const blob = new Blob([await e.blob()], { type: meta.type || "application/octet-stream" });
-      await putFile(key, blob, { name: meta.name, size: meta.size ?? blob.size });
-      restored.add(key);
+      key = decodeURIComponent(e.name.slice(prefix.length));
+      blob = await e.blob();
     } catch (err) {
-      console.warn(`restore: skipping damaged file entry ${key}`, err);
+      console.warn(`restore: skipping damaged file entry ${e.name}`, err);
+      doneBytes += e.size;
+      continue;
     }
+    const meta = data.fileMeta?.[key] || {};
+    // Wrapping a stored entry's slice sets its type without copying it.
+    blob = new Blob([blob], { type: meta.type || "application/octet-stream" });
+    await putFile(key, blob, { name: meta.name, size: meta.size ?? blob.size });
+    restored.add(key);
     doneBytes += e.size;
   }
 
@@ -112,16 +117,21 @@ export const restoreBackup = async (file, onMsg = () => {}) => {
   for (const rec of data.books) {
     // a book whose payload didn't restore would open to a broken file —
     // leave it out instead of writing a zombie record
-    const keys = rec.fileKeys || (rec.fileKey ? [rec.fileKey] : []);
-    if (keys.length && !keys.every((k) => restored.has(k))) { skipped++; continue; }
+    if (!rec || typeof rec.id !== "string" || !rec.id) { skipped++; continue; }
+    const keys = rec.fileKeys ?? (rec.fileKey ? [rec.fileKey] : []);
+    if (!Array.isArray(keys) || !keys.length || !keys.every((k) => restored.has(k))) { skipped++; continue; }
     const coverEntry = byName.get(`covers/${rec.id}`);
     const book = { ...rec };
     delete book.hasCover;
     if (coverEntry) {
-      book.coverBlob = await shrinkCover(new Blob([await coverEntry.blob()]));
-      dropCoverUrl(rec.id); // an existing same-id book's cached URL is stale now
+      try {
+        book.coverBlob = await shrinkCover(new Blob([await coverEntry.blob()]));
+      } catch (err) {
+        console.warn(`restore: skipping damaged cover ${rec.id}`, err);
+      }
     }
     await putBook(book);
+    dropCoverUrl(rec.id);
     restoredBooks++;
   }
   for (const [k, v] of Object.entries(data.kv || {})) await kvSet(k, v);
