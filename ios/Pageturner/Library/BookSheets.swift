@@ -34,16 +34,6 @@ struct BookDetailSheet: View {
         .ignoresSafeArea()
     }
 
-    private static func statusLabel(_ status: String) -> String {
-        switch status {
-        case "reading": return "Reading"
-        case "read": return "Read"
-        case "want_to_read": return "Want to read"
-        case "dnf": return "Didn’t finish"
-        default: return status.replacingOccurrences(of: "_", with: " ").capitalized
-        }
-    }
-
     var body: some View {
         NavigationStack {
             List {
@@ -111,7 +101,7 @@ struct BookDetailSheet: View {
                         LabeledContent("Progress", value: "\(Int((p * 100).rounded()))%")
                     }
                     if let status = book.bmStatus {
-                        LabeledContent("On BookMaster", value: Self.statusLabel(status)
+                        LabeledContent("On BookMaster", value: BMShelf.label(forStatus: status)
                             + (book.bmUpNext == true ? " · up next" : ""))
                     }
                     if let remote = book.bmRemotePercent {

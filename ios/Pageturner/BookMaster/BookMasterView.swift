@@ -4,9 +4,6 @@ import SwiftUI
 /// its streak, goals and achievements, the shelf, the other reader and the suggestions waiting.
 /// Reading is Pageturner's job; this is where it is tracked.
 struct BookMasterView: View {
-    /// Inside a tab: no Done button, the tab bar is the way out.
-    var embedded = false
-    @Environment(\.dismiss) private var dismiss
     @Environment(AppRouter.self) private var router
     @State private var together: BMTogether?
     @State private var overview: BMOverview?
@@ -75,17 +72,12 @@ struct BookMasterView: View {
             }
             #endif
             .navigationTitle("BookMaster")
-            .navigationBarTitleDisplayMode(embedded ? .large : .inline)
-            .toolbar {
-                if !embedded {
-                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-                }
-            }
+            .navigationBarTitleDisplayMode(.large)
             .refreshable { await load() }
             // again when the account is linked or unlinked while the tab is up
             .task(id: BookMaster.shared.isLinked) { await load() }
-            .onAppear { if embedded { BookMaster.shared.place = "bookmaster" } }
-            .onDisappear { if embedded { BookMaster.shared.place = "library" } }
+            .onAppear { BookMaster.shared.place = "bookmaster" }
+            .onDisappear { BookMaster.shared.place = "library" }
         }
     }
 

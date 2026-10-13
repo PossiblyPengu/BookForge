@@ -93,6 +93,7 @@ func runLogic() {
     check("not offered for a zero remote position", ResumeOffer.target(for: book(progression: nil, remote: 0)) == nil)
     check("not offered once finished on BookMaster", ResumeOffer.target(for: book(progression: 0.1, remote: 100, status: "read")) == nil)
     check("not offered when given up on", ResumeOffer.target(for: book(progression: 0.1, remote: 50, status: "dnf")) == nil)
+    check("not offered when abandoned on BookMaster", ResumeOffer.target(for: book(progression: 0.1, remote: 50, status: "abandoned")) == nil)
     check("not offered when BookMaster says it is all the way through", ResumeOffer.target(for: book(progression: 0.1, remote: 99.5)) == nil)
     check("want-to-read with a position still offers", ResumeOffer.target(for: book(progression: 0.1, remote: 30, status: "want_to_read")) == 0.3)
     check("a non-finite remote value is ignored", ResumeOffer.target(for: book(progression: 0.1, remote: .infinity)) == nil)

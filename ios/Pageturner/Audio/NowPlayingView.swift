@@ -1,19 +1,13 @@
 import SwiftUI
 
 /// The full player: cover-tinted backdrop, big art, a seek bar, and the
-/// transport controls as one glass cluster. Presented as a sheet over the app,
-/// so the mini player and the library stay one swipe away.
+/// transport controls as one glass cluster. It fills the Reading tab while an
+/// audiobook plays — the mini player stands in everywhere else.
 struct NowPlayingView: View {
     @ObservedObject var player: AudioPlayer
     let onStop: () -> Void
-    /// Set inside the Reading tab: leaving switches tabs rather than dismissing a sheet.
-    var onClose: (() -> Void)? = nil
-    @Environment(\.dismiss) private var dismiss
-
-    /// The way off the player — the Reading tab's switch, or the sheet's dismiss.
-    private func close() {
-        if let onClose { onClose() } else { dismiss() }
-    }
+    /// The way off the player: the Reading tab is its home, so leaving is a tab switch.
+    let onClose: () -> Void
     @State private var scrubbing: TimeInterval?
     @State private var tint: Color = .ptAccent
     @State private var showChapters = false
@@ -82,7 +76,7 @@ struct NowPlayingView: View {
 
     private var topBar: some View {
         HStack {
-            PTIconButton(systemImage: "chevron.down", label: "Close player") { close() }
+            PTIconButton(systemImage: "chevron.down", label: "Close player") { onClose() }
             Spacer()
             Menu {
                 if player.chapters.count > 1 {

@@ -15,7 +15,7 @@ enum ResumeOffer {
     static func target(for book: Book, now: Date = Date()) -> Double? {
         guard let remote = book.bmRemotePercent, remote.isFinite, remote > 0 else { return nil }
         // finished or given up on the shelf, or all the way through: nothing to pick up
-        if book.bmStatus == "read" || book.bmStatus == "dnf" || remote >= 99 { return nil }
+        if book.bmStatus == "read" || book.bmStatus == "dnf" || book.bmStatus == "abandoned" || remote >= 99 { return nil }
         let local = max(book.progression ?? 0, 0) * 100
         guard remote - local >= margin else { return nil }
         if let declined = book.resumeDismissedAt, now.timeIntervalSince(declined) < quietPeriod {

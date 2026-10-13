@@ -4,7 +4,6 @@ import SwiftUI
 
 struct ReaderView: View {
     @StateObject private var model: ReaderModel
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var showContents = false
     @State private var showSettings = false
@@ -17,18 +16,13 @@ struct ReaderView: View {
     @State private var exportFile: ShareItem?
     @State private var copied = false
 
-    /// Set inside the Reading tab: leaving the book switches tabs rather than
-    /// dismissing anything. Nil keeps the cover-style dismissal.
-    private let onBack: (() -> Void)?
+    /// The way out of the book: the Reading tab is the book's home, so leaving
+    /// it is a tab switch, not a dismissal.
+    private let onBack: () -> Void
 
-    init(book: Book, library: LibraryStore, onBack: (() -> Void)? = nil) {
+    init(book: Book, library: LibraryStore, onBack: @escaping () -> Void) {
         _model = StateObject(wrappedValue: ReaderModel(book: book, library: library))
         self.onBack = onBack
-    }
-
-    /// The way out of the book — the Reading tab's switch, or the presentation's dismiss.
-    private func goBack() {
-        if let onBack { onBack() } else { dismiss() }
     }
 
     /// The page's own light or dark — the chrome, the sheets and the status bar follow it.
@@ -196,7 +190,7 @@ struct ReaderView: View {
                 Text(message)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
-                Button("Back to Library") { goBack() }
+                Button("Back to Library") { onBack() }
                     .buttonStyle(.borderedProminent)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -208,7 +202,7 @@ struct ReaderView: View {
     private var header: some View {
         PTGlassGroup(spacing: 10) {
             HStack(spacing: 10) {
-                PTIconButton(systemImage: "chevron.left", label: "Back to library") { goBack() }
+                PTIconButton(systemImage: "chevron.left", label: "Back to library") { onBack() }
 
                 VStack(spacing: 0) {
                     Text(model.book.title)

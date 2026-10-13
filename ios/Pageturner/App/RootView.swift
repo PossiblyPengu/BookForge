@@ -264,7 +264,7 @@ struct RootView: View {
 
     /// Tracking: this phone's reading time always, BookMaster's side once it is linked.
     private var togetherTab: some View {
-        BookMasterView(embedded: true)
+        BookMasterView()
     }
 }
 
