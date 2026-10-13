@@ -149,6 +149,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None):
+    # Frozen exes inherit the console codepage (cp1252 on many Windows boxes);
+    # degrade non-ASCII output to '?' instead of crashing on print.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:
+            pass
     args = build_parser().parse_args(argv)
     try:
         args.fn(args)
