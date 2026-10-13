@@ -28,8 +28,10 @@ jobs:
         run: >
           pyinstaller --onefile --console --name ptinstall
           --paths installer
-          --collect-all pymobiledevice3 --collect-submodules ptinstall
+          --collect-all pymobiledevice3 --collect-all pytun_pmd3 --collect-all qh3
+          --collect-submodules ptinstall
           --hidden-import srp._pysrp --hidden-import win32security
+          --hidden-import sslpsk_pmd3
           installer/main.py
       - name: Smoke test the exe
         run: dist\ptinstall.exe --help
