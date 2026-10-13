@@ -147,7 +147,7 @@ const RELEASE_REPLACEMENT = `  static async create(options) {
 // are still read, and copied across the first time they're used.
 
 const STORE_MARK = "__ptVoiceCache";
-const STORE_INTEGRITY_MARK = "__ptVoiceIntegrity3";
+const STORE_INTEGRITY_MARK = "__ptVoiceIntegrity4";
 
 const STORE_FUNCTIONS = `// Pageturner patch (scripts/patch-piper.js): voices live in the Cache API.
 const ${STORE_MARK} = "pageturner-voices";
@@ -277,7 +277,8 @@ const FETCH_REPLACEMENT = `async function fetchBlob(url, callback) {
   }
   const blob = new Blob(chunks, { type });
   if (!blob.size) throw new Error("Voice download was empty");
-  if (total && !res.headers.get("Content-Encoding") && loaded !== total)
+  // CORS can hide Content-Encoding while exposing compressed Content-Length.
+  if (total && res.type !== "cors" && !res.headers.get("Content-Encoding") && loaded !== total)
     throw new Error("Voice download was incomplete");
   if (url.endsWith(".json")) {
     const config = JSON.parse(await blob.text());

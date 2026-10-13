@@ -142,7 +142,7 @@ const PATH_MAP = {
 };
 // Pageturner patch (scripts/patch-piper.js): voices live in the Cache API.
 const __ptVoiceCache = "pageturner-voices";
-const __ptVoiceIntegrity3 = true;
+const __ptVoiceIntegrity4 = true;
 async function __ptOpfsDir() {
   try {
     return await (await navigator.storage.getDirectory()).getDirectoryHandle("piper");
@@ -214,7 +214,8 @@ async function fetchBlob(url, callback) {
   }
   const blob = new Blob(chunks, { type });
   if (!blob.size) throw new Error("Voice download was empty");
-  if (total && !res.headers.get("Content-Encoding") && loaded !== total)
+  // CORS can hide Content-Encoding while exposing compressed Content-Length.
+  if (total && res.type !== "cors" && !res.headers.get("Content-Encoding") && loaded !== total)
     throw new Error("Voice download was incomplete");
   if (url.endsWith(".json")) {
     const config = JSON.parse(await blob.text());

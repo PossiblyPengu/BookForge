@@ -89,8 +89,9 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   Route names must be in that function's `ROUTES` set.
 - Payloads follow BookMaster's `functions/_lib/routes/pageturner.ts`: ids are strings, `at` on a session
   is milliseconds (a number), percents are 0–100.
-- Offline: progress is de-duplicated per title, sessions and quotes always queue, oldest first, a 4xx is
-  dropped. Presence beats are never queued. Only a push reply or a shelf pull may change a book's `bm*`
+- Offline: progress is coalesced by book identity (BookMaster / Open Library / ISBN, then title and author).
+  Sessions and quotes always queue, oldest first, a 4xx is dropped. Presence beats are never queued.
+  Only a push reply or a shelf pull may change a book's `bm*`
   fields (`LibraryStore.updateBookMaster` / `applyShelf`); `update()` always keeps the stored ones.
 - Linking: `BookMasterLinkSheet` (a `WKWebView`, non-persistent data store) opens
   bookmaster.pages.dev/link/pageturner?from=https://pageturner.pages.dev; BookMaster signs the user in and

@@ -77,4 +77,14 @@ describe("voice download integrity", () => {
     await expect(download(voice)).rejects.toThrow("instead of a model");
     expect(entries.size).toBe(0);
   });
+
+  it("accepts decoded CORS bodies when the encoding header is hidden", async () => {
+    fetch.mockImplementation(async (url) => {
+      const response = new Response(url.endsWith(".json") ? config : "model", { headers: { "Content-Length": "3" } });
+      Object.defineProperty(response, "type", { value: "cors" });
+      return response;
+    });
+    await expect(download(voice)).resolves.toBeUndefined();
+    expect(await stored()).toContain(voice);
+  });
 });
