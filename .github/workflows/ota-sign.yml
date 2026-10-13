@@ -30,9 +30,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        # pyprovision gives the runner its own ADI machine identity instead of
-        # borrowing a shared (heavily flagged) public anisette server identity.
-        run: pip install -r installer/requirements.txt pyprovision
+        run: pip install -r installer/requirements.txt
 
       - name: Mask dispatched secrets in logs
         run: |
