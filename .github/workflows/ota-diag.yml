@@ -12,9 +12,11 @@ jobs:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/checkout@v4
       - run: pip install requests
       - name: Probe public servers
         shell: python
@@ -43,15 +45,12 @@ jobs:
                       print(f"{s:55s} {name:16s} {r.status_code} anisette_json={ok} {r.headers.get('server','')} {r.headers.get('cf-mitigated','')}")
                   except Exception as e:
                       print(f"{s:55s} {name:16s} ERR {type(e).__name__}: {str(e)[:80]}")
-      - name: Local anisette-v3-server (docker, ubuntu only)
-        if: runner.os == 'Linux'
+      - name: The installer's own anisette fallback
+        shell: python
+        env:
+          PYTHONPATH: installer
         run: |
-          docker run -d --name ani -p 6969:6969 dadoum/anisette-v3-server
-          for i in $(seq 1 60); do
-            code=$(curl -s -o /tmp/ani.json -w "%{http_code}" http://localhost:6969/ || true)
-            echo "try $i: $code"
-            [ "$code" = "200" ] && break
-            sleep 3
-          done
-          head -c 300 /tmp/ani.json || true
-          docker logs ani | tail -20
+          from ptinstall import anisette
+          h = anisette.headers(prefer="remote")
+          print("chosen server:", anisette._chosen_url)
+          print("got X-Apple-I-MD:", bool(h.get("X-Apple-I-MD")), "X-Apple-I-MD-M:", bool(h.get("X-Apple-I-MD-M")))
