@@ -26,9 +26,20 @@ import requests
 
 from . import config
 
-# SideStore/StikStore run public anisette servers; any anisette-v3 endpoint
-# works. (ani.sidestore.io went dark 2026-10; isideload's default is this.)
-DEFAULT_ANISETTE_URL = "https://ani.stikstore.app"
+# Public anisette-v3 servers, in the order tried. Checked from GitHub's runners (Windows and Ubuntu) on 2026-10-13:
+# ani.stikstore.app answers 403 there — a Cloudflare challenge for datacenter addresses, whatever the headers —
+# while these three answer 200. It stays last: it works from a home connection (the Windows installer).
+DEFAULT_ANISETTE_URLS = (
+    "https://ani.sidestore.io",
+    "https://ani.sidestore.app",
+    "https://ani.npeg.us",
+    "https://ani.stikstore.app",
+)
+DEFAULT_ANISETTE_URL = DEFAULT_ANISETTE_URLS[0]
+
+# One server for the whole sign-in: its headers belong to its own machine identity, so a call that moved to
+# another server half way through could be refused. Chosen on first use, kept for the process.
+_chosen_url: str | None = None
 
 
 class AnisetteError(RuntimeError):
@@ -95,11 +106,30 @@ def _local_otp() -> dict:
     }
 
 
-def _remote_otp(url: str) -> dict:
-    r = requests.get(url, timeout=15)
+def _fetch_otp(url: str) -> dict:
+    r = requests.get(url, timeout=15, headers={"User-Agent": "Pageturner-installer"})
     r.raise_for_status()
     h = r.json()
     return {"X-Apple-I-MD": h["X-Apple-I-MD"], "X-Apple-I-MD-M": h["X-Apple-I-MD-M"]}
+
+
+def _remote_otp(url: str | None = None) -> dict:
+    """The two anisette headers from a remote server: the one asked for, else the first of the defaults that answers."""
+    global _chosen_url
+    if url:
+        return _fetch_otp(url)
+    if _chosen_url:
+        return _fetch_otp(_chosen_url)
+    failures = []
+    for candidate in DEFAULT_ANISETTE_URLS:
+        try:
+            otp = _fetch_otp(candidate)
+        except Exception as e:  # a 403 challenge, a dead host, a reply that is not anisette JSON…
+            failures.append(f"{candidate}: {type(e).__name__}: {str(e)[:90]}")
+            continue
+        _chosen_url = candidate
+        return otp
+    raise AnisetteError("no anisette server answered — " + "; ".join(failures))
 
 
 def headers(prefer: str = "auto", url: str | None = None) -> dict:
@@ -122,7 +152,7 @@ def headers(prefer: str = "auto", url: str | None = None) -> dict:
             if prefer == "local":
                 raise AnisetteError(f"local anisette failed: {e}")
     if otp is None:
-        otp = _remote_otp(url or DEFAULT_ANISETTE_URL)
+        otp = _remote_otp(url)
     out = dict(_meta_headers())
     out.update(otp)
     return out
@@ -141,7 +171,7 @@ def resync(sim: str | None = None, url: str | None = None) -> dict:
     try:
         otp = _local_otp()
     except Exception:
-        otp = _remote_otp(url or DEFAULT_ANISETTE_URL)
+        otp = _remote_otp(url)
     out = dict(_meta_headers())
     out.update(otp)
     return out

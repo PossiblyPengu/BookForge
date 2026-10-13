@@ -109,7 +109,7 @@ Env vars: `PTINSTALL_APPLE_ID`, `PTINSTALL_APPLE_PASSWORD`,
   register UDID → App ID → submit RSA-2048 CSR → download cert + team
   provisioning profile. The cert lands in `%APPDATA%\PTInstall`.
 - **Anisette**: `pyprovision` generates it locally if installed; otherwise a
-  configurable anisette-v3 server (SideStore's public one by default).
+  configurable anisette-v3 server (a list of SideStore's public ones by default — the first that answers is used for the whole sign-in; `ani.stikstore.app` is last because Cloudflare blocks GitHub's runners from it).
 - **Sign**: `zsign` (auto-downloaded, checksum-verified), bundle ID rewritten
   to the registered App ID — free profiles only cover their exact App ID.
 - **Install**: `pymobiledevice3` — remote-pairing handshake over Wi-Fi, then
