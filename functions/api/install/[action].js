@@ -145,9 +145,9 @@ const dispatch = async (request, env) => {
   };
   if (!RID_RE.test(payload.request_id))
     return json(400, { error: "bad request_id" });
-  // Modern UDIDs are 8-hex + "-" + 16-hex (e.g. 00008030-001A…);
-  // legacy ones are a flat 40-hex string.
-  if (!/^(?:[0-9a-fA-F]{8}-)?[0-9a-fA-F]{16,40}$/.test(payload.udid))
+  // Modern UDIDs look like 00008030-001A2B… (8 + "-" + 16 alnum);
+  // legacy ones are a flat 40-char string.
+  if (!/^(?:[0-9a-zA-Z]{8}-)?[0-9a-zA-Z]{16,40}$/.test(payload.udid))
     return json(400, { error: "bad udid" });
   if (!/^\S+@\S+$/.test(payload.apple_id) || !payload.password)
     return json(400, { error: "apple_id + password required" });
