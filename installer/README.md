@@ -118,8 +118,13 @@ Env vars: `PTINSTALL_APPLE_ID`, `PTINSTALL_APPLE_PASSWORD`,
 
 ## Webpage install (no PC at all)
 
-`docs/install.html` + `docs/functions/api/install/[action].js` + the
-`ota-sign` workflow give a phone-only flow on the deployed Pages site:
+`docs/install.html` + `functions/api/install/[action].js` + the
+`ota-sign` workflow give a phone-only flow on the deployed Pages site.
+The workflow runs a **private anisette server** (Dadoum/Provision's
+`anisette-server` binary, checksum-pinned) on the ubuntu runner itself, so
+each sign-in presents a self-provisioned ADI machine identity instead of a
+shared public-server one — Apple's periodic mass-flagging of those shared
+identities (the 2026-10 `-80045` wave) doesn't reach it.
 
 1. On the iPhone open `https://<your-pages-domain>/install.html`
 2. "Register this iPhone" installs a Profile Service `.mobileconfig`; iOS

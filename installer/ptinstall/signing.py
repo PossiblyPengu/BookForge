@@ -2,8 +2,11 @@
 
 import hashlib
 import io
+import os
 import shutil
+import stat
 import subprocess
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -12,8 +15,17 @@ import requests
 from . import config
 
 ZSIGN_VERSION = "1.1.2"
-ZSIGN_ZIP = f"https://github.com/zhlynn/zsign/releases/download/v{ZSIGN_VERSION}/zsign-windows-x64.zip"
 ZSIGN_SUMS = f"https://github.com/zhlynn/zsign/releases/download/v{ZSIGN_VERSION}/SHA256SUMS.txt"
+
+if os.name == "nt":
+    ZSIGN_ARCHIVE = f"https://github.com/zhlynn/zsign/releases/download/v{ZSIGN_VERSION}/zsign-windows-x64.zip"
+    ZSIGN_BINARY = "zsign.exe"
+    ZSIGN_ASSET = "windows-x64"
+else:
+    # Static musl build — runs on any Linux runner without extra libraries.
+    ZSIGN_ARCHIVE = f"https://github.com/zhlynn/zsign/releases/download/v{ZSIGN_VERSION}/zsign-linux-musl-static.tar.gz"
+    ZSIGN_BINARY = "zsign"
+    ZSIGN_ASSET = "linux-musl-static"
 
 
 class SignError(RuntimeError):
@@ -26,7 +38,7 @@ def _expected_sha256() -> str | None:
         r.raise_for_status()
         for line in r.text.splitlines():
             parts = line.split()
-            if len(parts) == 2 and "windows-x64" in parts[1]:
+            if len(parts) == 2 and ZSIGN_ASSET in parts[1]:
                 return parts[0]
     except requests.RequestException:
         pass
@@ -34,16 +46,16 @@ def _expected_sha256() -> str | None:
 
 
 def ensure_zsign() -> Path:
-    """Find zsign.exe on PATH or download the verified official build."""
+    """Find zsign on PATH or download the verified official build."""
     found = shutil.which("zsign")
     if found:
         return Path(found)
-    exe = config.config_dir() / "tools" / "zsign.exe"
+    exe = config.config_dir() / "tools" / ZSIGN_BINARY
     if exe.exists():
         return exe
 
-    print(f"  downloading zsign v{ZSIGN_VERSION} for Windows…")
-    r = requests.get(ZSIGN_ZIP, timeout=60)
+    print(f"  downloading zsign v{ZSIGN_VERSION} ({ZSIGN_ASSET})…")
+    r = requests.get(ZSIGN_ARCHIVE, timeout=60)
     r.raise_for_status()
     blob = r.content
 
@@ -55,13 +67,23 @@ def ensure_zsign() -> Path:
         )
 
     exe.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(io.BytesIO(blob)) as z:
-        for name in z.namelist():
-            if name.endswith("zsign.exe"):
-                exe.write_bytes(z.read(name))
-                break
-        else:
-            raise SignError("zsign.exe not found in downloaded archive")
+    if ZSIGN_ARCHIVE.endswith(".zip"):
+        with zipfile.ZipFile(io.BytesIO(blob)) as z:
+            for name in z.namelist():
+                if name.endswith(ZSIGN_BINARY):
+                    exe.write_bytes(z.read(name))
+                    break
+            else:
+                raise SignError(f"{ZSIGN_BINARY} not found in downloaded archive")
+    else:
+        with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as t:
+            for m in t.getmembers():
+                if m.name.endswith(ZSIGN_BINARY):
+                    exe.write_bytes(t.extractfile(m).read())
+                    break
+            else:
+                raise SignError(f"{ZSIGN_BINARY} not found in downloaded archive")
+        exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     print(f"  zsign installed to {exe}")
     return exe
 

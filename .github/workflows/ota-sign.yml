@@ -6,6 +6,11 @@ name: ota sign
 # We sign headlessly and publish status-<rid>.json, manifest-<rid>.plist and
 # Pageturner-<rid>.ipa onto the rolling `ota-latest` release. The page polls
 # the status asset through its own function endpoint.
+#
+# Linux runner: the self-hosted anisette server (Dadoum/Provision) needs
+# OpenSSL + libcurl, which ubuntu-latest already has; the Windows build wants
+# DLLs it doesn't ship. A private ADI machine identity per run also dodges
+# Apple's flagging of the shared public anisette servers.
 on:
   repository_dispatch:
     types: [ota-sign]
@@ -19,9 +24,13 @@ concurrency:
   group: ota-sign
   cancel-in-progress: false
 
+env:
+  ANISETTE_VER: "2.2.0"
+  ANISETTE_SHA256: "56f1a34ef86d07fca501957bcef64594f40aea5f9cdce5dac5d9d9edde3bb754"
+
 jobs:
   sign:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -34,25 +43,45 @@ jobs:
 
       - name: Mask dispatched secrets in logs
         run: |
-          if ($env:OTA_PW)   { echo "::add-mask::$env:OTA_PW" }
-          if ($env:OTA_2FA)  { echo "::add-mask::$env:OTA_2FA" }
+          [ -n "$OTA_PW" ] && echo "::add-mask::$OTA_PW" || true
+          [ -n "$OTA_2FA" ] && echo "::add-mask::$OTA_2FA" || true
         env:
           OTA_PW: ${{ github.event.client_payload.password }}
           OTA_2FA: ${{ github.event.client_payload.twofa }}
 
-      - name: Restore anisette identity (2FA retries reuse the same device-id)
+      - name: Restore anisette + ADI identity (2FA retries reuse them)
         env:
           GH_TOKEN: ${{ github.token }}
           RID: ${{ github.event.client_payload.request_id }}
         run: |
-          mkdir cache -Force | Out-Null
-          gh release download ota-latest -p "anisette-$env:RID.json" -D cache --clobber
-          if ($LASTEXITCODE -ne 0) { Write-Host "no cached anisette — first run for $env:RID" }
-          exit 0
+          mkdir -p cache
+          gh release download ota-latest -p "anisette-$RID.json" -D cache --clobber || \
+            echo "no cached anisette — first run for $RID"
+          gh release download ota-latest -p "adi-$RID.tar.gz" -D cache --clobber && \
+            tar -xzf "cache/adi-$RID.tar.gz" -C cache || \
+            echo "no cached ADI state — first run for $RID"
+
+      - name: Start local anisette server
+        run: |
+          curl -fsSL -o anisette-server \
+            "https://github.com/Dadoum/Provision/releases/download/$ANISETTE_VER/anisette-server-x86_64"
+          echo "$ANISETTE_SHA256  anisette-server" | sha256sum -c -
+          chmod +x anisette-server
+          mkdir -p cache/adi
+          ./anisette-server --init-only --adi-path "$PWD/cache/adi"
+          nohup ./anisette-server -n 127.0.0.1 -p 16969 --adi-path "$PWD/cache/adi" \
+            > anisette.log 2>&1 &
+          for i in $(seq 1 24); do
+            curl -sf -m 5 http://127.0.0.1:16969 > /dev/null && break
+            sleep 5
+          done
+          curl -fsS -m 15 http://127.0.0.1:16969 || { cat anisette.log; exit 1; }
 
       - name: Sign
         run: |
-          python installer/main.py ota-sign --out-dir out --anisette-file "cache/anisette-$env:PTINSTALL_OTA_REQUEST_ID.json"
+          python installer/main.py ota-sign --out-dir out \
+            --anisette remote --anisette-url "http://127.0.0.1:16969" \
+            --anisette-file "cache/anisette-$PTINSTALL_OTA_REQUEST_ID.json"
           exit 0  # outcome lives in the status file, not the exit code
         env:
           PTINSTALL_OTA_REQUEST_ID: ${{ github.event.client_payload.request_id }}
@@ -70,19 +99,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RID: ${{ github.event.client_payload.request_id }}
         run: |
-          if (-not (Test-Path out)) { mkdir out | Out-Null }
-          if (-not (Test-Path "out/status-$env:RID.json")) {
-            @{request_id=$env:RID; state="failed"; detail="runner crashed before writing status"} |
-              ConvertTo-Json | Out-File "out/status-$env:RID.json" -Encoding utf8
-          }
-          if (Test-Path "cache/anisette-$env:RID.json") {
-            Copy-Item "cache/anisette-$env:RID.json" "out/anisette-$env:RID.json"
-          }
-          gh release view ota-latest 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create ota-latest --title "OTA signing output" --prerelease `
+          mkdir -p out
+          [ -f "out/status-$RID.json" ] || \
+            echo "{\"request_id\":\"$RID\",\"state\":\"failed\",\"detail\":\"runner crashed before writing status\"}" \
+              > "out/status-$RID.json"
+          [ -f "cache/anisette-$RID.json" ] && cp "cache/anisette-$RID.json" "out/" || true
+          [ -d cache/adi ] && tar -czf "out/adi-$RID.tar.gz" -C cache adi || true
+          gh release view ota-latest >/dev/null 2>&1 || \
+            gh release create ota-latest --title "OTA signing output" --prerelease \
               --notes "Artifacts for the install page — named by request id."
-          }
-          Get-ChildItem out -File | ForEach-Object {
-            gh release upload ota-latest $_.FullName --clobber
-          }
+          for f in out/*; do gh release upload ota-latest "$f" --clobber; done
