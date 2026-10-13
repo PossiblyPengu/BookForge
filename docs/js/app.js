@@ -220,7 +220,7 @@ const initHelp = async () => {
   $("set-install").addEventListener("click", showInstallHelp);
   if (isStandalone()) $("set-install-state").textContent = "Installed";
   $("set-ios-app").addEventListener("click", () => {
-    location.href = "/install.html";
+    location.href = "/install";
   });
   // the welcome screen offers installing too, until it's done
   $("empty-install-btn").hidden = isStandalone();
