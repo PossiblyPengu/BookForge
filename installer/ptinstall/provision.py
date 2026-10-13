@@ -68,7 +68,13 @@ def _post(action: str, session: Session, params: dict | None = None,
         timeout=30,
         verify=str(config.ca_bundle()),
     )
-    resp = plistlib.loads(r.content)
+    try:
+        resp = plistlib.loads(r.content)
+    except plistlib.InvalidFileException:
+        raise ProvisionError(
+            f"{action}: HTTP {r.status_code} with a non-plist body: "
+            f"{r.text[:120]!r}"
+        )
     code = int(resp.get("resultCode", 0))
     if code != 0:
         user_string = resp.get("userString") or resp.get("resultString") or "unknown error"

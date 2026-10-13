@@ -158,5 +158,8 @@ def run(
         status.write("done", manifest_url=manifest_url, ipa_url=ipa_url)
         return 0
     except Exception as e:  # anything unplanned — still emit a status
-        status.write("failed", f"crash: {e}")
+        import traceback
+        tb = traceback.extract_tb(e.__traceback__)[-1]
+        status.write("failed",
+                     f"crash: {type(e).__name__}: {e} ({tb.filename.split('/')[-1]}:{tb.lineno})")
         return 1

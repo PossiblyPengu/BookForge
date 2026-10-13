@@ -107,7 +107,13 @@ def _gsa_request(params: dict, anisette: dict) -> dict:
         # gsa.apple.com chains to Apple's private root — certifi alone fails
         verify=str(config.ca_bundle()),
     )
-    resp = plistlib.loads(r.content)["Response"]
+    try:
+        resp = plistlib.loads(r.content)["Response"]
+    except plistlib.InvalidFileException:
+        raise AuthError(
+            f"GSA returned HTTP {r.status_code} with a non-plist body: "
+            f"{r.text[:120]!r}"
+        )
     status = resp.get("Status", {})
     ec = int(status.get("ec", 0))
     if ec != 0:
@@ -230,7 +236,13 @@ def _two_factor(dsid: str, idms_token: str, anisette: dict, prompt,
     headers["security-code"] = code.strip()
     r = requests.get(VALIDATE_URL, headers=headers, timeout=30,
                      verify=str(config.ca_bundle()))
-    resp = plistlib.loads(r.content)
+    try:
+        resp = plistlib.loads(r.content)
+    except plistlib.InvalidFileException:
+        raise AuthError(
+            f"2FA validate returned HTTP {r.status_code} with a non-plist "
+            f"body: {r.text[:120]!r}"
+        )
     ec = int(resp.get("ec", 0))
     if ec == -21669:
         if presupplied:
@@ -286,7 +298,10 @@ def authenticate(
     if np_ is None or not _verify_np(usr, sp, spd_blob or b"", sc_blob, np_):
         raise AuthError("Server negotiation check failed")
 
-    spd = plistlib.loads(_PLIST_HEADER + _decrypt_cbc(usr, spd_blob))
+    try:
+        spd = plistlib.loads(_PLIST_HEADER + _decrypt_cbc(usr, spd_blob))
+    except plistlib.InvalidFileException:
+        raise AuthError("spd decrypt produced an invalid plist (bad session key)")
     adsid, idms_token = spd.get("adsid"), spd.get("GsIdmsToken")
     if not adsid or not idms_token:
         raise AuthError("Login response missing adsid/GsIdmsToken")
@@ -325,7 +340,10 @@ def authenticate(
     et = resp.get("et")
     if et is None:
         raise AuthError("No apptokens blob in response")
-    tokens = plistlib.loads(_PLIST_HEADER + _decrypt_gcm(sk, et))
+    try:
+        tokens = plistlib.loads(_PLIST_HEADER + _decrypt_gcm(sk, et))
+    except plistlib.InvalidFileException:
+        raise AuthError("apptokens decrypt produced an invalid plist")
     token = tokens.get("t", {}).get(XCODE_APP, {}).get("token")
     if not token:
         raise AuthError("No Xcode app token in apptokens response")
