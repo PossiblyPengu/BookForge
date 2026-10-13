@@ -47,11 +47,12 @@ enum DebugScenario {
          {"userBookId":"u3","bookId":"b3","title":"The Dispossessed","author":"Ursula K. Le Guin","status":"want_to_read","upNext":2},
          {"userBookId":"u4","bookId":"b4","title":"Hyperion","author":"Dan Simmons","status":"reading","percent":64,"format":"paper"},
          {"userBookId":"u5","bookId":"b5","title":"Emma","author":"Jane Austen","status":"read","rating":4},
-         {"userBookId":"u6","bookId":"b6","title":"Walden","author":"Henry David Thoreau","status":"dnf"}]
+         {"userBookId":"u6","bookId":"b6","title":"Walden","author":"Henry David Thoreau","status":"abandoned"}]
         """) ?? []
         let together: BMTogether? = decode("""
         {"partner":{"name":"Sam","online":true,"reading":{"title":"Dune","author":"Frank Herbert","percent":41}},
          "nudges":[{"id":"n1","note":"You would love this one","fromName":"Sam","title":"Piranesi","author":"Susanna Clarke"}],
+         "sent":[{"id":"s1","status":"pending","note":"Your turn","title":"Emma","toName":"Sam"}],
          "notices":[]}
         """)
         let overview: BMOverview? = decode("""
@@ -60,7 +61,65 @@ enum DebugScenario {
                   {"id":"g2","type":"monthly_books","target":2,"current":1,"progress":0.5}],
          "recentAchievements":[{"id":"a1","name":"Week-long streak","icon":"🔥"},{"id":"a2","name":"Ten books","icon":"📚"}]}
         """)
-        BookMaster.shared.debugLink(shelf: shelf, together: together, overview: overview)
+        let bm = BookMaster.shared
+        bm.debugLink(shelf: shelf, together: together, overview: overview)
+        bm.debugStats = decode("""
+        {"xp":4120,"level":7,"xpForNext":5200,"xpProgress":0.62,"currentStreak":12,"longestStreak":31,
+         "booksFinished":18,"totalPages":6140,"minutesRead":5230,"quotesSaved":44,"authorsRead":11,"genresRead":6,
+         "recentActivity":[{"session_date":"2024-05-01","pages":88,"sessions":2},
+                           {"session_date":"2024-05-03","pages":41,"sessions":1}],
+         "currentlyReading":[{"id":"u1","current_page":150,"status":"reading","format":"ebook",
+                              "title":"Moby-Dick","author":"Herman Melville","total_pages":600}]}
+        """)
+        bm.debugPartnerShelf = decode("""
+        {"partner":{"id":"u2","name":"Sam","level":6,"xp":3600},"year":2024,"booksThisYear":9,"pagesThisYear":3020,
+         "stats":{"currentStreak":5,"minutesRead":2810},
+         "books":[{"id":"p1","book_id":"b9","status":"read","current_page":400,"format":"ebook","rating":5,
+                   "title":"Dune","author":"Frank Herbert","total_pages":400,"percent":100},
+                  {"id":"p2","book_id":"b2","status":"reading","current_page":120,"format":"ebook","rating":null,
+                   "title":"Piranesi","author":"Susanna Clarke","total_pages":250,"percent":48}]}
+        """)
+        let quotesReply: BMQuotesReply? = decode("""
+        {"quotes":[{"id":"q1","userBookId":"u1","content":"It is a way I have of driving off the spleen.",
+                    "type":"quote","pageNumber":41,"created_at":"2024-04-02","title":"Moby-Dick","author":"Herman Melville"},
+                   {"id":"q2","userBookId":"u5","content":"Half agony, half hope.","type":"note","pageNumber":null,
+                    "created_at":"2024-03-18","title":"Emma","author":"Jane Austen"}]}
+        """)
+        bm.debugQuotes = quotesReply?.quotes
+        let achievementsReply: BMAchievementsReply? = decode("""
+        {"achievements":[{"id":"a1","name":"Week-long streak","description":"Read seven days in a row","icon":"🔥",
+                          "category":"streak","xp_reward":20,"earned":true,"earned_at":"2024-04-01","progress":1},
+                         {"id":"a2","name":"Twenty books","description":"Finish twenty books","icon":"📚",
+                          "category":"books","xp_reward":50,"earned":false,"progress":0.9}]}
+        """)
+        bm.debugAchievements = achievementsReply?.achievements
+        bm.debugWrapped = decode("""
+        {"year":2024,"booksRead":18,"pagesRead":6140,"sessionsCount":96,"topGenre":"Sci-Fi","bestDay":"Sunday",
+         "longestBook":{"title":"Moby-Dick","author":"Herman Melville","total_pages":600},
+         "fastestBook":{"title":"Emma","author":"Jane Austen","days":3},
+         "longestSession":{"title":"Dune","duration_minutes":140},
+         "firstBook":{"title":"Emma","start_date":"2024-01-03"},
+         "lastBook":{"title":"Piranesi","finish_date":"2024-11-30"},
+         "monthlyActivity":[{"month":"01","sessions":9,"pages":420},{"month":"02","sessions":7,"pages":310}]}
+        """)
+        bm.debugRecommendations = decode("""
+        {"authors":["Frank Herbert","Ursula K. Le Guin"],"subjects":["Sci-Fi","Classic"],
+         "partner":{"name":"Sam"},
+         "partnerPicks":[{"open_library_id":"OL1","title":"The Left Hand of Darkness","author":"Ursula K. Le Guin",
+                          "rating":5,"genres":["Sci-Fi"],"published_year":1969,"total_pages":304}]}
+        """)
+        bm.debugDetail = decode("""
+        {"catalogue":{"id":"b1","title":"Moby-Dick","author":"Herman Melville","total_pages":600,
+                      "published_year":1851,"description":"The whale, again.","genres":"[\\"Classic\\"]"},
+         "book":{"userBookId":"u1","bookId":"b1","title":"Moby-Dick","author":"Herman Melville",
+                 "status":"reading","percent":25,"rating":null,"currentPage":150,"totalPages":600},
+         "theirs":{"name":"Sam","status":"read","rating":5,"percent":100,"finish_date":"2024-03-01"},
+         "sessions":[{"id":"s1","pages_start":100,"pages_end":150,"duration_minutes":80,"session_date":"2024-05-01"}],
+         "quotes":[{"id":"q1","content":"It is a way I have of driving off the spleen.","type":"quote","page_number":41}],
+         "comments":[{"id":"c1","content":"Wait until the end.","user_id":"u2","display_name":"Sam",
+                      "at_percent":90,"ahead":true,"created_at":"2024-04-01"}],
+         "you":"u1","at_percent":25}
+        """)
     }
 
     static func run(library: LibraryStore, router: AppRouter, selectTab: @escaping (AppTab) -> Void) async {
@@ -83,16 +142,18 @@ enum DebugScenario {
         switch screen {
         case "library": selectTab(.library)
         case "reading": selectTab(.reading)
-        case "stats", "together", "shelf": selectTab(.together)
+        case "stats", "together", "shelf", "bmbook",
+             "bmprogress", "bmtogether", "bmquotes", "bmdiscover", "bmsearch", "bmwrapped":
+            selectTab(.together)
         case "search": selectTab(.search)
         case "settings": router.showSettings = true
         case "detail": router.detail = text
         case "edit": router.editing = text
         case "shelves": if let text { router.openShelves([text.id]) }
-        case "reader": router.reading = text
-        case "pdf": router.reading = library.books.first { $0.ext == "pdf" }
-        case "cbz": router.reading = library.books.first { $0.ext == "cbz" }
-        case "player": if let audio { PlaybackCoordinator.shared.start(audio, library: library) }
+        case "reader": router.reading = text; selectTab(.reading)
+        case "pdf": router.reading = library.books.first { $0.ext == "pdf" }; selectTab(.reading)
+        case "cbz": router.reading = library.books.first { $0.ext == "cbz" }; selectTab(.reading)
+        case "player": if let audio { PlaybackCoordinator.shared.start(audio, library: library); selectTab(.reading) }
         case "link": router.showLink = true
         case "resume":
             // BookMaster has Alice at 62% and this phone has never opened her: opening asks

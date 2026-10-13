@@ -6,7 +6,14 @@ import SwiftUI
 struct NowPlayingView: View {
     @ObservedObject var player: AudioPlayer
     let onStop: () -> Void
+    /// Set inside the Reading tab: leaving switches tabs rather than dismissing a sheet.
+    var onClose: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+
+    /// The way off the player — the Reading tab's switch, or the sheet's dismiss.
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
+    }
     @State private var scrubbing: TimeInterval?
     @State private var tint: Color = .ptAccent
     @State private var showChapters = false
@@ -75,7 +82,7 @@ struct NowPlayingView: View {
 
     private var topBar: some View {
         HStack {
-            PTIconButton(systemImage: "chevron.down", label: "Close player") { dismiss() }
+            PTIconButton(systemImage: "chevron.down", label: "Close player") { close() }
             Spacer()
             Menu {
                 if player.chapters.count > 1 {

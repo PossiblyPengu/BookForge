@@ -2,7 +2,8 @@ import Foundation
 import Observation
 
 /// Owns the one audiobook that is playing, so it keeps playing when the
-/// player screen is dismissed and the mini player can show it anywhere.
+/// player is left and the mini player can show it anywhere. The Reading tab
+/// is where the player lives — there is no separate player screen.
 @Observable
 @MainActor
 final class PlaybackCoordinator {
@@ -10,27 +11,23 @@ final class PlaybackCoordinator {
 
     private(set) var player: AudioPlayer?
     private(set) var bookID: UUID?
-    /// Whether the Now Playing sheet is up.
-    var showNowPlaying = false
 
     var isActive: Bool { player != nil }
 
     private init() {}
 
     /// Open a book's audio. Choosing the book that is already loaded just
-    /// brings its player back up instead of restarting it.
+    /// points the Reading tab back at it instead of restarting it.
     func start(_ book: Book, library: LibraryStore) {
         if bookID == book.id, let player {
             // a restart or a jump to BookMaster's place may have changed the record since it loaded
             player.adopt(library.books.first { $0.id == book.id } ?? book)
-            showNowPlaying = true
             return
         }
         stop()
         let next = AudioPlayer(book: book, library: library)
         player = next
         bookID = book.id
-        showNowPlaying = true
         Task { await next.open() }
     }
 
@@ -39,6 +36,5 @@ final class PlaybackCoordinator {
         player?.close()
         player = nil
         bookID = nil
-        showNowPlaying = false
     }
 }

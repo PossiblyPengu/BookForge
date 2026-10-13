@@ -49,7 +49,8 @@ func runShelfChecks() {
           !groups.contains { $0.title == "Want to read" })
     check("every row is in exactly one group", groups.flatMap(\.rows).count == missing.count)
     check("statuses read as people say them", BMShelf.label(forStatus: "want_to_read") == "Want to read"
-          && BMShelf.label(forStatus: "dnf") == "Didn’t finish" && BMShelf.label(forStatus: "on_hold") == "On Hold")
+          && BMShelf.label(forStatus: "abandoned") == "Abandoned" && BMShelf.label(forStatus: "dnf") == "Abandoned"
+          && BMShelf.label(forStatus: "on_hold") == "On Hold")
 
     check("a jacket comes from the ISBN, else the Open Library id, else none",
           row("a", "T", nil, "read", isbn: "9780441172719").coverURL?.absoluteString.contains("/isbn/9780441172719-M.jpg") == true

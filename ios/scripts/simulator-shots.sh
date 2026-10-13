@@ -68,6 +68,13 @@ shot 07-together 6 -PTDebugScreen together
 shot 72-reading-now 8 -PTDebugScreen reading
 shot 70-bookmaster 8 -PTDebugSeed 1 -PTDebugLinked 1 -PTDebugScreen together
 shot 71-bookmaster-shelf 10 -PTDebugSeed 1 -PTDebugLinked 1 -PTDebugScreen shelf
+shot 73-bookmaster-progress 10 -PTDebugSeed 1 -PTDebugLinked 1 -PTDebugScreen bmprogress
+shot 74-bookmaster-together 10 -PTDebugSeed 1 -PTDebugLinked 1 -PTDebugScreen bmtogether
+shot 75-bookmaster-quotes 10 -PTDebugSeed 1 -PTDebugLinked 1 -PTDebugScreen bmquotes
+shot 76-bookmaster-discover 10 -PTDebugSeed 1 -PTDebugLinked 1 -PTDebugScreen bmdiscover
+shot 77-bookmaster-find 10 -PTDebugSeed 1 -PTDebugLinked 1 -PTDebugScreen bmsearch
+shot 78-bookmaster-wrapped 10 -PTDebugSeed 1 -PTDebugLinked 1 -PTDebugScreen bmwrapped
+shot 79-bookmaster-book 10 -PTDebugSeed 1 -PTDebugLinked 1 -PTDebugScreen bmbook
 shot 08-search 6 -PTDebugScreen search
 shot 09-settings 6 -PTDebugScreen settings
 shot 10-player 8 -PTDebugScreen player

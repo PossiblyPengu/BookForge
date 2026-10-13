@@ -6,8 +6,6 @@ import SwiftUI
 /// with an optional way to add its file.
 struct BookMasterShelfView: View {
     @EnvironmentObject private var library: LibraryStore
-    @Environment(AppRouter.self) private var router
-    @State private var chosen: BMShelfRow?
     /// Which shelf row is which book in the library — worked out when either changes, not on every redraw.
     @State private var owned: [String: UUID] = [:]
 
@@ -36,11 +34,11 @@ struct BookMasterShelfView: View {
             ForEach(groups) { group in
                 Section(group.title) {
                     ForEach(group.rows) { row in
-                        let book = local(row)
-                        Button {
-                            if let book { router.open(book, library: library) } else { chosen = row }
-                        } label: { ShelfRowView(row: row, inLibrary: book != nil) }
-                            .buttonStyle(.plain)
+                        NavigationLink {
+                            BookMasterDetailView(pin: row.userBookId)
+                        } label: {
+                            ShelfRowView(row: row, inLibrary: local(row) != nil)
+                        }
                     }
                 }
             }
@@ -48,7 +46,6 @@ struct BookMasterShelfView: View {
         .navigationTitle("Your Shelf")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await BookMaster.shared.pullShelf(into: library) }
-        .sheet(item: $chosen) { ShelfBookSheet(row: $0) }
         // again when a book is added, removed, renamed or tied to a row, or the shelf changes
         .task(id: library.books.map { "\($0.id)\($0.title)\($0.author)\($0.bookmasterId ?? "")" }.hashValue
                     ^ BookMaster.shared.shelfRows.hashValue) { matchBooks() }
@@ -100,60 +97,5 @@ private struct ShelfCover: View {
     }
 }
 
-/// A shelf book with no file here: where it stands on BookMaster, and a way to bring its file in.
-private struct ShelfBookSheet: View {
-    let row: BMShelfRow
-    @EnvironmentObject private var library: LibraryStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var importing = false
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    HStack(spacing: 14) {
-                        ShelfCover(row: row).frame(width: 64, height: 96)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(row.title).font(.headline)
-                            if let author = row.author, !author.isEmpty { Text(author).foregroundStyle(.secondary) }
-                        }
-                    }
-                }
-                Section("Where it stands") {
-                    LabeledContent("Status", value: BMShelf.label(forStatus: row.status) + (row.upNext != nil ? " · up next" : ""))
-                    if let percent = row.percent { LabeledContent("Position", value: "\(Int(percent.rounded()))%") }
-                    if let rating = row.rating, rating > 0 {
-                        LabeledContent("Rating", value: String(repeating: "★", count: min(rating, 5)))
-                    }
-                    if row.isAudio { LabeledContent("Format", value: "Audiobook") }
-                }
-                Section {
-                    Button { importing = true } label: { Label("Add a File to Read Here…", systemImage: "square.and.arrow.down") }
-                } footer: {
-                    Text("Optional. This book is on your shelf without a file in Pageturner — a paper copy, or read elsewhere. If you have the EPUB, PDF or audio, add it and Pageturner ties it to this shelf entry so your place and rating stay in step.")
-                }
-            }
-            .navigationTitle("On BookMaster")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .fileImporter(isPresented: $importing, allowedContentTypes: LibraryView.pickerTypes, allowsMultipleSelection: true) { result in
-                guard case let .success(urls) = result else { return }
-                Task { await bringIn(urls) }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    /// Import, and when that made exactly one new book, tie it to this row whatever its file says it is called.
-    private func bringIn(_ urls: [URL]) async {
-        let before = Set(library.books.map(\.id))
-        await library.importFiles(urls)
-        let added = library.books.filter { !before.contains($0.id) }
-        if added.count == 1 {
-            let pin = row.userBookId
-            library.updateBookMaster(added[0].id) { $0.bookmasterId = pin }
-        }
-        await BookMaster.shared.pullShelf(into: library)
-        dismiss()
-    }
-}
+/// A shelf book with no file here now lives on the book's detail page —
+/// `BookMasterDetailView` shows where it stands and brings the file in.

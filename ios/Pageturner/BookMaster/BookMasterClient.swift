@@ -19,7 +19,7 @@ final class BookMaster {
     private(set) var user: BMUser?
     /// One-line message for the UI to show once (achievements, a dead link).
     var notice: String?
-    /// Where the reader is, in Pageturner's words: library, reader, player, settings.
+    /// Where the reader is, in Pageturner's words: library, reader, player, bookmaster, settings.
     var place = "library"
 
     var isLinked: Bool { user != nil }
@@ -32,6 +32,13 @@ final class BookMaster {
     /// CI simulator run: a linked reader with a shelf and numbers, and no server (Debug/DebugScenario.swift).
     var debugTogether: BMTogether?
     var debugOverview: BMOverview?
+    var debugDetail: BMBookDetail?
+    var debugQuotes: [BMQuote]?
+    var debugAchievements: [BMAchievementFull]?
+    var debugStats: BMStatBlock?
+    var debugPartnerShelf: BMPartnerShelf?
+    var debugWrapped: BMWrapped?
+    var debugRecommendations: BMRecommendations?
 
     func debugLink(shelf: [BMShelfRow], together: BMTogether?, overview: BMOverview?) {
         user = BMUser(username: "debug", displayName: "Debug Reader")
@@ -346,6 +353,173 @@ final class BookMaster {
         guard (200..<300).contains(status) else {
             throw BMError.server(status, Self.errorMessage(data))
         }
+    }
+
+    // MARK: The deeper reads
+
+    /// A decoded GET behind the link check and the refusal handling, so the
+    /// deeper reads all read the same.
+    private func fetch<T: Decodable>(_ path: String, query: [String: String] = [:]) async throws -> T {
+        guard let user else { throw BMError.notLinked }
+        var q = query
+        q["username"] = user.username
+        let (data, status) = try await get(path, query: q)
+        guard (200..<300).contains(status) else {
+            handleRefusal(status: status, data: data)
+            throw BMError.server(status, Self.errorMessage(data))
+        }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// One book the way BookMaster's detail page knows it — pinned by shelf
+    /// row or catalogue id, or folded from a title the way a push resolves.
+    func fetchBookDetail(pin: String? = nil, bookId: String? = nil,
+                       title: String? = nil, author: String? = nil,
+                       reveal: Bool = false) async throws -> BMBookDetail {
+        #if DEBUG
+        if let debugDetail { return debugDetail }
+        #endif
+        var query: [String: String] = [:]
+        if let pin { query["ub"] = pin }
+        else if let bookId { query["book"] = bookId }
+        else if let title {
+            query["title"] = title
+            if let author { query["author"] = author }
+        }
+        if reveal { query["reveal"] = "1" }
+        return try await fetch("book", query: query)
+    }
+
+    /// Every kept line and note, or only one shelf row's.
+    func fetchQuotes(pin: String? = nil) async throws -> [BMQuote] {
+        #if DEBUG
+        if let debugQuotes { return debugQuotes }
+        #endif
+        var query: [String: String] = [:]
+        if let pin { query["ub"] = pin }
+        let reply: BMQuotesReply = try await fetch("quotes", query: query)
+        return reply.quotes
+    }
+
+    /// The full badge wall — earned and how far the rest have got.
+    func fetchAchievements() async throws -> [BMAchievementFull] {
+        #if DEBUG
+        if let debugAchievements { return debugAchievements }
+        #endif
+        let reply: BMAchievementsReply = try await fetch("achievements")
+        return reply.achievements
+    }
+
+    /// The stat block the Progress pane leads with.
+    func fetchStats() async throws -> BMStatBlock {
+        #if DEBUG
+        if let debugStats { return debugStats }
+        #endif
+        return try await fetch("stats")
+    }
+
+    /// The other reader's shelf, year and numbers.
+    func fetchPartnerShelf() async throws -> BMPartnerShelf {
+        #if DEBUG
+        if let debugPartnerShelf { return debugPartnerShelf }
+        #endif
+        return try await fetch("partner-shelf")
+    }
+
+    /// The year in books — this year when none is named.
+    func fetchWrapped(year: Int? = nil) async throws -> BMWrapped {
+        #if DEBUG
+        if let debugWrapped { return debugWrapped }
+        #endif
+        var query: [String: String] = [:]
+        if let year { query["year"] = String(year) }
+        return try await fetch("wrapped", query: query)
+    }
+
+    /// What to read next — the lanes BookMaster works out from both shelves.
+    func fetchRecommendations() async throws -> BMRecommendations {
+        #if DEBUG
+        if let debugRecommendations { return debugRecommendations }
+        #endif
+        return try await fetch("recommendations")
+    }
+
+    /// A shelf change the way BookMaster's PUT /library/:id makes it:
+    /// pin the row for a status, rating or up-next change (or `unshelve`),
+    /// or pass a `ref` to put a book on a shelf the way a push resolves it.
+    /// `rating` is a double Optional — `.some(nil)` clears the stars.
+    /// Returns the row as it now stands; `extra` carries catalogue facts an
+    /// add knows (cover_url, total_pages, published_year, description).
+    @discardableResult
+    func shelve(
+        pin: String? = nil,
+        ref: BMBookRef? = nil,
+        status: BMShelfStatus? = nil,
+        rating: Int?? = nil,
+        upNext: Bool? = nil,
+        format: String? = nil,
+        unshelve: Bool = false,
+        extra: [String: Any] = [:]
+    ) async throws -> BMShelfWriteReply {
+        guard let user else { throw BMError.notLinked }
+        var json: [String: Any] = ["username": user.username]
+        if let pin { json["user_book_id"] = pin }
+        if let ref,
+           let data = try? JSONEncoder().encode(ref),
+           let fields = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for (k, v) in fields { json[k] = v }
+        }
+        for (k, v) in extra { json[k] = v }
+        if let status { json["status"] = status.rawValue }
+        if let rating { json["rating"] = rating ?? NSNull() }
+        if let upNext { json["upNext"] = upNext }
+        if let format { json["format"] = format }
+        if unshelve { json["unshelve"] = true }
+
+        let body = try JSONSerialization.data(withJSONObject: json)
+        let (data, code) = try await postResolving("shelf", body: body)
+        guard (200..<300).contains(code) else {
+            handleRefusal(status: code, data: data)
+            throw BMError.server(code, Self.errorMessage(data))
+        }
+        let reply = try JSONDecoder().decode(BMShelfWriteReply.self, from: data)
+        announce(reply.newAchievements)
+        if unshelve, let pin { dropShelfRow(pin) }
+        else if let row = reply.userBook { applyShelfRow(row) }
+        return reply
+    }
+
+    /// A row that is yours to take back — a session logged by accident, a
+    /// quote, a comment.
+    enum BMRemovable: String {
+        case session, quote, comment
+    }
+
+    func remove(_ kind: BMRemovable, id: String) async throws {
+        guard let user else { throw BMError.notLinked }
+        let body = try JSONSerialization.data(withJSONObject: [
+            "username": user.username, "kind": kind.rawValue, "id": id,
+        ])
+        let (data, status) = try await post("remove", body: body)
+        guard (200..<300).contains(status) else {
+            throw BMError.server(status, Self.errorMessage(data))
+        }
+    }
+
+    /// One row changed, straight into the cached shelf so screens stay right
+    /// before the next pull — and offline too.
+    private func applyShelfRow(_ row: BMShelfRow) {
+        if let i = shelfRows.firstIndex(where: { $0.userBookId == row.userBookId }) {
+            shelfRows[i] = row
+        } else {
+            shelfRows.append(row)
+        }
+        if let data = try? JSONEncoder().encode(shelfRows) { defaults.set(data, forKey: shelfKey) }
+    }
+
+    private func dropShelfRow(_ pin: String) {
+        shelfRows.removeAll { $0.userBookId == pin }
+        if let data = try? JSONEncoder().encode(shelfRows) { defaults.set(data, forKey: shelfKey) }
     }
 
     // MARK: Sending

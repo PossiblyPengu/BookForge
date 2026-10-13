@@ -11,8 +11,15 @@ struct BookMasterView: View {
     @State private var together: BMTogether?
     @State private var overview: BMOverview?
     @State private var showShelf = false
+    @State private var debugScreen: BMScreen?
     @State private var error: String?
     @State private var loading = true
+
+    /// The deeper pages, for the simulator's -PTDebugScreen names.
+    enum BMScreen: String, Identifiable {
+        case progress, together, quotes, discover, find, wrapped, book
+        var id: String { rawValue }
+    }
 
     var body: some View {
         NavigationStack {
@@ -26,10 +33,12 @@ struct BookMasterView: View {
                 // this phone's own record — with BookMaster linked its streaks and totals are the ones above
                 LocalStatsSection(compact: linked)
                 if linked {
+                    placesSection
                     shelfSection
                     if let together {
                         partnerSection(together.partner)
                         if !together.nudges.isEmpty { nudgeSection(together.nudges) }
+                        if !together.sent.isEmpty { sentSection(together.sent) }
                         if !together.notices.isEmpty { noticeSection(together.notices) }
                     }
                     if let error { Section { Text(error).foregroundStyle(.secondary) } }
@@ -39,8 +48,31 @@ struct BookMasterView: View {
                 }
             }
             .navigationDestination(isPresented: $showShelf) { BookMasterShelfView() }
+            .navigationDestination(item: $debugScreen) { screen in
+                switch screen {
+                case .progress: BookMasterProgressView()
+                case .together: BookMasterTogetherView()
+                case .quotes: BookMasterQuotesView()
+                case .discover: BookMasterDiscoverView()
+                case .find: BookMasterSearchView()
+                case .wrapped: BookMasterWrappedView()
+                case .book: BookMasterDetailView(pin: "u1")
+                }
+            }
             #if DEBUG
-            .task { if UserDefaults.standard.string(forKey: "PTDebugScreen") == "shelf" { showShelf = true } }
+            .task {
+                switch UserDefaults.standard.string(forKey: "PTDebugScreen") {
+                case "shelf": showShelf = true
+                case "bmprogress": debugScreen = .progress
+                case "bmtogether": debugScreen = .together
+                case "bmquotes": debugScreen = .quotes
+                case "bmdiscover": debugScreen = .discover
+                case "bmsearch": debugScreen = .find
+                case "bmwrapped": debugScreen = .wrapped
+                case "bmbook": debugScreen = .book
+                default: break
+                }
+            }
             #endif
             .navigationTitle("BookMaster")
             .navigationBarTitleDisplayMode(embedded ? .large : .inline)
@@ -52,12 +84,56 @@ struct BookMasterView: View {
             .refreshable { await load() }
             // again when the account is linked or unlinked while the tab is up
             .task(id: BookMaster.shared.isLinked) { await load() }
-            .onAppear { if embedded { BookMaster.shared.place = "stats" } }
+            .onAppear { if embedded { BookMaster.shared.place = "bookmaster" } }
             .onDisappear { if embedded { BookMaster.shared.place = "library" } }
         }
     }
 
     private var linked: Bool { BookMaster.shared.isLinked }
+
+    /// The way to every part of BookMaster the bridge reaches — the glance
+    /// rows below stay glance-sized; these open the whole pages.
+    private var placesSection: some View {
+        Section {
+            NavigationLink {
+                BookMasterProgressView()
+            } label: {
+                Label("Progress", systemImage: "chart.line.uptrend.xyaxis")
+            }
+            NavigationLink {
+                BookMasterShelfView()
+            } label: {
+                Label("Your Shelf", systemImage: "books.vertical")
+            }
+            NavigationLink {
+                BookMasterTogetherView()
+            } label: {
+                Label("Together", systemImage: "person.2")
+            }
+            NavigationLink {
+                BookMasterQuotesView()
+            } label: {
+                Label("Quotes & notes", systemImage: "quote.bubble")
+            }
+            NavigationLink {
+                BookMasterDiscoverView()
+            } label: {
+                Label("What to read next", systemImage: "sparkles")
+            }
+            NavigationLink {
+                BookMasterSearchView()
+            } label: {
+                Label("Find a book", systemImage: "magnifyingglass")
+            }
+            NavigationLink {
+                BookMasterWrappedView()
+            } label: {
+                Label("The year so far", systemImage: "calendar")
+            }
+        } footer: {
+            Text("Streaks, the shelf, the other reader, quotes, suggestions and the year’s wrap — all of BookMaster, in here.")
+        }
+    }
 
     /// Not linked yet: the way in, in a line.
     private var linkSection: some View {
@@ -203,6 +279,24 @@ struct BookMasterView: View {
                             .buttonStyle(.bordered)
                     }
                     .controlSize(.small)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    /// Suggestions of yours still out with the other reader.
+    private func sentSection(_ sent: [BMSentNudge]) -> some View {
+        Section("Waiting on them") {
+            ForEach(sent) { nudge in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(nudge.title).font(.headline)
+                    Text("To \(nudge.toName) · \(nudge.status)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    if let note = nudge.note, !note.isEmpty {
+                        Text("“\(note)”").font(.callout)
+                    }
                 }
                 .padding(.vertical, 2)
             }

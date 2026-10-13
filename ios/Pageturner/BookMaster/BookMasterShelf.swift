@@ -118,7 +118,7 @@ extension BMShelf {
         case "reading": return "Reading"
         case "read": return "Read"
         case "want_to_read": return "Want to read"
-        case "dnf": return "Didn’t finish"
+        case "dnf", "abandoned": return "Abandoned"
         default: return status.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }

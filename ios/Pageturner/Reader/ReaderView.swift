@@ -17,8 +17,18 @@ struct ReaderView: View {
     @State private var exportFile: ShareItem?
     @State private var copied = false
 
-    init(book: Book, library: LibraryStore) {
+    /// Set inside the Reading tab: leaving the book switches tabs rather than
+    /// dismissing anything. Nil keeps the cover-style dismissal.
+    private let onBack: (() -> Void)?
+
+    init(book: Book, library: LibraryStore, onBack: (() -> Void)? = nil) {
         _model = StateObject(wrappedValue: ReaderModel(book: book, library: library))
+        self.onBack = onBack
+    }
+
+    /// The way out of the book — the Reading tab's switch, or the presentation's dismiss.
+    private func goBack() {
+        if let onBack { onBack() } else { dismiss() }
     }
 
     /// The page's own light or dark — the chrome, the sheets and the status bar follow it.
@@ -186,7 +196,7 @@ struct ReaderView: View {
                 Text(message)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
-                Button("Back to Library") { dismiss() }
+                Button("Back to Library") { goBack() }
                     .buttonStyle(.borderedProminent)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -198,7 +208,7 @@ struct ReaderView: View {
     private var header: some View {
         PTGlassGroup(spacing: 10) {
             HStack(spacing: 10) {
-                PTIconButton(systemImage: "chevron.left", label: "Back to library") { dismiss() }
+                PTIconButton(systemImage: "chevron.left", label: "Back to library") { goBack() }
 
                 VStack(spacing: 0) {
                     Text(model.book.title)

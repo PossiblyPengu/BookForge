@@ -7,7 +7,6 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var library: LibraryStore
     @State private var router = AppRouter()
-    @State private var tab: AppTab = .library
     private let playback = PlaybackCoordinator.shared
     private let bookMaster = BookMaster.shared
     private let notifier = Notifier.shared
@@ -15,7 +14,7 @@ struct RootView: View {
 
     var body: some View {
         // grouped, so no one expression is a long chain the compiler has to solve at once
-        routing(alerts(bookSheets(screens(shell))))
+        routing(alerts(bookSheets(shell)))
             .tint(.ptAccent)
             // outermost, so the tabs and everything presented over them can read it
             .environment(router)
@@ -27,7 +26,7 @@ struct RootView: View {
         content
             .onChange(of: notifier.openTogether, initial: true) { _, open in
                 guard open else { return }
-                tab = .together
+                router.tab = .together
                 notifier.openTogether = false
             }
             .onChange(of: intents.request, initial: true) { _, request in
@@ -37,7 +36,7 @@ struct RootView: View {
             }
             #if DEBUG
             // CI simulator run: launch arguments choose a screen (Debug/DebugScenario.swift)
-            .task { await DebugScenario.run(library: library, router: router) { tab = $0 } }
+            .task { await DebugScenario.run(library: library, router: router) { router.tab = $0 } }
             #endif
     }
 
@@ -53,22 +52,6 @@ struct RootView: View {
     }
 
     // MARK: Presentations
-
-    /// The reader and the player, over everything.
-    private func screens<V: View>(_ content: V) -> some View {
-        @Bindable var r = router
-        @Bindable var p = playback
-        return content
-            .fullScreenCover(item: $r.reading) { book in
-                ReaderView(book: book, library: library)
-            }
-            .sheet(isPresented: $p.showNowPlaying) {
-                if let player = playback.player {
-                    NowPlayingView(player: player) { playback.stop() }
-                        .presentationDragIndicator(.visible)
-                }
-            }
-    }
 
     /// A book's detail, its edit form, shelves and Settings.
     private func bookSheets<V: View>(_ content: V) -> some View {
@@ -213,9 +196,10 @@ struct RootView: View {
 
     @available(iOS 26.1, *)
     private var modernShell: some View {
-        TabView(selection: $tab) {
+        @Bindable var r = router
+        return TabView(selection: $r.tab) {
             Tab("Reading", systemImage: "book", value: AppTab.reading) {
-                ReadingNowView(onBrowse: { tab = .library })
+                ReadingTabView()
             }
             Tab("Library", systemImage: "books.vertical", value: AppTab.library) {
                 LibraryView()
@@ -229,12 +213,13 @@ struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
-        .tabViewBottomAccessory(isEnabled: playback.isActive) { miniPlayer }
+        .tabViewBottomAccessory(isEnabled: showMiniPlayer) { miniPlayer }
     }
 
     private var classicShell: some View {
-        TabView(selection: $tab) {
-            withMiniPlayer(ReadingNowView(onBrowse: { tab = .library }))
+        @Bindable var r = router
+        return TabView(selection: $r.tab) {
+            withMiniPlayer(ReadingTabView())
                 .tabItem { Label("Reading", systemImage: "book") }
                 .tag(AppTab.reading)
             withMiniPlayer(LibraryView())
@@ -252,10 +237,16 @@ struct RootView: View {
 
     // MARK: Pieces
 
+    /// The mini player steps aside while the full player fills the Reading
+    /// tab; reading an ebook with audio going keeps it, as the way back.
+    private var showMiniPlayer: Bool {
+        playback.player != nil && !(router.tab == .reading && router.reading == nil)
+    }
+
     @ViewBuilder
     private var miniPlayer: some View {
         if let player = playback.player {
-            MiniPlayer(player: player) { playback.showNowPlaying = true }
+            MiniPlayer(player: player) { router.tab = .reading }
         }
     }
 
@@ -263,8 +254,8 @@ struct RootView: View {
     /// above the tab bar as an inset of each tab.
     private func withMiniPlayer<V: View>(_ content: V) -> some View {
         content.safeAreaInset(edge: .bottom, spacing: 0) {
-            if let player = playback.player {
-                MiniPlayer(player: player) { playback.showNowPlaying = true }
+            if showMiniPlayer, let player = playback.player {
+                MiniPlayer(player: player) { router.tab = .reading }
                     .padding(.vertical, 8)
                     .background(.bar)
             }
