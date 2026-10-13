@@ -1,0 +1,6 @@
+requests>=2.31,<3
+srp>=1.0.20,<2
+cryptography>=41,<46
+pymobiledevice3>=4.14,<5
+# Optional: local anisette generation (no remote anisette server needed).
+# pip install pyprovision

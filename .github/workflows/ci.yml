@@ -44,3 +44,18 @@ jobs:
 
       - name: Test
         run: npm test
+
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r installer/requirements.txt
+      - name: Compile check
+        run: python -m compileall -q installer/ptinstall
+      - name: Import smoke test
+        working-directory: installer
+        run: python -c "import ptinstall.cli, ptinstall.pipeline, ptinstall.gsa, ptinstall.provision, ptinstall.device, ptinstall.signing, ptinstall.anisette, ptinstall.release"
