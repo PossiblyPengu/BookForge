@@ -25,8 +25,9 @@ import requests
 
 from . import config
 
-# SideStore runs public anisette servers; any anisette-v3 endpoint works.
-DEFAULT_ANISETTE_URL = "https://ani.sidestore.io"
+# SideStore/StikStore run public anisette servers; any anisette-v3 endpoint
+# works. (ani.sidestore.io went dark 2026-10; isideload's default is this.)
+DEFAULT_ANISETTE_URL = "https://ani.stikstore.app"
 
 
 class AnisetteError(RuntimeError):
