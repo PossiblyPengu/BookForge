@@ -1,0 +1,189 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="eng">
+  <head>
+    <meta content="e62253d5-f3cd-417f-b850-f2afe8c937f8" name="dtb:uid"/>
+    <meta content="2" name="dtb:depth"/>
+    <meta content="calibre (4.22.0)" name="dtb:generator"/>
+    <meta content="0" name="dtb:totalPageCount"/>
+    <meta content="0" name="dtb:maxPageNumber"/>
+  </head>
+  <docTitle>
+    <text>Negative Space</text>
+  </docTitle>
+  <navMap>
+    <navPoint class="chapter" id="num_1" playOrder="0">
+      <navLabel>
+        <text>TITLE</text>
+      </navLabel>
+      <content src="text/part0002.html#1T140-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_2" playOrder="1">
+      <navLabel>
+        <text>COPYRIGHT</text>
+      </navLabel>
+      <content src="text/part0003.html#2RHM0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_3" playOrder="2">
+      <navLabel>
+        <text>CONTENTS</text>
+      </navLabel>
+      <content src="text/part0006.html#5N3C0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_4" playOrder="3">
+      <navLabel>
+        <text>ONE</text>
+      </navLabel>
+      <content src="text/part0007.html#6LJU0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_5" playOrder="4">
+      <navLabel>
+        <text>TWO</text>
+      </navLabel>
+      <content src="text/part0008.html#7K4G0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_6" playOrder="5">
+      <navLabel>
+        <text>THREE</text>
+      </navLabel>
+      <content src="text/part0009.html#8IL20-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_7" playOrder="6">
+      <navLabel>
+        <text>FOUR</text>
+      </navLabel>
+      <content src="text/part0010.html#9H5K0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_8" playOrder="7">
+      <navLabel>
+        <text>FIVE</text>
+      </navLabel>
+      <content src="text/part0011.html#AFM60-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_9" playOrder="8">
+      <navLabel>
+        <text>SIX</text>
+      </navLabel>
+      <content src="text/part0012.html#BE6O0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_10" playOrder="9">
+      <navLabel>
+        <text>SEVEN</text>
+      </navLabel>
+      <content src="text/part0013.html#CCNA0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_11" playOrder="10">
+      <navLabel>
+        <text>EIGHT</text>
+      </navLabel>
+      <content src="text/part0014.html#DB7S0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_12" playOrder="11">
+      <navLabel>
+        <text>NINE</text>
+      </navLabel>
+      <content src="text/part0015.html#E9OE0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_13" playOrder="12">
+      <navLabel>
+        <text>TEN</text>
+      </navLabel>
+      <content src="text/part0016.html#F8900-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_14" playOrder="13">
+      <navLabel>
+        <text>ELEVEN</text>
+      </navLabel>
+      <content src="text/part0017.html#G6PI0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_15" playOrder="14">
+      <navLabel>
+        <text>TWELVE</text>
+      </navLabel>
+      <content src="text/part0018.html#H5A40-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_16" playOrder="15">
+      <navLabel>
+        <text>THIRTEEN</text>
+      </navLabel>
+      <content src="text/part0019.html#I3QM0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_17" playOrder="16">
+      <navLabel>
+        <text>FOURTEEN</text>
+      </navLabel>
+      <content src="text/part0020.html#J2B80-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_18" playOrder="17">
+      <navLabel>
+        <text>FIFTEEN</text>
+      </navLabel>
+      <content src="text/part0021.html#K0RQ0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_19" playOrder="18">
+      <navLabel>
+        <text>SIXTEEN</text>
+      </navLabel>
+      <content src="text/part0022.html#KVCC0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_20" playOrder="19">
+      <navLabel>
+        <text>SEVENTEEN</text>
+      </navLabel>
+      <content src="text/part0023.html#LTSU0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_21" playOrder="20">
+      <navLabel>
+        <text>EIGHTEEN</text>
+      </navLabel>
+      <content src="text/part0024.html#MSDG0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_22" playOrder="21">
+      <navLabel>
+        <text>NINETEEN</text>
+      </navLabel>
+      <content src="text/part0025.html#NQU20-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_23" playOrder="22">
+      <navLabel>
+        <text>TWENTY</text>
+      </navLabel>
+      <content src="text/part0026.html#OPEK0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_24" playOrder="23">
+      <navLabel>
+        <text>TWENTY-ONE</text>
+      </navLabel>
+      <content src="text/part0027.html#PNV60-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_25" playOrder="24">
+      <navLabel>
+        <text>TWENTY-TWO</text>
+      </navLabel>
+      <content src="text/part0028.html#QMFO0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_26" playOrder="25">
+      <navLabel>
+        <text>TWENTY-THREE</text>
+      </navLabel>
+      <content src="text/part0029.html#RL0A0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_27" playOrder="26">
+      <navLabel>
+        <text>TWENTY-FOUR</text>
+      </navLabel>
+      <content src="text/part0030.html#SJGS0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_28" playOrder="27">
+      <navLabel>
+        <text>TWENTY-FIVE</text>
+      </navLabel>
+      <content src="text/part0031.html#TI1E0-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+    <navPoint class="chapter" id="num_29" playOrder="28">
+      <navLabel>
+        <text>TWENTY-SIX</text>
+      </navLabel>
+      <content src="text/part0032.html#UGI00-9604a0bfb941435f9cfc25dbd50751bb"/>
+    </navPoint>
+  </navMap>
+</ncx>

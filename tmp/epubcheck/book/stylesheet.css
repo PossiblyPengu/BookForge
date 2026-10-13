@@ -1,0 +1,149 @@
+.calibre {
+    display: block;
+    font-size: 1em;
+    line-height: 130%;
+    text-align: left;
+    margin: 0 5pt;
+    padding: 0% 0
+    }
+.calibre1 {
+    font-style: italic
+    }
+.calibre2 {
+    display: block;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 2em;
+    margin: 0
+    }
+.calibre3 {
+    height: auto;
+    width: 100%
+    }
+.calibre4 {
+    height: 100%;
+    width: auto
+    }
+.calibre5 {
+    font-weight: bold
+    }
+.center {
+    display: block;
+    line-height: 130%;
+    text-align: center;
+    text-indent: 0;
+    margin: 0 0%
+    }
+.left {
+    display: block;
+    line-height: 130%;
+    text-align: left;
+    text-indent: 2em;
+    margin: 0 0%
+    }
+.noindent {
+    display: block;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 0;
+    margin: 0
+    }
+.noindent1 {
+    display: block;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 0;
+    margin: 0 0 0 2em
+    }
+.paraoverride {
+    display: block;
+    font-weight: 100;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 0;
+    margin: 1em 0 0
+    }
+.paraoverride1 {
+    display: block;
+    line-height: 150%;
+    text-align: justify;
+    text-indent: 0;
+    margin: 0
+    }
+.paraoverride2 {
+    display: block;
+    font-weight: 100;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 0;
+    margin: 1em 4em 0
+    }
+.paraoverride3 {
+    display: block;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 0;
+    margin: 0 4em
+    }
+.paraoverride4 {
+    display: block;
+    font-weight: 100;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 0;
+    margin: 0 4em
+    }
+.paraoverride5 {
+    display: block;
+    font-weight: 100;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 0;
+    margin: 0
+    }
+.paraoverride6 {
+    display: block;
+    font-weight: 100;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 0;
+    margin: 1em 2em 0
+    }
+.paraoverride7 {
+    display: block;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 0;
+    margin: 0 2em
+    }
+.sgc-toc-level {
+    display: block;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 0;
+    margin: 0.5em 0 0
+    }
+.title {
+    display: block;
+    font-size: 1em;
+    font-weight: 100;
+    line-height: 130%;
+    text-align: center;
+    margin: 0
+    }
+.title1 {
+    display: block;
+    font-size: 2em;
+    font-weight: 100;
+    line-height: 130%;
+    text-align: center;
+    margin: 0 0 1em
+    }
+.pcalibre1:link {
+    color: blue;
+    text-decoration: underline
+    }
+.pcalibre:active {
+    color: blue;
+    text-decoration: underline
+    }
