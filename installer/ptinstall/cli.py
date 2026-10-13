@@ -19,7 +19,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import config, device, gsa, pipeline, release, signing
+from . import config, device, gsa, ota, pipeline, release, signing
 
 
 def _prompt(prompt="Code: "):
@@ -92,6 +92,30 @@ def cmd_install(args):
     )
 
 
+def cmd_ota_sign(args):
+    """Headless OTA signing — invoked by the ota-sign workflow. Secrets arrive
+    via PTINSTALL_OTA_* env vars so they never appear in argv/logs."""
+    env = os.environ.get
+    sys.exit(
+        ota.run(
+            request_id=args.request_id or env("PTINSTALL_OTA_REQUEST_ID", ""),
+            udid=args.udid or env("PTINSTALL_OTA_UDID", ""),
+            apple_id=args.apple_id or env("PTINSTALL_OTA_APPLE_ID", ""),
+            password=args.password or env("PTINSTALL_OTA_PASSWORD"),
+            twofa=args.twofa or env("PTINSTALL_OTA_TWOFA", ""),
+            device_name=args.device_name
+                or env("PTINSTALL_OTA_DEVICE_NAME", "iPhone"),
+            ipa_path=args.ipa,
+            anisette_mode=args.anisette,
+            anisette_url=args.anisette_url or env("PTINSTALL_ANISETTE_URL"),
+            anisette_file=args.anisette_file,
+            out_dir=args.out_dir,
+            host=args.host or env("PTINSTALL_OTA_HOST", ota.DEFAULT_HOST),
+            nonce=args.nonce or env("PTINSTALL_OTA_NONCE", ""),
+        )
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="ptinstall",
@@ -144,6 +168,27 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("refresh", parents=[install_args],
                         help="weekly re-sign-and-push — same as install")
     sp.set_defaults(fn=cmd_install)
+
+    sp = sub.add_parser("ota-sign",
+                        help="headless OTA signing for the install page "
+                             "(CI use — emits IPA + manifest + status JSON)")
+    sp.add_argument("--request-id")
+    sp.add_argument("--udid")
+    sp.add_argument("--apple-id")
+    sp.add_argument("--password")
+    sp.add_argument("--twofa", help="trusted-device code from the page")
+    sp.add_argument("--device-name")
+    sp.add_argument("--ipa", type=Path)
+    sp.add_argument("--anisette", choices=["auto", "local", "remote"],
+                    default="auto")
+    sp.add_argument("--anisette-url")
+    sp.add_argument("--anisette-file", type=Path,
+                    help="persist the anisette identity across 2FA retries")
+    sp.add_argument("--out-dir", type=Path, required=True)
+    sp.add_argument("--host", help="install page origin for manifest URLs")
+    sp.add_argument("--nonce", help="echoed into the status file so the page "
+                                    "can match a run to its dispatch")
+    sp.set_defaults(fn=cmd_ota_sign)
 
     return p
 

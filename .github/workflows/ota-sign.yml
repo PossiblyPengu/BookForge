@@ -1,0 +1,88 @@
+name: ota sign
+
+# Backend for the install page (docs/install.html). The page dispatches
+# `repository_dispatch` type `ota-sign` with client_payload:
+#   {request_id, udid, apple_id, password, twofa?, device_name?}
+# We sign headlessly and publish status-<rid>.json, manifest-<rid>.plist and
+# Pageturner-<rid>.ipa onto the rolling `ota-latest` release. The page polls
+# the status asset through its own function endpoint.
+on:
+  repository_dispatch:
+    types: [ota-sign]
+  workflow_dispatch: {}  # smoke-test path: payload fields come from envs
+
+permissions:
+  contents: write
+
+concurrency:
+  # Never cancel: a 2FA retry is a second dispatch and must not kill the first.
+  group: ota-sign
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r installer/requirements.txt
+
+      - name: Mask dispatched secrets in logs
+        run: |
+          if ($env:OTA_PW)   { echo "::add-mask::$env:OTA_PW" }
+          if ($env:OTA_2FA)  { echo "::add-mask::$env:OTA_2FA" }
+        env:
+          OTA_PW: ${{ github.event.client_payload.password }}
+          OTA_2FA: ${{ github.event.client_payload.twofa }}
+
+      - name: Restore anisette identity (2FA retries reuse the same device-id)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RID: ${{ github.event.client_payload.request_id }}
+        run: |
+          mkdir cache -Force | Out-Null
+          gh release download ota-latest -p "anisette-$env:RID.json" -D cache --clobber
+          if ($LASTEXITCODE -ne 0) { Write-Host "no cached anisette — first run for $env:RID" }
+          exit 0
+
+      - name: Sign
+        run: |
+          python installer/main.py ota-sign --out-dir out --anisette-file "cache/anisette-$env:PTINSTALL_OTA_REQUEST_ID.json"
+          exit 0  # outcome lives in the status file, not the exit code
+        env:
+          PTINSTALL_OTA_REQUEST_ID: ${{ github.event.client_payload.request_id }}
+          PTINSTALL_OTA_UDID: ${{ github.event.client_payload.udid }}
+          PTINSTALL_OTA_APPLE_ID: ${{ github.event.client_payload.apple_id }}
+          PTINSTALL_OTA_PASSWORD: ${{ github.event.client_payload.password }}
+          PTINSTALL_OTA_TWOFA: ${{ github.event.client_payload.twofa }}
+          PTINSTALL_OTA_DEVICE_NAME: ${{ github.event.client_payload.device_name }}
+          PTINSTALL_OTA_HOST: ${{ vars.OTA_HOST }}
+          PTINSTALL_OTA_NONCE: ${{ github.event.client_payload.nonce }}
+
+      - name: Publish artifacts to ota-latest
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RID: ${{ github.event.client_payload.request_id }}
+        run: |
+          if (-not (Test-Path out)) { mkdir out | Out-Null }
+          if (-not (Test-Path "out/status-$env:RID.json")) {
+            @{request_id=$env:RID; state="failed"; detail="runner crashed before writing status"} |
+              ConvertTo-Json | Out-File "out/status-$env:RID.json" -Encoding utf8
+          }
+          if (Test-Path "cache/anisette-$env:RID.json") {
+            Copy-Item "cache/anisette-$env:RID.json" "out/anisette-$env:RID.json"
+          }
+          gh release view ota-latest 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create ota-latest --title "OTA signing output" --prerelease `
+              --notes "Artifacts for the install page — named by request id."
+          }
+          Get-ChildItem out -File | ForEach-Object {
+            gh release upload ota-latest $_.FullName --clobber
+          }

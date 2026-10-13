@@ -116,6 +116,37 @@ Env vars: `PTINSTALL_APPLE_ID`, `PTINSTALL_APPLE_PASSWORD`,
   `installation_proxy` through the iOS 17+ RSD shim. Nothing Apple-proprietary
   is needed on the PC.
 
+## Webpage install (no PC at all)
+
+`docs/install.html` + `docs/functions/api/install/[action].js` + the
+`ota-sign` workflow give a phone-only flow on the deployed Pages site:
+
+1. On the iPhone open `https://<your-pages-domain>/install.html`
+2. "Register this iPhone" installs a Profile Service `.mobileconfig`; iOS
+   posts the UDID back to the page (one-time)
+3. Enter the site passphrase + Apple ID + password → the page dispatches
+   `ota-sign` on Actions, which runs `ptinstall ota-sign` headlessly:
+   GSA login → register UDID → cert + profile → zsign → signed IPA +
+   manifest on the `ota-latest` release
+4. If Apple wants 2FA, the code push appears on your trusted devices —
+   type it into the page (same request id reuses the anisette identity)
+5. "Install Pageturner" is an `itms-services` link — iOS fetches the
+   manifest + IPA and installs natively. Weekly refresh = same form again.
+
+Required Pages project env vars (fail-closed — unset means the routes
+503/403):
+
+- `GITHUB_DISPATCH_TOKEN` — PAT with `repo` scope on this repo
+- `INSTALL_GATE` — the passphrase that unlocks dispatch + status reads
+- `OTA_REPO` — optional `owner/name` override
+
+`OTA_HOST` (repo *variable*) overrides the install-page origin baked into
+manifests; default `https://pageturner.pages.dev`.
+
+Request ids are unguessable — the rid in a manifest/IPA URL is its own
+bearer token. Note the signed IPA + profile sit on a *public* release
+under random names; for stronger privacy make the repo private.
+
 ## Untested-on-live-hardware bits
 
 The Apple-ID login + 2FA and the phone pairing/install path are implemented

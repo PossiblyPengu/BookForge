@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pageturner — iPhone install</title>
+<style>
+  :root {
+    --accent: #cd844f; --accent-press: #b06938;
+    --bg: #0e0b09; --raised: #1e1915; --sheet: #2c2520;
+    --fill: rgba(244,236,226,.08);
+    --text: #f4ece2; --text-2: #ad9d8d; --text-3: #9e8c7c;
+    --ok: #7fb069; --err: #e07a5f;
+  }
+  * { box-sizing: border-box }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, system-ui, sans-serif;
+    display: flex; justify-content: center; padding: 24px 16px 60px;
+  }
+  main { width: 100%; max-width: 460px }
+  h1 { font-size: 22px; margin: 8px 0 2px }
+  .sub { color: var(--text-3); font-size: 14px; margin-bottom: 24px }
+  .card {
+    background: var(--raised); border-radius: 14px; padding: 18px;
+    margin-bottom: 16px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 10px; color: var(--accent) }
+  .card p { margin: 8px 0; color: var(--text-2); font-size: 14px }
+  label { display: block; font-size: 13px; color: var(--text-3); margin: 12px 0 4px }
+  input {
+    width: 100%; padding: 11px 12px; border-radius: 9px; border: 1px solid var(--fill);
+    background: var(--sheet); color: var(--text); font-size: 16px;
+  }
+  input:focus { outline: 1px solid var(--accent); border-color: var(--accent) }
+  button, .btn {
+    display: block; width: 100%; margin-top: 14px; padding: 13px;
+    border: 0; border-radius: 10px; background: var(--accent); color: #14100c;
+    font-size: 16px; font-weight: 600; text-align: center; text-decoration: none;
+    cursor: pointer;
+  }
+  button:active, .btn:active { background: var(--accent-press) }
+  button.ghost { background: var(--fill); color: var(--text) }
+  #status {
+    margin-top: 14px; padding: 12px; border-radius: 9px; background: var(--sheet);
+    font-size: 14px; color: var(--text-2); white-space: pre-wrap; display: none;
+  }
+  #status.err { color: var(--err) }
+  #status.ok { color: var(--ok) }
+  .mono { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all }
+  .steps { color: var(--text-3); font-size: 13px; margin: 10px 0 0; padding-left: 18px }
+  .steps li { margin: 4px 0 }
+  .fine { font-size: 12px; color: var(--text-3); margin-top: 20px }
+  details { font-size: 13px; color: var(--text-3); margin-top: 14px }
+  details summary { cursor: pointer }
+  a { color: var(--accent) }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pageturner</h1>
+  <div class="sub">Install the iOS app straight from this page — no computer.</div>
+
+  <section class="card" id="card-device" hidden>
+    <h2>1 · Register this iPhone</h2>
+    <p>Apple doesn't expose the device UDID to websites. Install this tiny
+       profile once — it hands the UDID back to this page and deletes nothing
+       (it's unsigned, so iOS will warn; that's expected).</p>
+    <a class="btn" href="/api/install/mobileconfig">Download device profile</a>
+    <ol class="steps">
+      <li>Tap <b>Allow</b> on the profile download prompt</li>
+      <li>Settings → <b>Profile Downloaded</b> → Install</li>
+      <li>You'll land back here with the UDID filled in</li>
+      <li>Then delete the profile: Settings → General → VPN &amp; Device Management</li>
+    </ol>
+  </section>
+
+  <section class="card" id="card-sign" hidden>
+    <h2><span id="stepnum">2</span> · Sign with your Apple ID</h2>
+    <p id="devinfo" class="mono"></p>
+    <label for="gate">Site passphrase</label>
+    <input id="gate" type="password" autocomplete="off" placeholder="the passphrase set on this deployment">
+    <label for="appleid">Apple ID</label>
+    <input id="appleid" type="email" autocomplete="username" placeholder="you@example.com">
+    <label for="pw">Apple ID password</label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <button id="go">Sign &amp; install</button>
+    <div id="status"></div>
+    <div id="twofa" hidden>
+      <label for="code">Code Apple pushed to your devices</label>
+      <input id="code" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="000000">
+      <button id="go2">Submit code</button>
+    </div>
+    <div id="install" hidden>
+      <a class="btn" id="installbtn" href="#">Install Pageturner</a>
+      <p>iOS will ask to confirm, then installs like any App Store app.
+         Enable <b>Developer Mode</b> if you haven't:
+         Settings → Privacy &amp; Security → Developer Mode.</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Notes</h2>
+    <p>Free Apple IDs get a <b>7-day certificate</b>. When the app stops
+       opening, come back here and run the same form again — your UDID and
+       App ID are already registered, so it's password → install, about a
+       minute. Your data carries over.</p>
+    <p>The password is sent only to this site's dispatch endpoint and into the
+       signing run — it is never stored. The passphrase and Apple ID live in
+       this browser's localStorage.</p>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const LS = { gate: "pt_gate", apple: "pt_apple_id", udid: "pt_udid", rid: "pt_rid" };
+const qp = new URLSearchParams(location.search);
+
+let udid = qp.get("udid") || localStorage.getItem(LS.udid) || "";
+const device = qp.get("device") || "";
+const osv = qp.get("os") || "";
+if (udid) localStorage.setItem(LS.udid, udid);
+let rid = localStorage.getItem(LS.rid) || "";
+let lastNonce = "";
+let poll = null;
+
+$("card-device").hidden = !!udid;
+$("card-sign").hidden = !udid;
+if (udid) $("devinfo").textContent =
+  `UDID ${udid.slice(0, 8)}… · ${device || "iPhone"} · iOS ${osv || "?"}`;
+$("gate").value = localStorage.getItem(LS.gate) || "";
+$("appleid").value = localStorage.getItem(LS.apple) || "";
+
+function say(msg, cls = "") {
+  const s = $("status");
+  s.textContent = msg; s.className = cls; s.style.display = "block";
+}
+
+async function dispatch(twofa = "") {
+  const gate = $("gate").value.trim();
+  const apple_id = $("appleid").value.trim();
+  const password = $("pw").value;
+  if (!gate || !apple_id || !password) return say("Passphrase, Apple ID and password are all required.", "err");
+  localStorage.setItem(LS.gate, gate);
+  localStorage.setItem(LS.apple, apple_id);
+  if (!rid) { rid = crypto.randomUUID().replace(/-/g, "").slice(0, 16); localStorage.setItem(LS.rid, rid); }
+  lastNonce = crypto.randomUUID();
+  const r = await fetch("/api/install/dispatch?gate=" + encodeURIComponent(gate), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      request_id: rid, udid, apple_id, password, twofa, nonce: lastNonce,
+      device_name: device ? `${device} (web)` : "iPhone (web)",
+    }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { say("Dispatch failed: " + (j.error || r.status), "err"); return false; }
+  return true;
+}
+
+async function tick() {
+  const gate = localStorage.getItem(LS.gate) || "";
+  const r = await fetch(`/api/install/status?rid=${rid}&gate=${encodeURIComponent(gate)}`);
+  const j = await r.json().catch(() => ({}));
+  const state = j.state || "pending";
+  // The run echoes the nonce of the dispatch that produced it — a status
+  // without our nonce is a leftover from an earlier attempt under this rid.
+  if (j.nonce !== undefined && j.nonce !== lastNonce) return;
+  if (state === "pending" || state === "working") {
+    say("Signing… first run takes a minute or two.");
+  } else if (state === "needs-2fa") {
+    stopPoll();
+    say("Apple wants the 6-digit code it pushed to your devices.");
+    $("twofa").hidden = false;
+  } else if (state === "done") {
+    stopPoll();
+    say("Signed. Tap install below.", "ok");
+    const m = j.manifest_url;
+    $("installbtn").href =
+      "itms-services://?action=download-manifest&url=" + encodeURIComponent(m);
+    $("install").hidden = false;
+    $("twofa").hidden = true;
+  } else {
+    stopPoll();
+    say("Failed: " + (j.detail || "unknown"), "err");
+  }
+}
+function startPoll() { stopPoll(); tick(); poll = setInterval(tick, 6000); }
+function stopPoll() { if (poll) clearInterval(poll); poll = null; }
+
+$("go").onclick = async () => {
+  $("install").hidden = true; $("twofa").hidden = true;
+  say("Dispatching…");
+  if (await dispatch()) { say("Signing… first run takes a minute or two."); startPoll(); }
+};
+$("go2").onclick = async () => {
+  const code = $("code").value.trim();
+  if (!/^\d{6}$/.test(code)) return say("Enter the 6-digit code.", "err");
+  $("twofa").hidden = true;
+  say("Validating code…");
+  if (await dispatch(code)) { say("Signing…"); startPoll(); }
+};
+</script>
+</body>
+</html>

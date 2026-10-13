@@ -202,16 +202,24 @@ def _xcode_headers(anisette: dict, identity_token: str | None = None) -> dict:
     return headers
 
 
-def _two_factor(dsid: str, idms_token: str, anisette: dict, prompt) -> None:
-    """Trusted-device 2FA: trigger the prompt, then validate the typed code."""
+def _two_factor(dsid: str, idms_token: str, anisette: dict, prompt,
+                code: str | None = None) -> None:
+    """Trusted-device 2FA: trigger the prompt, then validate the typed code.
+
+    ``code`` pre-supplied (the headless/OTA path) skips the verify request —
+    a fresh push would invalidate the code the user just typed. If that code
+    is rejected anyway we push a fresh prompt so the next try has a live one.
+    """
     identity_token = base64.b64encode(f"{dsid}:{idms_token}".encode()).decode()
     headers = _xcode_headers(anisette, identity_token)
-    # Triggers the code prompt on the user's trusted devices.
-    requests.get(VERIFY_TRUSTED_URL, headers=headers, timeout=30)
-    code = prompt(
-        "A verification code was sent to your trusted Apple devices.\n"
-        "Enter the 6-digit code: "
-    )
+    presupplied = code is not None and bool(code.strip())
+    if not presupplied:
+        # Triggers the code prompt on the user's trusted devices.
+        requests.get(VERIFY_TRUSTED_URL, headers=headers, timeout=30)
+        code = prompt(
+            "A verification code was sent to your trusted Apple devices.\n"
+            "Enter the 6-digit code: "
+        )
     if not code:
         raise NeedsTwoFactor("No verification code entered.")
     headers["security-code"] = code.strip()
@@ -219,6 +227,12 @@ def _two_factor(dsid: str, idms_token: str, anisette: dict, prompt) -> None:
     resp = plistlib.loads(r.content)
     ec = int(resp.get("ec", 0))
     if ec == -21669:
+        if presupplied:
+            requests.get(VERIFY_TRUSTED_URL, headers=headers, timeout=30)
+            raise NeedsTwoFactor(
+                "That code was rejected — a fresh one was just pushed "
+                "to your trusted devices."
+            )
         raise NeedsTwoFactor("Verification code was incorrect.")
     if ec != 0:
         raise AuthError(f"2FA validation failed: {resp.get('em')} ({ec})")
@@ -229,8 +243,10 @@ def authenticate(
     password: str,
     anisette: dict,
     twofa_prompt=None,
+    twofa_code: str | None = None,
 ) -> Session:
-    """Full GSA login. ``twofa_prompt(message) -> str`` is called for the 2FA code."""
+    """Full GSA login. ``twofa_prompt(message) -> str`` is called for the 2FA
+    code; ``twofa_code`` supplies it directly (one-shot, no prompt)."""
     usr = srp.User(apple_id, bytes(), hash_alg=srp.SHA256, ng_type=srp.NG_2048)
     _, A = usr.start_authentication()
 
@@ -270,11 +286,12 @@ def authenticate(
 
     status = resp.get("Status", {})
     if status.get("au") in ("trustedDeviceSecondaryAuth", "secondaryAuth"):
-        if twofa_prompt is None:
+        if twofa_prompt is None and not twofa_code:
             raise NeedsTwoFactor("Account requires two-factor authentication.")
-        _two_factor(adsid, idms_token, anisette, twofa_prompt)
+        _two_factor(adsid, idms_token, anisette, twofa_prompt, code=twofa_code)
         # Trusted now — run the whole login again.
-        return authenticate(apple_id, password, anisette, twofa_prompt)
+        return authenticate(apple_id, password, anisette, twofa_prompt,
+                            twofa_code=twofa_code)
     if "au" in status:
         raise AuthError(f"Unhandled auth type {status['au']!r}")
 
