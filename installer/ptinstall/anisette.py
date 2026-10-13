@@ -107,10 +107,17 @@ def _local_otp() -> dict:
 
 
 def _fetch_otp(url: str) -> dict:
+    """The server's whole identity header set, not just the OTP pair.
+
+    The MD/MD-M belong to the machine the server describes — borrowing its
+    device-id/serial/locale too keeps the claimed identity coherent. Apple
+    now cross-checks these (mismatched anisette is a -80045 cause).
+    """
     r = requests.get(url, timeout=15, headers={"User-Agent": "Pageturner-installer"})
     r.raise_for_status()
     h = r.json()
-    return {"X-Apple-I-MD": h["X-Apple-I-MD"], "X-Apple-I-MD-M": h["X-Apple-I-MD-M"]}
+    keep = ("X-Apple-", "X-Mme-", "loc")
+    return {k: v for k, v in h.items() if k.startswith(keep)}
 
 
 def _remote_otp(url: str | None = None) -> dict:

@@ -138,7 +138,8 @@ def _gsa_request(params: dict, anisette: dict) -> dict:
             "Content-Type": "text/x-xml-plist",
             "Accept": "*/*",
             "User-Agent": USER_AGENT,
-            "X-MMe-Client-Info": CLIENT_INFO,
+            # Prefer the anisette machine's own client-info — coherent identity
+            "X-MMe-Client-Info": anisette.get("X-Mme-Client-Info", CLIENT_INFO),
         },
         data=plistlib.dumps(body),
     )
@@ -235,7 +236,7 @@ def _xcode_headers(anisette: dict, identity_token: str | None = None) -> dict:
         "X-Apple-App-Info": XCODE_APP,
         "X-Xcode-Version": "11.2 (11B41)",
         "X-Mme-Device-Id": anisette.get("X-Mme-Device-Id", ""),
-        "X-MMe-Client-Info": CLIENT_INFO,
+        "X-MMe-Client-Info": anisette.get("X-Mme-Client-Info", CLIENT_INFO),
         "X-Apple-I-MD-M": anisette.get("X-Apple-I-MD-M", ""),
         "X-Apple-I-MD": anisette.get("X-Apple-I-MD", ""),
         "X-Apple-I-MD-LU": anisette.get("X-Apple-I-MD-LU", ""),

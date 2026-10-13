@@ -68,6 +68,21 @@ jobs:
           echo "$ANISETTE_SHA256  anisette-server" | sha256sum -c -
           chmod +x anisette-server
           mkdir -p cache/adi
+          # Provision the ADI machine as a Pixel 7 running Apple's AuthKit —
+          # Apple's edge lets Android identities sign in where Xcode/macOS
+          # ones are currently refused (the -80045 wave, isideload's fix).
+          # Only seed when no device.json exists yet — retries reuse the
+          # machine restored from adi-<rid>.tar.gz.
+          [ -f cache/adi/device.json ] || python - <<'PY'
+          import json, secrets, uuid
+          json.dump({
+              "UUID": str(uuid.uuid4()).upper(),
+              "clientInfo": "<Pixel 7> <Android;14;UQ1A.240205.002> "
+                            "<com.apple.AuthKit/1 (com.apple.akd/1.0)>",
+              "identifier": secrets.token_hex(8),
+              "localUUID": secrets.token_hex(32).upper(),
+          }, open("cache/adi/device.json", "w"))
+          PY
           ./anisette-server --init-only --adi-path "$PWD/cache/adi"
           nohup ./anisette-server -n 127.0.0.1 -p 16969 --adi-path "$PWD/cache/adi" \
             > anisette.log 2>&1 &
