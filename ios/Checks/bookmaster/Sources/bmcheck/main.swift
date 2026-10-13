@@ -46,7 +46,7 @@ func waitForBookMaster(up: Bool, seconds: Int = 60) -> Bool {
 
 // Library data: dates, authors, and old files — no servers needed.
 @MainActor
-func runData() {
+func runData() async {
     section("Dates (the 31-year drift)")
     func mk() -> Book { Book(id: UUID(), title: "T", author: "A", fileName: "x.epub", fileNames: ["x.epub"], addedAt: Date()) }
     let now = Date()
@@ -114,6 +114,9 @@ func runData() {
     check("author: missing never decides", BMShelf.authorsAgree("", "Frank Herbert") && BMShelf.authorsAgree("Frank Herbert", nil))
 
     runBookText()
+    runBackupChecks()
+    await runAudioChecks()
+    await runQueueChecks()
     runLogic()
     runStatsChecks()
     runLinkURLChecks()
@@ -191,7 +194,7 @@ func run() async {
     // ----------------------------------------------------------------- quote
     section("Quote")
     let okQuote = await bm.postQuote(ref: ref, content: "Fear is the mind-killer.", percent: 0.08)
-    check("quote accepted", okQuote)
+    check("quote accepted", okQuote == .sent)
     let quote = q("select qu.content, qu.page_number from quotes qu join users u on u.id=qu.user_id where u.username='pengu' order by qu.rowid desc limit 1").first
     check("quote stored", s(quote, "content") == "Fear is the mind-killer.", "\(String(describing: quote))")
 
@@ -348,7 +351,7 @@ func run() async {
     await bm.syncProgress(bookKey: "PHM", ref: audioRef, percent: 0.40, isAudio: true, force: true, pinned: { _ in })
     await bm.syncSession(ref: audioRef, percentStart: 0.25, percentEnd: 0.40, minutes: 30, at: Date())
     let queued = await bm.postQuote(ref: audioRef, content: "Question.", percent: 0.4)
-    check("a quote made offline is reported as kept", queued)
+    check("a quote made offline is reported as kept", queued == .queued)
     let queueFile = sh("ls ~/.local/share/bm-queue.json ~/Library/Application\\ Support/bm-queue.json 2>/dev/null | head -1").trimmingCharacters(in: .whitespacesAndNewlines)
     let queueJSON = (try? Data(contentsOf: URL(fileURLWithPath: queueFile))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] } ?? []
     check("three pushes are parked, in order", queueJSON.map { $0["kind"] as? String ?? "" } == ["progress", "session", "quote"], "\(queueJSON.map { $0["kind"] ?? "?" }) file=\(queueFile)")
@@ -380,10 +383,10 @@ func run() async {
 }
 
 if ProcessInfo.processInfo.environment["BM_ONLY"] == "data" {
-    await MainActor.run { runData() }
+    await runData()
 } else {
     await run()
-    await MainActor.run { runData() }
+    await runData()
 }
 print("\n\(passed) passed, \(failed) failed")
 exit(failed == 0 ? 0 : 1)

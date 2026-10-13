@@ -21,6 +21,9 @@ permissions:
 
 jobs:
   publish:
+    concurrency:
+      group: ios-release
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -30,29 +33,22 @@ jobs:
 
       - name: Find the build
         id: build
+        env:
+          REQUESTED_RUN: ${{ inputs.run_id }}
         run: |
-          RUN="${{ inputs.run_id }}"
+          RUN="$REQUESTED_RUN"
           if [ -z "$RUN" ]; then
             RUN=$(gh run list --workflow ios.yml --branch main --status success --limit 1 --json databaseId -q '.[0].databaseId')
           fi
           [ -n "$RUN" ] || { echo "::error::no successful iOS IPA run to publish"; exit 1; }
+          [[ "$RUN" =~ ^[0-9]+$ ]] || { echo "::error::invalid build run id"; exit 1; }
           echo "run=$RUN" >> "$GITHUB_OUTPUT"
           gh run download "$RUN" --name Pageturner-ipa --dir out
           ls -la out
 
-      - name: Write the source
+      - name: Publish build and update rolling links
+        env:
+          SOURCE_RUN: ${{ steps.build.outputs.run }}
         run: |
-          URL="https://github.com/$REPO/releases/download/ios-latest/Pageturner.ipa"
-          python3 ios/scripts/make-altstore-source.py out/Pageturner.ipa "$REPO" "$URL" out/altstore.json
-
-      - name: Replace the rolling release
-        run: |
-          gh release delete ios-latest --cleanup-tag --yes || true
-          SHA=$(gh run view "${{ steps.build.outputs.run }}" --json headSha -q .headSha)
-          cat > notes.md <<NOTES
-          The latest Pageturner build (from run ${{ steps.build.outputs.run }}, commit ${SHA:0:7}). Unsigned: sideload it, or add the source below to AltStore / SideStore once and it will offer every new build as an update.
-
-          **Source URL:** \`https://github.com/$REPO/releases/download/ios-latest/altstore.json\`
-          NOTES
-          gh release create ios-latest out/Pageturner.ipa out/altstore.json \
-            --title "Pageturner — latest build" --notes-file notes.md --prerelease --target "$SHA"
+          SHA=$(gh run view "$SOURCE_RUN" --json headSha -q .headSha)
+          bash ios/scripts/publish-release.sh out "$SHA" "$SOURCE_RUN"

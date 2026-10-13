@@ -30,6 +30,19 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("restoreBackup", () => {
+  it("does not export device-local watched-folder capabilities or signatures", async () => {
+    allBooks.mockResolvedValue([]);
+    allFiles.mockResolvedValue([]);
+    allKv.mockResolvedValue([{ k: "watch:folders", v: [{ handle: {} }] }, { k: "watch:seen", v: { old: 1 } }, { k: "reader-font", v: "serif" }]);
+    const { blob } = await exportLibrary();
+    await restoreBackup(blob);
+    expect(kvSet.mock.calls).toEqual([["reader-font", "serif"]]);
+  });
+
+  it("keeps this device’s folder handles when restoring an older backup", async () => {
+    await restoreBackup(await archive(index([], { kv: { "watch:folders": [{}], "watch:seen": {}, "reader-font": "serif" } })));
+    expect(kvSet.mock.calls).toEqual([["reader-font", "serif"]]);
+  });
   it("round-trips book payloads, covers and settings", async () => {
     const cover = new Blob(["cover bytes"]);
     allBooks.mockResolvedValue([book({ coverBlob: cover, progress: { fraction: 0.4 } })]);

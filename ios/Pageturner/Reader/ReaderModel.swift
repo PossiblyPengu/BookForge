@@ -117,10 +117,14 @@ final class ReaderModel: ObservableObject {
                 nav.delegate = self
                 install(navigator: nav, controller: nav)
             } else if publication.conforms(to: .pdf) {
+                var actions = EditingAction.defaultActions
+                if BookMaster.shared.isLinked {
+                    actions.append(EditingAction(title: "Quote", action: #selector(ReaderContainerViewController.quoteSelection)))
+                }
                 let nav = try PDFNavigatorViewController(
                     publication: publication,
                     initialLocation: initial,
-                    config: .init(),
+                    config: .init(editingActions: actions),
                     delegate: self
                 )
                 install(navigator: nav, controller: nav)
@@ -286,7 +290,7 @@ final class ReaderModel: ObservableObject {
     /// The navigator says a jump was made. One the reader asked for (or a link they followed) is not
     /// reading; read-aloud following the narration is.
     fileprivate func noteJump() {
-        guard pendingOrigin != nil || readAloud?.isActive != true else { return }
+        guard pendingOrigin != nil || readAloud?.isFollowingNarration != true else { return }
         reading.jumped()
     }
 
@@ -299,7 +303,7 @@ final class ReaderModel: ObservableObject {
         // Read aloud follows the narration with jumps of its own; only a jump the
         // reader asked for counts then
         let own = pendingOrigin
-        let reading = readAloud?.isActive == true
+        let reading = readAloud?.isFollowingNarration == true
         guard let origin = own ?? (reading ? nil : origin(ofJumpTo: target)),
               let from = spot(origin), let landed = spot(target)
         else { return }
@@ -490,7 +494,7 @@ final class ReaderModel: ObservableObject {
         selectable.clearSelection()
         Task {
             let ok = await BookMaster.shared.postQuote(ref: ref, content: text, percent: progression)
-            notice = ok ? "Quote sent to BookMaster" : "Couldn’t send the quote"
+            notice = ok.message
         }
     }
 
@@ -551,7 +555,7 @@ final class ReaderModel: ObservableObject {
         let ref = book.bookMasterRef
         Task {
             let ok = await BookMaster.shared.postQuote(ref: ref, content: text, percent: highlight.progression)
-            notice = ok ? "Quote sent to BookMaster" : "Couldn’t send the quote"
+            notice = ok.message
         }
     }
 
@@ -680,7 +684,7 @@ final class ReaderModel: ObservableObject {
         Task {
             // wherever the book was left, however it got there
             await BookMaster.shared.syncProgress(
-                bookKey: ref.title, ref: ref, percent: reported, isAudio: false, force: true,
+                bookKey: book.id.uuidString, ref: ref, percent: reported, isAudio: false, force: true,
                 pinned: { [weak self] id in self?.pin(id) })
             guard moved else { return }
             await BookMaster.shared.syncSession(
@@ -732,7 +736,7 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
         let progression = reading.reportable(book.progression ?? 0)
         Task {
             await BookMaster.shared.syncProgress(
-                bookKey: ref.title, ref: ref, percent: progression, isAudio: false,
+                bookKey: book.id.uuidString, ref: ref, percent: progression, isAudio: false,
                 pinned: { [weak self] id in self?.pin(id) })
         }
     }

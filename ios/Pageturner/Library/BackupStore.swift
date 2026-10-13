@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 @MainActor
 final class BackupStore {
     enum BackupError: LocalizedError {
-        case notAZip, missingIndex, foreign, futureVersion, missingPayload
+        case notAZip, missingIndex, foreign, futureVersion, missingPayload, damagedIndex
 
         var errorDescription: String? {
             switch self {
@@ -18,6 +18,7 @@ final class BackupStore {
             case .foreign: return "That zip isn't a Pageturner backup."
             case .futureVersion: return "This backup was made by a newer version of Pageturner."
             case .missingPayload: return "A book's file wasn't in the backup."
+            case .damagedIndex: return "The backup's index is damaged."
             }
         }
     }
@@ -145,7 +146,7 @@ final class BackupStore {
         var skipped = 0
         for rec in staged.books {
             do {
-                if rec["fileName"] != nil {
+                if BackupFiles.isNative(platform: staged.platform, record: rec) {
                     try restoreNative(rec, staged: staged)
                 } else {
                     try restoreWeb(rec, staged: staged)
@@ -159,6 +160,7 @@ final class BackupStore {
     }
 
     private struct Staged {
+        var platform: String?
         var books: [[String: Any]]
         var fileMeta: [String: [String: Any]]
         var files: [String: URL]    // entry name → extracted file
@@ -174,32 +176,40 @@ final class BackupStore {
         }
         guard let indexEntry = try? await archive.get("data.json") else { throw BackupError.missingIndex }
         var indexData = Data()
-        _ = try await archive.extract(indexEntry, bufferSize: 64 * 1024) { indexData.append($0) }
+        let checksum = try await archive.extract(indexEntry, bufferSize: 64 * 1024) { indexData.append($0) }
+        guard checksum == indexEntry.checksum else { throw BackupError.damagedIndex }
         guard let index = try? JSONSerialization.jsonObject(with: indexData) as? [String: Any]
         else { throw BackupError.missingIndex }
         guard (index["app"] as? String) == "pageturner" else { throw BackupError.foreign }
         if let v = index["v"] as? Int, v > 1 { throw BackupError.futureVersion }
+        guard (index["v"] as? Int) == 1 else { throw BackupError.damagedIndex }
         guard let rawBooks = index["books"] as? [[String: Any]] else { throw BackupError.missingIndex }
 
         var staged = Staged(
+            platform: index["platform"] as? String,
             books: rawBooks,
             fileMeta: index["fileMeta"] as? [String: [String: Any]] ?? [:],
             files: [:], covers: [:]
         )
         for entry in try await archive.entries() where entry.type == .file {
             if entry.path.hasPrefix("files/") {
-                let name = entry.path.replacingOccurrences(of: "files/", with: "")
+                let name = String(entry.path.dropFirst("files/".count))
                 let decoded = name.removingPercentEncoding ?? name
                 // zip-slip: a crafted "../" entry must not escape the staging dir
                 guard !decoded.isEmpty, !decoded.contains("/"), !decoded.contains("..") else { continue }
-                let out = tmp.appendingPathComponent(decoded)
-                try? fm.removeItem(at: out)
-                if (try? await archive.extract(entry, to: out)) != nil { staged.files[decoded] = out }
+                let out = tmp.appendingPathComponent(UUID().uuidString)
+                if let crc = try? await archive.extract(entry, to: out),
+                   (try? BackupFiles.verify(checksum: crc, expected: entry.checksum)) != nil {
+                    staged.files[decoded] = out
+                } else { try? fm.removeItem(at: out) }
             } else if entry.path.hasPrefix("covers/") {
-                let name = entry.path.replacingOccurrences(of: "covers/", with: "")
+                let name = String(entry.path.dropFirst("covers/".count))
                 guard !name.isEmpty, !name.contains("/"), !name.contains("..") else { continue }
-                let out = tmp.appendingPathComponent(name)
-                if (try? await archive.extract(entry, to: out)) != nil { staged.covers[name] = out }
+                let out = tmp.appendingPathComponent(UUID().uuidString)
+                if let crc = try? await archive.extract(entry, to: out),
+                   (try? BackupFiles.verify(checksum: crc, expected: entry.checksum)) != nil {
+                    staged.covers[name] = out
+                } else { try? fm.removeItem(at: out) }
             }
         }
         return staged
@@ -222,10 +232,11 @@ final class BackupStore {
         book.bmUpNext = nil
 
         let names = book.fileNames.isEmpty ? [book.fileName] : book.fileNames
-        for name in names {
+        let files = try names.map { name -> (source: URL, destination: URL) in
             guard let src = staged.files[name] else { throw BackupError.missingPayload }
-            try fm.copyItem(at: src, to: booksDir.appendingPathComponent(name))
+            return (src, booksDir.appendingPathComponent(name))
         }
+        try BackupFiles.install(files, using: fm)
         if let cover = staged.covers[book.id.uuidString]
             ?? staged.covers[book.id.uuidString + ".jpg"]
         {
@@ -245,15 +256,17 @@ final class BackupStore {
 
         let id = UUID()
         var fileNames: [String] = []
+        var files: [(source: URL, destination: URL)] = []
         for (i, key) in keys.enumerated() {
             let decoded = key.removingPercentEncoding ?? key
             guard let src = staged.files[decoded] else { throw BackupError.missingPayload }
             let orig = staged.fileMeta[decoded]?["name"] as? String ?? decoded
-            let ext = orig.split(separator: ".").last.map(String.init) ?? "bin"
+            let ext = URL(fileURLWithPath: orig).pathExtension
             let name = "\(id.uuidString)-\(i).\(ext)"
-            try fm.copyItem(at: src, to: booksDir.appendingPathComponent(name))
+            files.append((src, booksDir.appendingPathComponent(name)))
             fileNames.append(name)
         }
+        try BackupFiles.install(files, using: fm)
 
         var book = Book(
             id: id,

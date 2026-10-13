@@ -13,7 +13,7 @@
  * from the folder never deletes the book.
  */
 
-import { kvGet, kvSet, allBooks } from "./db.js";
+import { kvGet, kvSet, allBooks, allFiles } from "./db.js";
 
 const FOLDERS_KEY = "watch:folders"; // [{ id, name, handle }]
 const SEEN_KEY = "watch:seen";       // { "id#rel/path#size#mtime": 1 }
@@ -60,6 +60,10 @@ export const unwatchFolder = async (target) => {
     if (!(await f.handle.isSameEntry(target.handle))) keep.push(f);
   }
   await kvSet(FOLDERS_KEY, keep);
+  await retryFolder(target);
+};
+
+export const retryFolder = async (target) => {
   const seen = await kvGet(SEEN_KEY, {});
   const prefix = `${target.id || target.name}#`;
   let dirty = false;
@@ -80,13 +84,20 @@ const collect = async (dir, prefix, out) => {
  * Basename+size already in the library — the manual-import path never wrote
  * seen signatures, so without this a watched folder would re-import books
  * that were dragged in by hand. Per-file sizes aren't stored on multi-file
- * audio books, so those only dedup through the seen-map.
+ * audio books, so use their referenced file records instead.
  */
 const existingSigs = async () => {
   const s = new Set();
+  const multi = new Set();
   for (const b of await allBooks()) {
+    if (b.fileKeys?.length > 1) { for (const key of b.fileKeys) multi.add(key); continue; }
     if (b.fileSize == null || !b.fileName) continue;
     for (const n of String(b.fileName).split(", ")) s.add(`${n}#${b.fileSize}`);
+  }
+  if (multi.size) {
+    for (const f of await allFiles()) {
+      if (multi.has(f.key) && f.name && f.size != null) s.add(`${f.name}#${f.size}`);
+    }
   }
   return s;
 };

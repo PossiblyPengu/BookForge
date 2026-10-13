@@ -147,9 +147,11 @@ const RELEASE_REPLACEMENT = `  static async create(options) {
 // are still read, and copied across the first time they're used.
 
 const STORE_MARK = "__ptVoiceCache";
+const STORE_INTEGRITY_MARK = "__ptVoiceIntegrity3";
 
 const STORE_FUNCTIONS = `// Pageturner patch (scripts/patch-piper.js): voices live in the Cache API.
 const ${STORE_MARK} = "pageturner-voices";
+const ${STORE_INTEGRITY_MARK} = true;
 async function __ptOpfsDir() {
   try {
     return await (await navigator.storage.getDirectory()).getDirectoryHandle("piper");
@@ -169,6 +171,7 @@ async function writeBlob(url, blob) {
     }));
   } catch (e) {
     console.error(e);
+    throw e;
   }
 }
 async function removeBlob(url) {
@@ -194,7 +197,7 @@ async function readBlob(url) {
     const file = dir && await dir.getFileHandle(url.split("/").at(-1));
     const blob = file && await file.getFile();
     if (blob) {
-      await writeBlob(url, blob);
+      try { await writeBlob(url, blob); } catch { }
       return blob;
     }
   } catch {
@@ -207,10 +210,16 @@ async function readBlob(url) {
 // writeBlob() without awaiting it
 const STORE_EXPORTS = `async function download(voiceId, callback) {
   const path = PATH_MAP[voiceId];
+  if (!path) throw new Error("Unknown voice: " + voiceId);
   const urls = [\`\${HF_BASE}/\${path}\`, \`\${HF_BASE}/\${path}.json\`];
-  await Promise.all(urls.map(async (url) => {
+  const results = await Promise.allSettled(urls.map(async (url) => {
     await writeBlob(url, await fetchBlob(url, url.endsWith(".onnx") ? callback : void 0));
   }));
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed) {
+    await remove(voiceId);
+    throw failed.reason;
+  }
 }
 async function remove(voiceId) {
   const path = PATH_MAP[voiceId];
@@ -218,10 +227,9 @@ async function remove(voiceId) {
   await Promise.all(urls.map((url) => removeBlob(url)));
 }
 async function stored() {
-  const result = new Set();
+  const names = new Set();
   const add = (name) => {
-    const key = name.split(".")[0];
-    if (name.endsWith(".onnx") && key in PATH_MAP) result.add(key);
+    names.add(name);
   };
   try {
     for (const req of await (await caches.open(${STORE_MARK})).keys()) add(req.url.split("/").at(-1));
@@ -232,7 +240,10 @@ async function stored() {
     if (dir) for await (const name of dir.keys()) add(name);
   } catch {
   }
-  return [...result];
+  return Object.entries(PATH_MAP).filter(([, path]) => {
+    const name = path.split("/").at(-1);
+    return names.has(name) && names.has(name + ".json");
+  }).map(([key]) => key);
 }
 async function flush() {
   try {
@@ -246,6 +257,48 @@ async function flush() {
   }
 }
 `;
+
+const FETCH_REPLACEMENT = `async function fetchBlob(url, callback) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Voice download failed (HTTP " + res.status + ")");
+  const type = res.headers.get("Content-Type") || "application/octet-stream";
+  if (url.endsWith(".onnx") && /^(text\\/html|application\\/json)/i.test(type))
+    throw new Error("Voice download returned an error page instead of a model");
+  const reader = res.body?.getReader();
+  const total = +(res.headers.get("Content-Length") ?? 0);
+  let loaded = 0;
+  const chunks = [];
+  while (reader) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    callback?.({ url, total, loaded });
+  }
+  const blob = new Blob(chunks, { type });
+  if (!blob.size) throw new Error("Voice download was empty");
+  if (total && !res.headers.get("Content-Encoding") && loaded !== total)
+    throw new Error("Voice download was incomplete");
+  if (url.endsWith(".json")) {
+    const config = JSON.parse(await blob.text());
+    if (!Number.isFinite(config?.audio?.sample_rate) || config.audio.sample_rate <= 0
+        || !config.phoneme_id_map || typeof config.phoneme_id_map !== "object"
+        || Array.isArray(config.phoneme_id_map) || !Object.keys(config.phoneme_id_map).length)
+      throw new Error("Voice configuration is invalid");
+  }
+  return blob;
+}
+`;
+
+const patchVoiceStorage = (s, file) => {
+  const start = s.includes(STORE_MARK)
+    ? "// Pageturner patch (scripts/patch-piper.js): voices live in the Cache API."
+    : "async function writeBlob(url, blob) {";
+  s = replaceSpan(s, start, "async function fetchBlob(url, callback) {", STORE_FUNCTIONS, "voice storage functions", file);
+  s = replaceSpan(s, "async function download(voiceId, callback) {", "async function voices() {", STORE_EXPORTS, "voice download/list functions", file);
+  s = replaceSpan(s, "async function fetchBlob(url, callback) {", "function pcm2wav(", FETCH_REPLACEMENT, "voice download validation", file);
+  return s.replace("  writeBlob(url, blob);\n", "  await writeBlob(url, blob);\n");
+};
 
 // ---------------------------------------------------------------------------
 // One inference: at most ~100 characters of text
@@ -332,12 +385,13 @@ const PATCHES = [
     name: "voices in the Cache API",
     file: "main",
     mark: STORE_MARK,
-    apply: (s, file) => {
-      s = replaceSpan(s, "async function writeBlob(url, blob) {", "async function fetchBlob(url, callback) {",
-        STORE_FUNCTIONS, "voice storage functions", file);
-      return replaceSpan(s, "async function download(voiceId, callback) {", "async function voices() {",
-        STORE_EXPORTS, "voice download/list functions", file);
-    },
+    apply: patchVoiceStorage,
+  },
+  {
+    name: "validated complete voice downloads",
+    file: "main",
+    mark: STORE_INTEGRITY_MARK,
+    apply: patchVoiceStorage,
   },
   {
     name: "bounded clip per inference",

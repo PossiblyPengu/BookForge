@@ -45,6 +45,15 @@ enum ISBN {
         return false
     }
 
+    /// The same edition in a stable ISBN-13 form, for matching.
+    static func canonical(_ raw: String) -> String? {
+        guard let digits = normalize(raw) else { return nil }
+        guard digits.count == 10 else { return digits }
+        let body = "978" + digits.prefix(9)
+        let sum = body.enumerated().reduce(0) { $0 + ($1.element.wholeNumberValue ?? 0) * ($1.offset % 2 == 0 ? 1 : 3) }
+        return body + String((10 - sum % 10) % 10)
+    }
+
     /// The best ISBN among several candidates: a valid 13 first, then a valid 10.
     static func best(of raws: [String]) -> String? {
         let valid = raws.compactMap { normalize($0) }

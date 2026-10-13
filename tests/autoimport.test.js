@@ -43,9 +43,9 @@ globalThis.indexedDB = {
 
 const {
   autoImportSupported, diffNew, watchFolder, unwatchFolder, listWatched,
-  scanWatched, grantFolder,
+  scanWatched, grantFolder, retryFolder,
 } = await import("../docs/js/autoimport.js");
-const { putBook } = await import("../docs/js/db.js");
+const { putBook, putFile } = await import("../docs/js/db.js");
 
 // --- fake File System Access handles
 const fileHandle = (name, size = 10, mtime = 1) => {
@@ -143,6 +143,35 @@ describe("scanWatched", () => {
   beforeEach(() => {
     store("kv").clear();
     store("books").clear();
+    store("files").clear();
+  });
+
+  it("retries skipped files without removing the watch", async () => {
+    const dir = dirHandle("Books", [fileHandle("bad.epub", 12)]);
+    pick(dir);
+    await watchFolder();
+    expect((await scanWatched()).files).toHaveLength(1);
+    expect((await scanWatched()).files).toHaveLength(0);
+    const folder = (await listWatched())[0];
+    await retryFolder(folder);
+    expect(await listWatched()).toHaveLength(1);
+    expect((await scanWatched()).files).toHaveLength(1);
+  });
+
+  it("does not retry imported multi-track audio or forget other folders", async () => {
+    const dir = dirHandle("Books", [fileHandle("one.mp3", 10), fileHandle("two.mp3", 20)]);
+    pick(dir);
+    await watchFolder();
+    await scanWatched();
+    await putFile("one", new Blob(["one"]), { name: "one.mp3", size: 10 });
+    await putFile("two", new Blob(["two"]), { name: "two.mp3", size: 20 });
+    await putBook({ id: "audio", fileKeys: ["one", "two"], fileName: "one.mp3, two.mp3", fileSize: 30 });
+    const folder = (await listWatched())[0];
+    const seen = store("kv").get("watch:seen").v;
+    seen["other#book.epub#12#1"] = 1;
+    await retryFolder(folder);
+    expect((await scanWatched()).files).toHaveLength(0);
+    expect(store("kv").get("watch:seen").v["other#book.epub#12#1"]).toBe(1);
   });
 
   it("returns nothing with no watched folders", async () => {

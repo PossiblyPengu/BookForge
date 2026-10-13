@@ -36,21 +36,27 @@ export const fmtLength = (sec) => {
  * apps without warning, and a debounced "save my reading position" that never
  * fires loses the page you were on.
  */
-export const debounce = (fn, ms) => {
+export const debounce = (fn, ms, { maxWait } = {}) => {
   let t = null;
+  let deadline = null;
   let pending = null;
+  const run = () => {
+    clearTimeout(t);
+    clearTimeout(deadline);
+    t = deadline = null;
+    const args = pending;
+    pending = null;
+    return fn(...args);
+  };
   const wrapped = (...args) => {
     pending = args;
     clearTimeout(t);
-    t = setTimeout(() => { t = null; const a = pending; pending = null; fn(...a); }, ms);
+    t = setTimeout(run, ms);
+    if (maxWait != null && deadline === null) deadline = setTimeout(run, maxWait);
   };
   wrapped.flush = () => {
-    if (t === null) return;
-    clearTimeout(t);
-    t = null;
-    const a = pending || [];
-    pending = null;
-    fn(...a);
+    if (pending === null) return;
+    return run();
   };
   return wrapped;
 };

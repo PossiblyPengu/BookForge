@@ -14,7 +14,7 @@ import { detectSeries } from "./book-parser.js";
 import { openDriveBrowser, initDrive } from "./gdrive.js";
 import { syncProgress } from "./bookmaster.js";
 import {
-  autoImportSupported, watchFolder, scanWatched, listWatched, unwatchFolder, grantFolder,
+  autoImportSupported, watchFolder, scanWatched, listWatched, unwatchFolder, grantFolder, retryFolder,
 } from "./autoimport.js";
 import { bmTogether, fetchComments, postComment, suggestBook } from "./bm-pull.js";
 
@@ -1225,9 +1225,9 @@ export const openWatchManager = async () => {
     const perm = await f.handle.queryPermission({ mode: "read" }).catch(() => "denied");
     items.push({
       title: f.name,
-      sub: perm === "granted" ? "Scans when the app opens" : "Folder access expired",
+      sub: perm === "granted" ? "Tap to retry skipped files" : "Folder access expired",
       badge: perm === "granted" ? "" : "Needs access",
-      value: f.name,
+      value: f.id || f.name,
       action: perm === "granted" ? {
         label: "Remove",
         title: `Stop watching ${f.name}`,
@@ -1250,7 +1250,11 @@ export const openWatchManager = async () => {
   });
   listSheet("Auto-import folders", items, async (v) => {
     if (v === "__add") return watchAndScan();
-    if (v) return rescanWatched();
+    const folder = folders.find((f) => (f.id || f.name) === v);
+    if (folder) {
+      await retryFolder(folder);
+      return rescanWatched();
+    }
   }, {
     note: folders.length
       ? `${folders.length} folder${folders.length === 1 ? "" : "s"} watched. Removing a watch never deletes books.`

@@ -46,6 +46,7 @@ final class NeuralPlayer {
     private var generation = 0
     private var waiters: [Waiter] = []
     private var idleStop: Task<Void, Never>?
+    private var recovery = AudioRecovery()
 
     // Where the voice is: frames queued and heard since the queue was last emptied, how far into the
     // piece being heard it is (integrated from the clock, and corrected each time a piece ends), and
@@ -74,9 +75,31 @@ final class NeuralPlayer {
         }
         center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  AVAudioSession.InterruptionType(rawValue: raw) == .ended
+                  let type = AVAudioSession.InterruptionType(rawValue: raw)
             else { return }
-            Task { @MainActor in self?.pickUp() }
+            let options = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt) ?? 0
+            Task { @MainActor in
+                guard let self else { return }
+                switch type {
+                case .began:
+                    self.recovery.beginInterruption()
+                    self.node.pause()
+                case .ended:
+                    let resume = AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume)
+                    self.recovery.endInterruption(shouldResume: resume)
+                    if resume { self.pickUp() }
+                    else { AudioFocus.shared.pauseAll(); self.stop() }
+                @unknown default: break
+                }
+            }
+        }
+        center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+            guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                  AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable else { return }
+            Task { @MainActor in
+                AudioFocus.shared.pauseAll()
+                self?.stop()
+            }
         }
     }
 
@@ -105,6 +128,7 @@ final class NeuralPlayer {
               let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)
         else { return true }
         idleStop?.cancel()
+        recovery.start()
         if wiredRate != sampleRate {
             // a voice with another sample rate: what is playing finishes before the graph is rewired
             if !pending.isEmpty { _ = await wait(untilRemainingAtMost: 0) }
@@ -132,6 +156,7 @@ final class NeuralPlayer {
 
     /// Cut off everything that is queued; whoever is waiting returns.
     func stop() {
+        recovery.stop()
         generation += 1
         node.stop()
         forgetQueue()
@@ -269,7 +294,7 @@ final class NeuralPlayer {
 
     /// After an interruption or a route change: queue what has not been heard and carry on.
     private func pickUp() {
-        guard !pending.isEmpty else { return }
+        guard recovery.canRecover, !pending.isEmpty else { return }
         generation += 1
         node.stop()
         clock.restartPiece()   // the piece that was playing starts again from its beginning

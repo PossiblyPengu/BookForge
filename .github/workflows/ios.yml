@@ -165,6 +165,9 @@ jobs:
   # source whose links never change), so a source added once to SideStore offers each build as an update.
   publish:
     needs: ipa
+    concurrency:
+      group: ios-release
+      cancel-in-progress: false
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -181,18 +184,5 @@ jobs:
           name: Pageturner-ipa
           path: out
 
-      - name: Write the source
-        run: |
-          URL="https://github.com/$REPO/releases/download/ios-latest/Pageturner.ipa"
-          python3 ios/scripts/make-altstore-source.py out/Pageturner.ipa "$REPO" "$URL" out/altstore.json
-
-      - name: Replace the rolling release
-        run: |
-          gh release delete ios-latest --cleanup-tag --yes || true
-          cat > notes.md <<NOTES
-          The latest Pageturner build (run ${{ github.run_number }}, commit ${GITHUB_SHA:0:7}). Unsigned: sideload it, or add the source below to AltStore / SideStore once and it offers every new build as an update.
-
-          **Source URL:** \`https://github.com/$REPO/releases/download/ios-latest/altstore.json\`
-          NOTES
-          gh release create ios-latest out/Pageturner.ipa out/altstore.json \
-            --title "Pageturner — latest build" --notes-file notes.md --prerelease --target "$GITHUB_SHA"
+      - name: Publish build and update rolling links
+        run: bash ios/scripts/publish-release.sh out "$GITHUB_SHA" "$GITHUB_RUN_ID"

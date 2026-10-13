@@ -19,7 +19,9 @@ export const cbrToCbz = async (file) => {
     import("../vendor/unrar.mjs"),
     import("../vendor/fflate.mjs"),
   ]);
-  const wasmBinary = await (await fetch("./vendor/unrar.wasm")).arrayBuffer();
+  const response = await fetch("./vendor/unrar.wasm");
+  if (!response.ok) throw new Error(`Couldn’t load the comic converter (HTTP ${response.status})`);
+  const wasmBinary = await response.arrayBuffer();
   const extractor = await createExtractorFromData({
     wasmBinary, data: await file.arrayBuffer(),
   });
@@ -27,7 +29,7 @@ export const cbrToCbz = async (file) => {
   for (const f of extractor.extract().files) {
     if (f.fileHeader.flags.directory) continue;
     if (!IMG_RE.test(f.fileHeader.name)) continue;
-    const name = f.fileHeader.name.replace(/\\/g, "/").split("/").pop();
+    const name = f.fileHeader.name.replace(/\\/g, "/");
     if (name && f.extraction?.length) out[name] = f.extraction;
   }
   if (!Object.keys(out).length) throw new Error("No images found in CBR");

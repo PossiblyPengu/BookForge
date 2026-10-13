@@ -97,6 +97,10 @@ enum BMShelf {
         if let pin = book.bookmasterId, let hit = rows.first(where: { $0.userBookId == pin }) {
             return hit
         }
+        if let id = book.openLibraryId, !id.isEmpty,
+           let hit = rows.first(where: { $0.openLibraryId == id }) { return hit }
+        if let raw = book.isbn, let isbn = ISBN.canonical(raw),
+           let hit = rows.first(where: { $0.isbn.flatMap(ISBN.canonical) == isbn }) { return hit }
         return rows.first { titlesAgree(book.title, $0.title) && authorsAgree(book.author, $0.author) }
     }
 }

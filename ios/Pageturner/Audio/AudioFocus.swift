@@ -35,4 +35,8 @@ final class AudioFocus {
     /// Nothing of ours is open, playing or paused — a brief sound (a voice sample)
     /// may then give the audio session back when it is done.
     var isIdle: Bool { owners.isEmpty }
+
+    func pauseAll() {
+        for pause in owners.values { pause() }
+    }
 }

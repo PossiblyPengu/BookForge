@@ -16,6 +16,17 @@ func runShelfChecks() {
     var pinned = Book(id: UUID(), title: "A file called something else", author: "", fileName: "p.epub", fileNames: ["p.epub"], addedAt: Date())
     pinned.bookmasterId = "ub-pin"
     dune.bookmasterId = nil
+    var renamed = dune
+    renamed.title = "An edited title"
+    renamed.author = "An edited author"
+    renamed.openLibraryId = "OL123M"
+    check("Open Library identity matches despite edited metadata", BMShelf.match(renamed, in: [row("ol", "Dune", "Frank Herbert", "read", ol: "OL123M")])?.userBookId == "ol")
+    renamed.openLibraryId = nil
+    renamed.isbn = "ISBN 0-441-17271-7"
+    check("ISBN-10 matches the equivalent ISBN-13", BMShelf.match(renamed, in: [row("isbn", "Dune", "Frank Herbert", "read", isbn: "978-0-441-17271-9")])?.userBookId == "isbn")
+    renamed.isbn = "9780441172710"
+    check("invalid ISBN does not claim another shelf row", BMShelf.match(renamed, in: [row("isbn", "Dune", "Frank Herbert", "read", isbn: "9780441172719")]) == nil)
+    check("ISBN canonicalization preserves X checksums", ISBN.canonical("080442957X") == "9780804429573")
     let rows = [
         row("ub-dune", "Dune (Dune Chronicles, #1)", "Frank Herbert", "reading"),
         row("ub-pin", "Hyperion", "Dan Simmons", "reading"),

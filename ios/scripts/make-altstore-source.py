@@ -15,6 +15,9 @@ from pathlib import Path
 
 ipa, repo, download_url, out = sys.argv[1:5]
 with zipfile.ZipFile(ipa) as z:
+    damaged = z.testzip()
+    if damaged:
+        raise ValueError(f"Damaged IPA entry: {damaged}")
     name = next(n for n in z.namelist() if n.startswith("Payload/") and n.endswith(".app/Info.plist") and n.count("/") == 2)
     info = plistlib.loads(z.read(name))
 version = info["CFBundleShortVersionString"]

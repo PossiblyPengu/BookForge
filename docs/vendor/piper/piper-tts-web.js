@@ -142,6 +142,7 @@ const PATH_MAP = {
 };
 // Pageturner patch (scripts/patch-piper.js): voices live in the Cache API.
 const __ptVoiceCache = "pageturner-voices";
+const __ptVoiceIntegrity3 = true;
 async function __ptOpfsDir() {
   try {
     return await (await navigator.storage.getDirectory()).getDirectoryHandle("piper");
@@ -161,6 +162,7 @@ async function writeBlob(url, blob) {
     }));
   } catch (e) {
     console.error(e);
+    throw e;
   }
 }
 async function removeBlob(url) {
@@ -186,7 +188,7 @@ async function readBlob(url) {
     const file = dir && await dir.getFileHandle(url.split("/").at(-1));
     const blob = file && await file.getFile();
     if (blob) {
-      await writeBlob(url, blob);
+      try { await writeBlob(url, blob); } catch { }
       return blob;
     }
   } catch {
@@ -194,26 +196,34 @@ async function readBlob(url) {
   return void 0;
 }
 async function fetchBlob(url, callback) {
-  var _a;
   const res = await fetch(url);
-  const reader = (_a = res.body) == null ? void 0 : _a.getReader();
-  const contentLength = +(res.headers.get("Content-Length") ?? 0);
-  let receivedLength = 0;
-  let chunks = [];
+  if (!res.ok) throw new Error("Voice download failed (HTTP " + res.status + ")");
+  const type = res.headers.get("Content-Type") || "application/octet-stream";
+  if (url.endsWith(".onnx") && /^(text\/html|application\/json)/i.test(type))
+    throw new Error("Voice download returned an error page instead of a model");
+  const reader = res.body?.getReader();
+  const total = +(res.headers.get("Content-Length") ?? 0);
+  let loaded = 0;
+  const chunks = [];
   while (reader) {
     const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
+    if (done) break;
     chunks.push(value);
-    receivedLength += value.length;
-    callback == null ? void 0 : callback({
-      url,
-      total: contentLength,
-      loaded: receivedLength
-    });
+    loaded += value.length;
+    callback?.({ url, total, loaded });
   }
-  return new Blob(chunks, { type: res.headers.get("Content-Type") ?? void 0 });
+  const blob = new Blob(chunks, { type });
+  if (!blob.size) throw new Error("Voice download was empty");
+  if (total && !res.headers.get("Content-Encoding") && loaded !== total)
+    throw new Error("Voice download was incomplete");
+  if (url.endsWith(".json")) {
+    const config = JSON.parse(await blob.text());
+    if (!Number.isFinite(config?.audio?.sample_rate) || config.audio.sample_rate <= 0
+        || !config.phoneme_id_map || typeof config.phoneme_id_map !== "object"
+        || Array.isArray(config.phoneme_id_map) || !Object.keys(config.phoneme_id_map).length)
+      throw new Error("Voice configuration is invalid");
+  }
+  return blob;
 }
 function pcm2wav(buffer, numChannels, sampleRate) {
   const bufferLength = buffer.length;
@@ -495,10 +505,16 @@ async function getBlob(url, callback) {
 }
 async function download(voiceId, callback) {
   const path = PATH_MAP[voiceId];
+  if (!path) throw new Error("Unknown voice: " + voiceId);
   const urls = [`${HF_BASE}/${path}`, `${HF_BASE}/${path}.json`];
-  await Promise.all(urls.map(async (url) => {
+  const results = await Promise.allSettled(urls.map(async (url) => {
     await writeBlob(url, await fetchBlob(url, url.endsWith(".onnx") ? callback : void 0));
   }));
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed) {
+    await remove(voiceId);
+    throw failed.reason;
+  }
 }
 async function remove(voiceId) {
   const path = PATH_MAP[voiceId];
@@ -506,10 +522,9 @@ async function remove(voiceId) {
   await Promise.all(urls.map((url) => removeBlob(url)));
 }
 async function stored() {
-  const result = new Set();
+  const names = new Set();
   const add = (name) => {
-    const key = name.split(".")[0];
-    if (name.endsWith(".onnx") && key in PATH_MAP) result.add(key);
+    names.add(name);
   };
   try {
     for (const req of await (await caches.open(__ptVoiceCache)).keys()) add(req.url.split("/").at(-1));
@@ -520,7 +535,10 @@ async function stored() {
     if (dir) for await (const name of dir.keys()) add(name);
   } catch {
   }
-  return [...result];
+  return Object.entries(PATH_MAP).filter(([, path]) => {
+    const name = path.split("/").at(-1);
+    return names.has(name) && names.has(name + ".json");
+  }).map(([key]) => key);
 }
 async function flush() {
   try {

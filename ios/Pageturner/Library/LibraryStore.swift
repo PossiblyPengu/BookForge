@@ -649,7 +649,7 @@ final class LibraryStore: ObservableObject {
         let book = books[i]
         Task {
             await BookMaster.shared.syncProgress(
-                bookKey: book.title, ref: book.bookMasterRef, percent: 1,
+                bookKey: book.id.uuidString, ref: book.bookMasterRef, percent: 1,
                 isAudio: book.isAudio, force: true,
                 pinned: { [weak self] pin in self?.updateBookMaster(id) { $0.bookmasterId = pin } })
         }
@@ -666,7 +666,7 @@ final class LibraryStore: ObservableObject {
         let book = books[i]
         Task {
             await BookMaster.shared.syncProgress(
-                bookKey: book.title, ref: book.bookMasterRef, percent: place,
+                bookKey: book.id.uuidString, ref: book.bookMasterRef, percent: place,
                 isAudio: book.isAudio, rating: stars, force: true,
                 pinned: { [weak self] pin in self?.updateBookMaster(id) { $0.bookmasterId = pin } })
         }

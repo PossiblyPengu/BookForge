@@ -49,7 +49,7 @@ const savePos = debounce(async () => {
   b.lastOpenedAt = Date.now();
   await putBook(b).catch((err) => console.warn("position save failed", err));
   syncProgress(b);
-}, 2000);
+}, 2000, { maxWait: 2000 });
 
 // Where the open stretch of listening began — { fraction, at }, or null when
 // no stretch is running (paused, closed, or the page hid). The "percent" is
@@ -263,6 +263,7 @@ export const openPlayer = async (book, { onClose, onUpdate } = {}) => {
   offerRemoteResume(book, async (f) => {
     await seekGlobal(f * player.duration);
     savePos();
+    savePos.flush();
     syncProgress(book, { force: true });
   });
 };
@@ -432,6 +433,8 @@ export const initPlayer = () => {
   // a pause is a natural checkpoint — force a push past the throttle, and
   // call the stretch a session: this pause may be where listening ended
   audio.addEventListener("pause", () => {
+    savePos();
+    savePos.flush();
     updateUI();
     endBookmasterSession();
     syncProgress(player.book, { force: true });
@@ -457,7 +460,7 @@ export const initPlayer = () => {
   // losing the last two seconds of an audiobook position is worse than for a
   // book — it's a spot in a narration, not a page — and a hidden page may be
   // the app's last moment, so the stretch counts as a session on the tracker
-  onPageHidden(() => { savePos.flush(); endBookmasterSession(); });
+  onPageHidden(() => { savePos(); savePos.flush(); endBookmasterSession(); });
   // audio can keep playing while the page is hidden — a return starts the
   // stretch the hide ended
   document.addEventListener("visibilitychange", () => {

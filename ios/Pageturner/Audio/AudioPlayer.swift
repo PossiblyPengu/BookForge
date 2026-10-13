@@ -1,6 +1,7 @@
 import AVFoundation
 import MediaPlayer
 import UIKit
+import Combine
 
 /// Audiobook playback on AVPlayer. One AVPlayer, items swapped manually on
 /// track boundaries — simpler than AVQueuePlayer for backwards seeks across
@@ -51,7 +52,8 @@ final class AudioPlayer: ObservableObject {
     private var closed = false
     /// What was last written to the library, to tell a change from outside (a restart, a jump to
     /// BookMaster's place) from our own saves.
-    private var written: (audioPosition: TimeInterval?, progression: Double?)?
+    private var checkpoint = PlaybackProgress()
+    private var libraryChanges: AnyCancellable?
     /// Consecutive seconds the player said "paused" while we believed it was playing.
     private var stalledTicks = 0
     private var routeObserver: NSObjectProtocol?
@@ -62,6 +64,10 @@ final class AudioPlayer: ObservableObject {
         urls = library.fileURLs(for: book)
         let saved = UserDefaults.standard.double(forKey: "audioPlaybackRate")
         rate = saved > 0 ? Float(saved) : 1.0
+        libraryChanges = library.$books.sink { [weak self] books in
+            guard let self, !self.closed, let latest = books.first(where: { $0.id == self.book.id }) else { return }
+            self.adopt(latest)
+        }
     }
 
     var trackCount: Int { urls.count }
@@ -92,7 +98,7 @@ final class AudioPlayer: ObservableObject {
         load(track: 0)
         let target = book.audioPosition ?? (book.progression.map { $0 * total }) ?? 0
         if target > 1 { seek(to: target, resume: false) }
-        written = (book.audioPosition, book.progression)
+        _ = checkpoint.adopt(position: book.audioPosition, progression: book.progression, playhead: position)
         opened = true
         configureSession()
         AudioFocus.shared.register("audiobook", pause: { [weak self] in self?.pause() }, remote: remoteHandlers)
@@ -143,9 +149,10 @@ final class AudioPlayer: ObservableObject {
     /// from the old place and write that back over it.
     func adopt(_ latest: Book) {
         book = latest
-        guard opened, duration > 0, latest.audioPosition != written?.audioPosition || latest.progression != written?.progression else { return }
+        guard opened, duration > 0,
+              checkpoint.adopt(position: latest.audioPosition, progression: latest.progression, playhead: position) else { return }
         let target = latest.audioPosition ?? (latest.progression.map { $0 * duration }) ?? 0
-        written = (latest.audioPosition, latest.progression)
+        sessionStart = nil
         if abs(target - position) > 2 { seek(to: target, resume: isPlaying) }
     }
 
@@ -379,6 +386,7 @@ final class AudioPlayer: ObservableObject {
         savePosition()
         pause()
         closed = true
+        libraryChanges?.cancel()
         AudioFocus.shared.unregister("audiobook")   // the lock-screen buttons pass on, or are cleared
         setSleepTimer(minutes: nil)
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
@@ -394,20 +402,20 @@ final class AudioPlayer: ObservableObject {
 
     private func savePosition(force: Bool = false) {
         // before the files are measured there is no place to save; after a close there is nothing to follow
-        guard opened, duration > 0 else { return }
+        guard opened, !closed, duration > 0, checkpoint.maySave(at: position) else { return }
         let progression = position / duration
+        checkpoint.saved(position: position, progression: progression)
         // the record as it is now: an edit made while this was loaded (a title, a shelf) must survive
         library.mutate(book.id) { stored in
             stored.audioPosition = position
             stored.progression = progression
             stored.lastOpenedAt = Date()
         }
-        written = (position, progression)
         if let latest = library.books.first(where: { $0.id == book.id }) { book = latest }
         let ref = book.bookMasterRef
         Task {
             await BookMaster.shared.syncProgress(
-                bookKey: ref.title, ref: ref, percent: progression, isAudio: true, force: force,
+                bookKey: book.id.uuidString, ref: ref, percent: progression, isAudio: true, force: force,
                 pinned: { [weak self] id in self?.pin(id) })
         }
     }

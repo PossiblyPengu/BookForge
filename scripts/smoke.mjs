@@ -943,6 +943,9 @@ const testFn = async (withPiper) => {
       const LEGACY = "en_GB-alan-low";
       const fh = await dir.getFileHandle(`${LEGACY}.onnx`, { create: true });
       const w = await fh.createWritable(); await w.write("legacy"); await w.close();
+      log(!(await piperMod.stored()).includes(LEGACY), "a partial legacy voice is not reported as installed");
+      const config = await dir.getFileHandle(`${LEGACY}.onnx.json`, { create: true });
+      const cw = await config.createWritable(); await cw.write("{}"); await cw.close();
       log((await piperMod.stored()).includes(LEGACY), "voices saved by earlier builds (OPFS) are still found");
 
       // the Saved voices sheet lists both, with sizes, and can remove one

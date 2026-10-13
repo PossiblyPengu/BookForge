@@ -120,6 +120,7 @@ final class SpeechPreview: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     private func halt() {
         guard playing != nil else { return }
         playing = nil
+        current = nil
         neuralTask?.cancel()   // which also silences the player
         neuralTask = nil
         synthesizer.stopSpeaking(at: .immediate)
@@ -129,6 +130,7 @@ final class SpeechPreview: NSObject, ObservableObject, AVSpeechSynthesizerDelega
 
     /// An audiobook or read-aloud in progress gives way, and the sound is allowed on the silent switch.
     private func begin() {
+        AudioFocus.shared.register("preview", pause: { [weak self] in self?.stop() })
         AudioFocus.shared.claim("preview")
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .spokenAudio)
@@ -137,6 +139,7 @@ final class SpeechPreview: NSObject, ObservableObject, AVSpeechSynthesizerDelega
 
     /// Let other apps' audio carry on — unless an audiobook or read-aloud of ours is still open.
     private func release() {
+        AudioFocus.shared.unregister("preview")
         guard AudioFocus.shared.isIdle, playing == nil else { return }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }

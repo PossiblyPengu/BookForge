@@ -52,11 +52,11 @@ final class BookMaster {
     var syncEnabled: Bool {
         get {
             access(keyPath: \.syncEnabled)
-            return UserDefaults.standard.object(forKey: "bm-sync-enabled") as? Bool ?? true
+            return defaults.object(forKey: "bm-sync-enabled") as? Bool ?? true
         }
         set {
             withMutation(keyPath: \.syncEnabled) {
-                UserDefaults.standard.set(newValue, forKey: "bm-sync-enabled")
+                defaults.set(newValue, forKey: "bm-sync-enabled")
             }
         }
     }
@@ -69,27 +69,35 @@ final class BookMaster {
         var id: UUID? = nil
     }
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+    private let session: URLSession
+    private let queueFileURL: URL?
     private let userKey = "bm-user"
     private var queue: [QueueEntry] = []
-    private var flushing = false
+    private enum PushOutcome { case accepted(Data), refused }
+    private var flushTask: Task<[UUID: PushOutcome], Never>?
+    private var accountGeneration = 0
     private var warnedBroken = false
     private var lastPush: [String: (at: Date, percent: Double)] = [:]
 
     private var queueURL: URL {
+        if let queueFileURL { return queueFileURL }
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("bm-queue.json")
     }
 
-    private init() {
+    init(defaults: UserDefaults = .standard, session: URLSession = .shared, queueURL: URL? = nil) {
+        self.defaults = defaults
+        self.session = session
+        queueFileURL = queueURL
         if let data = defaults.data(forKey: userKey) {
             user = try? JSONDecoder().decode(BMUser.self, from: data)
         }
         if let data = defaults.data(forKey: shelfKey) {
             shelfRows = (try? JSONDecoder().decode([BMShelfRow].self, from: data)) ?? []
         }
-        if let data = try? Data(contentsOf: queueURL) {
+        if let data = try? Data(contentsOf: self.queueURL) {
             queue = ((try? JSONDecoder().decode([QueueEntry].self, from: data)) ?? []).map {
                 var entry = $0
                 entry.id = entry.id ?? UUID()
@@ -132,6 +140,7 @@ final class BookMaster {
     }
 
     private func setUser(_ value: BMUser?) {
+        accountGeneration += 1
         user = value
         if let value, let data = try? JSONEncoder().encode(value) {
             defaults.set(data, forKey: userKey)
@@ -193,15 +202,26 @@ final class BookMaster {
     }
 
     /// A line worth keeping, from the reader's selection menu.
+    enum QuoteDelivery: Equatable {
+        case sent, queued, failed
+
+        var message: String {
+            switch self {
+            case .sent: return "Quote sent to BookMaster"
+            case .queued: return "Quote saved — it will send when BookMaster is available"
+            case .failed: return "Couldn’t send the quote"
+            }
+        }
+    }
+
     @discardableResult
-    func postQuote(ref: BMBookRef, content: String, percent: Double?) async -> Bool {
-        guard let user, !content.isEmpty else { return false }
+    func postQuote(ref: BMBookRef, content: String, percent: Double?) async -> QuoteDelivery {
+        guard let user, !content.isEmpty else { return .failed }
         let payload = BMQuotePush(
             username: user.username, book: ref, content: content,
             percent: percent.map { $0 * 100 })
-        guard let body = try? JSONEncoder().encode(payload) else { return false }
-        await flush()
-        return await sendRaw(kind: "quote", title: ref.title, body: body)
+        guard let body = try? JSONEncoder().encode(payload) else { return .failed }
+        return await submit(kind: "quote", title: ref.title, body: body).delivery
     }
 
     /// "I'm here" — never queued: a replayed beat lies about when you were there.
@@ -333,29 +353,21 @@ final class BookMaster {
     /// Send a push, parking it when the network can't take it. Returns the
     /// reply when the bridge accepted it, nil when parked or refused.
     private func send(kind: String, title: String, body: Data) async -> BMPushReply? {
-        await flush()
-        // anything still parked goes first — a newer position must not overtake it
-        guard queue.isEmpty else {
-            enqueue(QueueEntry(kind: kind, title: title, body: body))
-            return nil
-        }
-        do {
-            let (data, status) = try await postResolving(kind, body: body)
-            if Self.retriable(status) {
-                enqueue(QueueEntry(kind: kind, title: title, body: body))
-                return nil
-            }
-            guard (200..<300).contains(status) else {
-                handleRefusal(status: status, data: data)
-                return nil
-            }
-            let reply = try? JSONDecoder().decode(BMPushReply.self, from: data)
-            announce(reply?.newAchievements)
-            return reply
-        } catch {
-            enqueue(QueueEntry(kind: kind, title: title, body: body))
-            return nil
-        }
+        guard let data = await submit(kind: kind, title: title, body: body).data else { return nil }
+        let reply = try? JSONDecoder().decode(BMPushReply.self, from: data)
+        announce(reply?.newAchievements)
+        return reply
+    }
+
+    private func submit(kind: String, title: String, body: Data) async -> (delivery: QuoteDelivery, data: Data?) {
+        guard let user, Self.owner(of: body) == user.username else { return (.failed, nil) }
+        let generation = accountGeneration
+        let id = UUID()
+        enqueue(QueueEntry(kind: kind, title: title, body: body, id: id))
+        let results = await drainQueue()
+        guard generation == accountGeneration else { return (.failed, nil) }
+        if case let .accepted(data) = results[id] { return (.sent, data) }
+        return (queue.contains { $0.id == id } ? .queued : .failed, nil)
     }
 
     /// `send` for pushes whose only answer that matters is success.
@@ -363,28 +375,21 @@ final class BookMaster {
     /// `park: false` is for pushes that are worth trying again later but not worth a place in the line (a cover is
     /// large, and many of them would push real entries out): the answer is true only when it went through.
     private func sendRaw(kind: String, title: String, body: Data, park: Bool = true) async -> Bool {
+        if park { return await submit(kind: kind, title: title, body: body).delivery != .failed }
+        let generation = accountGeneration
         await flush()
-        guard queue.isEmpty else {
-            guard park else { return false }
-            enqueue(QueueEntry(kind: kind, title: title, body: body))
-            return true   // parked for later — report success
-        }
+        guard generation == accountGeneration, Self.owner(of: body) == user?.username,
+              !queue.contains(where: { syncEnabled || $0.kind == "quote" }) else { return false }
         do {
             let (data, status) = try await postResolving(kind, body: body)
-            if Self.retriable(status) {
-                guard park else { return false }
-                enqueue(QueueEntry(kind: kind, title: title, body: body))
-                return true
-            }
+            guard generation == accountGeneration else { return false }
             if !(200..<300).contains(status) {
                 handleRefusal(status: status, data: data)
                 return false
             }
             return true
         } catch {
-            guard park else { return false }
-            enqueue(QueueEntry(kind: kind, title: title, body: body))
-            return true
+            return false
         }
     }
 
@@ -392,34 +397,49 @@ final class BookMaster {
     /// still won't take — order is the point. A 4xx can never succeed, so it is
     /// dropped rather than left to block the line behind it.
     func flush() async {
-        if flushing { return }
-        flushing = true
-        defer { flushing = false }
-        while let head = queue.first {
-            guard let user, syncEnabled else { return }
-            // parked for a reader who has since left
-            if Self.owner(of: head.body) != user.username {
-                queue.removeAll { $0.id == head.id }
-                saveQueue()
-                continue
-            }
+        _ = await drainQueue()
+    }
+
+    private func drainQueue() async -> [UUID: PushOutcome] {
+        if let flushTask { return await flushTask.value }
+        let task = Task {
+            let result = await drain()
+            flushTask = nil
+            return result
+        }
+        flushTask = task
+        return await task.value
+    }
+
+    private func drain() async -> [UUID: PushOutcome] {
+        var outcomes: [UUID: PushOutcome] = [:]
+        while let user {
+            queue.removeAll { Self.owner(of: $0.body) != user.username }
+            saveQueue()
+            guard let head = queue.first(where: { syncEnabled || $0.kind == "quote" }) else { break }
+            let generation = accountGeneration
             let result: (Data, Int)
-            do { result = try await postResolving(head.kind, body: head.body) } catch { return }
-            if Self.retriable(result.1) { return }
+            do { result = try await postResolving(head.kind, body: head.body) } catch { break }
+            guard generation == accountGeneration else { continue }
+            if Self.retriable(result.1) { break }
             // by identity: the queue may have changed while that was in flight
             queue.removeAll { $0.id == head.id }
             saveQueue()
+            if let id = head.id {
+                outcomes[id] = (200..<300).contains(result.1) ? .accepted(result.0) : .refused
+            }
             if !(200..<300).contains(result.1) {
                 handleRefusal(status: result.1, data: result.0)
             }
         }
+        return outcomes
     }
 
     private func enqueue(_ entry: QueueEntry) {
         var entry = entry
         if entry.id == nil { entry.id = UUID() }
         if entry.kind == "progress" {
-            queue.removeAll { $0.kind == "progress" && $0.title == entry.title }
+            queue.removeAll { $0.kind == "progress" && Self.sameBook($0.body, entry.body) }
         }
         queue.append(entry)
         while queue.count > Self.queueMax { queue.removeFirst() }
@@ -473,6 +493,18 @@ final class BookMaster {
         (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["username"] as? String
     }
 
+    private static func sameBook(_ left: Data, _ right: Data) -> Bool {
+        guard let a = (try? JSONSerialization.jsonObject(with: left)) as? [String: Any],
+              let b = (try? JSONSerialization.jsonObject(with: right)) as? [String: Any],
+              (a["username"] as? String) == (b["username"] as? String) else { return false }
+        if let x = a["user_book_id"] as? String, let y = b["user_book_id"] as? String { return x == y }
+        if let x = a["open_library_id"] as? String, let y = b["open_library_id"] as? String { return x == y }
+        if let x = a["isbn"] as? String, let y = b["isbn"] as? String,
+           let first = ISBN.canonical(x), let second = ISBN.canonical(y) { return first == second }
+        return (a["title"] as? String) == (b["title"] as? String)
+            && sendableAuthor(a["author"] as? String ?? "") == sendableAuthor(b["author"] as? String ?? "")
+    }
+
     private static func errorMessage(_ data: Data) -> String? {
         (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
     }
@@ -484,7 +516,7 @@ final class BookMaster {
         parts.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         var request = URLRequest(url: parts.url!)
         request.timeoutInterval = 20
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
@@ -494,7 +526,7 @@ final class BookMaster {
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = body
         request.timeoutInterval = 20
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 }

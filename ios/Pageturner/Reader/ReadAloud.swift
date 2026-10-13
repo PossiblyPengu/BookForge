@@ -45,6 +45,7 @@ final class ReadAloud: NSObject, ObservableObject {
     private let synthesizer: PublicationSpeechSynthesizer
     private let tuning: SpeechTuning
     private let neural: NeuralTTSEngine
+    private let startup = AudioStartup()
     /// The library record's values — the publication's own metadata can name
     /// a different edition than the title the user edited.
     private let displayTitle: String
@@ -122,15 +123,6 @@ final class ReadAloud: NSObject, ObservableObject {
             guard let self, case let .playing(utterance, range: _) = self.synthesizer.state, utterance.text == text else { return nil }
             return await lookahead.sentence(after: utterance)
         }
-        AudioFocus.shared.register(
-            "readaloud", pause: { [weak self] in self?.pauseForOtherAudio() },
-            remote: RemoteControls.Handlers(
-                play: { [weak self] in self?.synthesizer.resume() },
-                pause: { [weak self] in self?.synthesizer.pause() },
-                toggle: { [weak self] in self?.synthesizer.pauseOrResume() },
-                next: { [weak self] in self?.synthesizer.next() },
-                previous: { [weak self] in self?.synthesizer.previous() },
-                refresh: { [weak self] in self?.publishNowPlaying() }))
 
         // light the sentence, the line and the word being spoken, as chosen
         if let decorable = navigator as? DecorableNavigator {
@@ -159,19 +151,41 @@ final class ReadAloud: NSObject, ObservableObject {
 
     // MARK: - Controls
 
+    var isFollowingNarration: Bool { isTurning }
+
+    private func registerAudio() {
+        AudioFocus.shared.register(
+            "readaloud", pause: { [weak self] in self?.pauseForOtherAudio() },
+            remote: RemoteControls.Handlers(
+                play: { [weak self] in self?.playPauseIfPaused() },
+                pause: { [weak self] in self?.pauseForOtherAudio() },
+                toggle: { [weak self] in self?.playPause() },
+                next: { [weak self] in self?.next() },
+                previous: { [weak self] in self?.previous() },
+                refresh: { [weak self] in self?.publishNowPlaying() }))
+    }
+
+    private func playPauseIfPaused() {
+        if case .playing = synthesizer.state { return }
+        playPause()
+    }
+
     /// An audiobook started: hold the narration where it is.
     private func pauseForOtherAudio() {
+        startup.cancel()
         if case .playing = synthesizer.state { synthesizer.pause() }
     }
 
     /// Start from the first sentence on screen.
     func start() {
+        registerAudio()
         AudioFocus.shared.claim("readaloud")
         isActive = true
-        Task { @MainActor in
-            let start = await navigator?.firstVisibleElementLocator() ?? navigator?.currentLocation
-            synthesizer.start(from: start)
-        }
+        startup.start(locate: { [weak self] in
+            await self?.navigator?.firstVisibleElementLocator() ?? self?.navigator?.currentLocation
+        }, play: { [weak self] start in
+            self?.synthesizer.start(from: start)
+        })
         publishNowPlaying()
     }
 
@@ -186,6 +200,7 @@ final class ReadAloud: NSObject, ObservableObject {
     func previous() { synthesizer.previous() }
 
     func stop() {
+        startup.cancel()
         synthesizer.stop()
         // the synthesizer tells us it has stopped in a moment — by then this may be gone, and the
         // marks would stay on the page

@@ -5,6 +5,24 @@ import {
 } from "../docs/js/util.js";
 
 describe("debounce", () => {
+  it("bounds continuous calls with the latest arguments", () => {
+    vi.useFakeTimers();
+    const fn = vi.fn();
+    const d = debounce(fn, 2000, { maxWait: 2000 });
+    for (let i = 0; i < 20; i++) { d(i); vi.advanceTimersByTime(250); }
+    expect(fn.mock.calls).toEqual([[7], [15]]);
+    d.flush();
+    expect(fn.mock.calls).toEqual([[7], [15], [19]]);
+    vi.advanceTimersByTime(5000);
+    expect(fn).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
+  });
+
+  it("returns the result when flushed", async () => {
+    const d = debounce(async (value) => value, 1000, { maxWait: 2000 });
+    d("saved");
+    await expect(d.flush()).resolves.toBe("saved");
+  });
   it("runs once, trailing, with the latest arguments", () => {
     vi.useFakeTimers();
     const fn = vi.fn();

@@ -41,7 +41,7 @@ export const exportLibrary = async (onMsg = () => {}) => {
     entries.push({ name: `files/${encodeURIComponent(f.key)}`, blob: f.blob });
   }
   const kvMap = {};
-  for (const { k, v } of kv) kvMap[k] = v;
+  for (const { k, v } of kv) if (!k.startsWith("watch:")) kvMap[k] = v;
   const data = JSON.stringify({
     v: 1, app: "pageturner", exportedAt: Date.now(), books: bookRecs, kv: kvMap, fileMeta,
   });
@@ -134,6 +134,6 @@ export const restoreBackup = async (file, onMsg = () => {}) => {
     dropCoverUrl(rec.id);
     restoredBooks++;
   }
-  for (const [k, v] of Object.entries(data.kv || {})) await kvSet(k, v);
+  for (const [k, v] of Object.entries(data.kv || {})) if (!k.startsWith("watch:")) await kvSet(k, v);
   return { books: restoredBooks, skipped };
 };
