@@ -5,6 +5,14 @@ from pathlib import Path
 
 from . import anisette, config, device, gsa, provision, release, signing
 
+
+def _stale_ipa(path: Path) -> bool:
+    """True when the cached IPA is missing or the release asset moved on."""
+    if not path.exists():
+        return True
+    cfg = config.load()
+    return cfg.get("ipa_stamp") != release.asset_stamp()
+
 APP_NAME = "Pageturner"
 BASE_BUNDLE_ID = "io.github.possiblypengu.pageturner"
 
@@ -88,11 +96,17 @@ async def run(
         print("== certificate ==")
         bundle = ensure_cert(session, dev.udid, dev.name, workdir)
 
-        # 4 — download the unsigned IPA
+        # 4 — download the unsigned IPA (reuse the cached one if unchanged)
         print("== download ==")
         if ipa_path is None:
             ipa_path = workdir / "Pageturner.ipa"
-            release.download_ipa(ipa_path)
+            if _stale_ipa(ipa_path):
+                release.download_ipa(ipa_path)
+                cfg = config.load()
+                cfg["ipa_stamp"] = release.asset_stamp()
+                config.save(cfg)
+            else:
+                print("  release unchanged — reusing the cached IPA")
         print(f"  ipa: {ipa_path}")
 
         # 5 — sign

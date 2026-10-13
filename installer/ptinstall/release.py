@@ -12,6 +12,18 @@ def latest_ipa_url(repo: str = REPO, tag: str = RELEASE_TAG, asset: str = IPA_AS
     return f"https://github.com/{repo}/releases/download/{tag}/{asset}"
 
 
+def asset_stamp(repo: str = REPO, tag: str = RELEASE_TAG, asset: str = IPA_ASSET) -> str:
+    """A fingerprint of the current release asset (updated_at + size) — cheap
+    check for "did the build change since I last downloaded it"."""
+    r = requests.get(
+        f"https://api.github.com/repos/{repo}/releases/tags/{tag}", timeout=15)
+    r.raise_for_status()
+    for a in r.json().get("assets", []):
+        if a["name"] == asset:
+            return f"{a['updated_at']}:{a['size']}"
+    raise RuntimeError(f"{asset} not found in release {tag}")
+
+
 def download_ipa(dest_path, repo: str = REPO, tag: str = RELEASE_TAG, asset: str = IPA_ASSET):
     """Download the rolling-release IPA to dest_path. Returns the path."""
     url = latest_ipa_url(repo, tag, asset)
@@ -28,3 +40,4 @@ def download_ipa(dest_path, repo: str = REPO, tag: str = RELEASE_TAG, asset: str
         if total:
             print()
     return dest_path
+

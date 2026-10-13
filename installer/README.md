@@ -32,9 +32,16 @@ connection is pure Wi-Fi (remote-pairing + RSD, iOS 17+).
 
 ## Setup
 
+**Easiest:** grab `ptinstall.exe` from the `installer-latest` release (CI
+builds it on every change; publish it with a manual run of *ptinstall exe*) —
+one file, nothing to install, run it from anywhere.
+
+**Or run from source:**
+
 ```bat
 cd installer
 pip install -r requirements.txt
+python -m ptinstall …
 ```
 
 Optional but recommended — local anisette generation (avoids the remote
@@ -67,7 +74,14 @@ asked. The tool registers the phone's UDID on your account (once), creates the
 App ID `io.github.possiblypengu.pageturner.<teamid>`, fetches a development
 cert + profile, downloads and signs the IPA, and installs it.
 
-**Weekly refresh** (free-cert expiry): re-run `install`. Same command.
+**Weekly refresh** (free-cert expiry):
+
+```bat
+ptinstall refresh
+```
+
+Same as `install`, and it reuses the cached IPA when the release hasn't
+moved — just re-signs and pushes.
 
 ## Commands
 
@@ -78,6 +92,7 @@ cert + profile, downloads and signs the IPA, and installs it.
 | `download [-o path]` | fetch the latest unsigned IPA |
 | `sign ipa out --p12 p --profile f [--bundle-id id]` | sign a local IPA with an existing cert |
 | `install [opts]` | the full pipeline |
+| `refresh [opts]` | same as `install` — the weekly re-sign-and-push |
 
 Useful `install` flags: `--ipa path` (sign/install a local IPA instead of
 downloading), `--udid X` (pick a device), `--anisette local|remote`,

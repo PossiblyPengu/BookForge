@@ -5,6 +5,8 @@ Commands:
   pair        Pair this PC with the phone (one-time)
   devices     Show paired/reachable devices
   install     Download → sign → install the latest IPA (the whole flow)
+  refresh     Same as install — the weekly re-sign-and-push (reuses the
+              cached IPA when the release hasn't changed)
   download    Just download the latest unsigned IPA
   sign        Sign a local IPA with an existing .p12 + .mobileprovision
 
@@ -119,18 +121,28 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--bundle-id")
     sp.set_defaults(fn=cmd_sign)
 
-    sp = sub.add_parser("install", help="download → sign → install")
-    sp.add_argument("--apple-id")
-    sp.add_argument("--password", help="Apple ID password "
+    install_args = argparse.ArgumentParser(add_help=False)
+    install_args.add_argument("--apple-id")
+    install_args.add_argument("--password", help="Apple ID password "
                                        "(better: PTINSTALL_APPLE_PASSWORD env)")
-    sp.add_argument("--ipa", type=Path, help="use this IPA instead of downloading")
-    sp.add_argument("--udid", help="target device UDID (default: first found)")
-    sp.add_argument("--anisette", choices=["auto", "local", "remote"],
-                    default="auto")
-    sp.add_argument("--anisette-url", help="anisette server URL "
-                                           "(default: SideStore's public server)")
-    sp.add_argument("--no-sign", action="store_true",
-                    help="install --ipa without signing (already signed)")
+    install_args.add_argument("--ipa", type=Path,
+                              help="use this IPA instead of downloading")
+    install_args.add_argument("--udid",
+                              help="target device UDID (default: first found)")
+    install_args.add_argument("--anisette", choices=["auto", "local", "remote"],
+                              default="auto")
+    install_args.add_argument("--anisette-url",
+                              help="anisette server URL "
+                                   "(default: SideStore's public server)")
+    install_args.add_argument("--no-sign", action="store_true",
+                              help="install --ipa without signing (already signed)")
+
+    sp = sub.add_parser("install", parents=[install_args],
+                        help="download → sign → install")
+    sp.set_defaults(fn=cmd_install)
+
+    sp = sub.add_parser("refresh", parents=[install_args],
+                        help="weekly re-sign-and-push — same as install")
     sp.set_defaults(fn=cmd_install)
 
     return p
