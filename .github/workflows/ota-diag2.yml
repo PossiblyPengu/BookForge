@@ -1,0 +1,92 @@
+name: ota diag2
+# Throwaway: which anisette identity does Apple's GrandSlam accept from a GitHub runner? A made-up account and password, so the only
+# thing that varies is the identity: "wrong password" (-22406) or a plain unknown-account answer means the identity got through;
+# -80045 means it was refused before the account mattered.
+on:
+  push:
+    branches: [ota-diag2]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      ANISETTE_VER: "2.2.0"
+      ANISETTE_SHA256: "56f1a34ef86d07fca501957bcef64594f40aea5f9cdce5dac5d9d9edde3bb754"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r installer/requirements.txt
+
+      - name: Get the anisette server binary
+        run: |
+          curl -fsSL -o anisette-server "https://github.com/Dadoum/Provision/releases/download/$ANISETTE_VER/anisette-server-x86_64"
+          echo "$ANISETTE_SHA256  anisette-server" | sha256sum -c -
+          chmod +x anisette-server
+
+      - name: Server A — Android identity (what ota-sign does now)
+        run: |
+          mkdir -p adi-android
+          python - <<'PY'
+          import json, secrets, uuid
+          json.dump({"UUID": str(uuid.uuid4()).upper(),
+                     "clientInfo": "<Pixel 7> <Android;14;UQ1A.240205.002> <com.apple.AuthKit/1 (com.apple.akd/1.0)>",
+                     "identifier": secrets.token_hex(8), "localUUID": secrets.token_hex(32).upper()},
+                    open("adi-android/device.json", "w"))
+          PY
+          ./anisette-server --init-only --adi-path "$PWD/adi-android"
+          nohup ./anisette-server -n 127.0.0.1 -p 16969 --adi-path "$PWD/adi-android" > a.log 2>&1 &
+
+      - name: Server B — the server's own default (macOS) identity
+        run: |
+          mkdir -p adi-mac
+          ./anisette-server --init-only --adi-path "$PWD/adi-mac"
+          nohup ./anisette-server -n 127.0.0.1 -p 16970 --adi-path "$PWD/adi-mac" > b.log 2>&1 &
+          for p in 16969 16970; do
+            for i in $(seq 1 24); do curl -sf -m 5 http://127.0.0.1:$p > /dev/null && break; sleep 5; done
+            curl -sS -m 10 http://127.0.0.1:$p | head -c 400; echo
+          done
+
+      - name: Probe GrandSlam with a made-up account
+        env:
+          PYTHONPATH: installer
+        run: |
+          python - <<'PY'
+          import srp, time
+          from ptinstall import gsa, anisette
+
+          APPLE_ID = "ptinstall.probe.nobody.0001@example.com"
+
+          def attempt(label, an):
+              print(f"\n=== {label}")
+              print("   headers:", sorted(k for k in an))
+              print("   client-info:", an.get("X-Mme-Client-Info"))
+              usr = srp.User(APPLE_ID, bytes(), hash_alg=srp.SHA256, ng_type=srp.NG_2048)
+              _, A = usr.start_authentication()
+              try:
+                  resp = gsa._gsa_request({"A2k": A, "ps": ["s2k", "s2k_fo"], "u": APPLE_ID, "o": "init"}, an)
+              except Exception as e:
+                  print("   init  ->", type(e).__name__, e); return
+              print("   init  -> ok, status:", resp.get("Status"), "sp:", resp.get("sp"))
+              try:
+                  usr.p = gsa._encrypt_password("not-the-password", resp["s"], int(resp["i"]), resp["sp"])
+                  M1 = usr.process_challenge(resp["s"], resp["B"])
+                  gsa._gsa_request({"c": resp["c"], "M1": M1, "u": APPLE_ID, "o": "complete"}, an)
+                  print("   complete -> unexpectedly ok")
+              except Exception as e:
+                  print("   complete ->", type(e).__name__, e)
+
+          for label, url in [
+              ("A: local Android identity", "http://127.0.0.1:16969"),
+              ("B: local macOS identity", "http://127.0.0.1:16970"),
+              ("C: public ani.sidestore.io", "https://ani.sidestore.io"),
+              ("D: public ani.npeg.us", "https://ani.npeg.us"),
+          ]:
+              try:
+                  an = anisette.headers(prefer="remote", url=url)
+              except Exception as e:
+                  print(f"\n=== {label}\n   anisette failed: {e}"); continue
+              attempt(label, an)
+              time.sleep(3)
+          PY
