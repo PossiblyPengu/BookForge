@@ -19,6 +19,7 @@ import base64
 import hashlib
 import hmac
 import plistlib
+import re
 import struct
 from dataclasses import dataclass, field
 
@@ -43,6 +44,42 @@ CLIENT_INFO = (
     "<com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>"
 )
 USER_AGENT = "akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0"
+
+# Since 2026-09 the GsService2 edge drops (HTML 503) any request whose
+# X-MMe-Client-Info token is com.apple.dt.Xcode — akd is what macOS itself
+# sends. Developer-services calls keep the original string.
+_BLOCKED_CLIENT_TOKEN = re.compile(r"com\.apple\.dt\.Xcode/[^)\s>]+")
+_GSA_CLIENT_TOKEN = "com.apple.akd/1.0"
+
+
+def _gsa_client_info(value: str) -> str:
+    return _BLOCKED_CLIENT_TOKEN.sub(_GSA_CLIENT_TOKEN, value or CLIENT_INFO)
+
+
+def _gsa_http(method: str, url: str, headers: dict,
+              data: bytes | None = None) -> requests.Response:
+    """One GrandSlam request on a throwaway connection.
+
+    Apple also spends keep-alive sockets after two requests — the login is
+    three — so each call gets ``Connection: close``, a fresh session, and no
+    urllib3 retries. If a pooled connection still draws the HTML 503, retry
+    once on a brand-new socket.
+    """
+    from requests.adapters import HTTPAdapter
+
+    def once() -> requests.Response:
+        h = dict(headers)
+        h["Connection"] = "close"
+        h["X-MMe-Client-Info"] = _gsa_client_info(h.get("X-MMe-Client-Info"))
+        with requests.Session() as s:
+            s.mount("https://", HTTPAdapter(max_retries=0))
+            return s.request(method, url, headers=h, data=data, timeout=30,
+                             verify=str(config.ca_bundle()))
+
+    r = once()
+    if r.status_code == 503 and b"<html" in r.content[:256].lower():
+        r = once()
+    return r
 
 _PLIST_HEADER = (
     b"<?xml version='1.0' encoding='UTF-8'?>\n"
@@ -94,26 +131,27 @@ def _cpd(anisette: dict) -> dict:
 
 def _gsa_request(params: dict, anisette: dict) -> dict:
     body = {"Header": {"Version": "1.0.1"}, "Request": dict(params, cpd=_cpd(anisette))}
-    r = requests.post(
+    r = _gsa_http(
+        "POST",
         GSA_URL,
-        data=plistlib.dumps(body),
         headers={
             "Content-Type": "text/x-xml-plist",
             "Accept": "*/*",
             "User-Agent": USER_AGENT,
             "X-MMe-Client-Info": CLIENT_INFO,
         },
-        timeout=30,
-        # gsa.apple.com chains to Apple's private root — certifi alone fails
-        verify=str(config.ca_bundle()),
+        data=plistlib.dumps(body),
     )
     try:
         resp = plistlib.loads(r.content)["Response"]
     except plistlib.InvalidFileException:
-        raise AuthError(
-            f"GSA returned HTTP {r.status_code} with a non-plist body: "
-            f"{r.text[:120]!r}"
-        )
+        try:  # GSA omits the XML prolog on some responses
+            resp = plistlib.loads(_PLIST_HEADER + r.content)["Response"]
+        except plistlib.InvalidFileException:
+            raise AuthError(
+                f"GSA returned HTTP {r.status_code} with a non-plist body: "
+                f"{r.text[:120]!r}"
+            )
     status = resp.get("Status", {})
     ec = int(status.get("ec", 0))
     if ec != 0:
@@ -225,8 +263,7 @@ def _two_factor(dsid: str, idms_token: str, anisette: dict, prompt,
     presupplied = code is not None and bool(code.strip())
     if not presupplied:
         # Triggers the code prompt on the user's trusted devices.
-        requests.get(VERIFY_TRUSTED_URL, headers=headers, timeout=30,
-                     verify=str(config.ca_bundle()))
+        _gsa_http("GET", VERIFY_TRUSTED_URL, headers)
         code = prompt(
             "A verification code was sent to your trusted Apple devices.\n"
             "Enter the 6-digit code: "
@@ -234,8 +271,7 @@ def _two_factor(dsid: str, idms_token: str, anisette: dict, prompt,
     if not code:
         raise NeedsTwoFactor("No verification code entered.")
     headers["security-code"] = code.strip()
-    r = requests.get(VALIDATE_URL, headers=headers, timeout=30,
-                     verify=str(config.ca_bundle()))
+    r = _gsa_http("GET", VALIDATE_URL, headers)
     try:
         resp = plistlib.loads(r.content)
     except plistlib.InvalidFileException:
@@ -246,8 +282,7 @@ def _two_factor(dsid: str, idms_token: str, anisette: dict, prompt,
     ec = int(resp.get("ec", 0))
     if ec == -21669:
         if presupplied:
-            requests.get(VERIFY_TRUSTED_URL, headers=headers, timeout=30,
-                         verify=str(config.ca_bundle()))
+            _gsa_http("GET", VERIFY_TRUSTED_URL, headers)
             raise NeedsTwoFactor(
                 "That code was rejected — a fresh one was just pushed "
                 "to your trusted devices."
