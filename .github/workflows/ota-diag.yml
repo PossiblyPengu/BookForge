@@ -1,0 +1,57 @@
+name: ota diag
+# Throwaway: which anisette servers answer from a GitHub runner, and does a local anisette-v3-server work on one?
+on:
+  push:
+    branches: [ota-diag]
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Probe public servers
+        shell: python
+        run: |
+          import requests
+          try:
+              print("runner ip:", requests.get("https://api.ipify.org", timeout=10).text)
+          except Exception as e:
+              print("ip lookup failed", e)
+          servers = [
+              "https://ani.stikstore.app",
+              "https://ani.sidestore.io",
+              "https://ani.sidestore.app",
+              "https://ani.f1sh.me",
+              "https://anisette.wiki",
+              "https://anisette.sidestore.dev",
+              "https://ani.npeg.us",
+              "https://sideloadly.io/anisette/irGb3Quww8zrhgqnzmrx",
+          ]
+          uas = {"python-requests": None, "SideStore": "SideStore/0.6.0", "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
+          for s in servers:
+              for name, ua in uas.items():
+                  try:
+                      r = requests.get(s, timeout=15, headers={"User-Agent": ua} if ua else {})
+                      ok = "X-Apple-I-MD" in r.text
+                      print(f"{s:55s} {name:16s} {r.status_code} anisette_json={ok} {r.headers.get('server','')} {r.headers.get('cf-mitigated','')}")
+                  except Exception as e:
+                      print(f"{s:55s} {name:16s} ERR {type(e).__name__}: {str(e)[:80]}")
+      - name: Local anisette-v3-server (docker, ubuntu only)
+        if: runner.os == 'Linux'
+        run: |
+          docker run -d --name ani -p 6969:6969 dadoum/anisette-v3-server
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /tmp/ani.json -w "%{http_code}" http://localhost:6969/ || true)
+            echo "try $i: $code"
+            [ "$code" = "200" ] && break
+            sleep 3
+          done
+          head -c 300 /tmp/ani.json || true
+          docker logs ani | tail -20
