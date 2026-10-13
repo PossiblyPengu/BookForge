@@ -296,17 +296,17 @@ final class ReadAloud: NSObject, ObservableObject {
     private func paint(_ spoken: Spoken, as highlights: ReadAloudHighlights, on navigator: DecorableNavigator) {
         var sentence: [Decoration] = [], line: [Decoration] = [], word: [Decoration] = []
         if highlights.sentence, let locator = spoken.sentence {
-            sentence = [Decoration(id: markID("tts", locator), locator: locator, style: .highlight(tint: .systemOrange))]
+            sentence = [Decoration(id: markID("tts", locator), locator: locator.anchorable, style: .highlight(tint: .systemOrange))]
         }
         if let locator = spoken.word, !spoken.wordIsTheSentence {
             if highlights.word {
                 // a navigator that doesn't know the stronger mark gets the plain highlight
                 let style: Decoration.Style = navigator.supports(decorationStyle: .spokenWord)
                     ? .spokenWord(tint: .systemOrange) : .highlight(tint: .systemOrange)
-                word = [Decoration(id: markID("tts-word", locator), locator: locator, style: style)]
+                word = [Decoration(id: markID("tts-word", locator), locator: locator.anchorable, style: style)]
             }
             if highlights.line, navigator.supports(decorationStyle: .spokenLine) {
-                line = [Decoration(id: markID("tts-line", locator), locator: locator, style: .spokenLine)]
+                line = [Decoration(id: markID("tts-line", locator), locator: locator.anchorable, style: .spokenLine)]
             }
         }
         if sentence != painted.sentence {
@@ -375,9 +375,9 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
                 waitForAWord(in: utterance.locator)
             }
             if scrolls {
-                followTarget.send(utterance.locator)
+                followTarget.send(utterance.locator.anchorable)
             } else if let word {
-                followTarget.send(word)
+                followTarget.send(word.anchorable)
             }
             // the state is published before every sentence, spoken or not — only a word being
             // spoken proves the voice works
@@ -423,5 +423,17 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
             return
         }
         synthesizer.next()
+    }
+}
+
+extension Locator {
+    /// Readium's content iterator bakes the parent element's CSS selector into every locator it
+    /// makes (utterances, search hits), and the page anchors inside that element. A book whose ids
+    /// a selector can't name — a leading digit, which Calibre gives every body — makes
+    /// querySelector throw, so nothing is marked or scrolled to. The text anchor's before/after
+    /// context finds the spot without it. Locators the page itself produces (selections, the
+    /// first-visible-element locator) carry a proper JS-generated selector and keep it.
+    var anchorable: Locator {
+        copy(locations: { $0.otherLocations.removeValue(forKey: "cssSelector") })
     }
 }

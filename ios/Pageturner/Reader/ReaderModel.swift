@@ -262,7 +262,9 @@ final class ReaderModel: ObservableObject {
 
     func go(to locator: Locator) {
         guard let navigator else { return }
-        navigate { await navigator.go(to: locator, options: NavigatorGoOptions(animated: true)) }
+        // a locator made from the book's text (a search hit) can carry a cssSelector the page
+        // can't parse — strip it so the text anchor resolves (see Locator.anchorable)
+        navigate { await navigator.go(to: locator.anchorable, options: NavigatorGoOptions(animated: true)) }
     }
 
     /// The scrubber: jump to a point `progression` (0…1) through the book.
