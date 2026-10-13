@@ -29,7 +29,7 @@ jobs:
           pyinstaller --onefile --console --name ptinstall
           --paths installer
           --collect-all pymobiledevice3 --collect-submodules ptinstall
-          --hidden-import srp._pysrp
+          --hidden-import srp._pysrp --hidden-import win32security
           installer/main.py
       - name: Smoke test the exe
         run: dist\ptinstall.exe --help
