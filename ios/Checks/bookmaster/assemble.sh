@@ -58,6 +58,13 @@ import Foundation
             var b = books[i]; change(&b); if b != books[i] { books[i] = b }
         }
     }
+    /// Where a downloaded jacket would live — a path is all the pull checks.
+    func coverURL(for book: Book) -> URL { URL(fileURLWithPath: "/tmp/\(book.id.uuidString).jpg") }
+}
+/// The real one writes files and needs UIKit; the pull's cover fetch is
+/// network IO the checks never run.
+enum MetadataLookup {
+    static func applyCover(from url: URL, to book: Book, library: LibraryStore) async {}
 }
 SW
 echo "assembled into $OUT"
