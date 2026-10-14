@@ -377,3 +377,52 @@ private extension JumpHistory {
         return copy.record(origin: origin, landed: landed)
     }
 }
+
+@MainActor
+func runGroupingChecks() {
+    section("Audiobook grouping")
+    func item(_ path: String, album: String = "") -> AudioGrouping.Item {
+        .init(url: URL(fileURLWithPath: path), album: album)
+    }
+
+    check("stem drops trailing numbers and separators", AudioGrouping.stem("Dune - 04.mp3") == "dune"
+          && AudioGrouping.stem("dune_12.m4b") == "dune")
+    check("stem drops leading numbers", AudioGrouping.stem("07 - Dune.mp3") == "dune")
+    check("stem drops disc and part words anywhere at the tail", AudioGrouping.stem("Dune CD2 - 04.mp3") == "dune"
+          && AudioGrouping.stem("Dune - Part 03.mp3") == "dune" && AudioGrouping.stem("Dune pt4.mp3") == "dune")
+    check("a number-only name has no stem", AudioGrouping.stem("01.mp3").isEmpty && AudioGrouping.stem("1984 - 01.mp3").isEmpty)
+    check("a different book keeps its stem", AudioGrouping.stem("Dune2 - 01.mp3") == "dune2"
+          && AudioGrouping.stem("Dune Messiah - 01.mp3") == "dune messiah"
+          && AudioGrouping.stem("Harry Potter 2.mp3") == "harry potter 2")
+    check("track words leave the same stem", AudioGrouping.stem("Track 01.mp3") == AudioGrouping.stem("Track 02.mp3"))
+
+    check("disc folders recognised", AudioGrouping.isDisc("CD 1") && AudioGrouping.isDisc("CD2")
+          && AudioGrouping.isDisc("Disc 02") && AudioGrouping.isDisc("Part 3") && AudioGrouping.isDisc("pt4"))
+    check("ordinary folders are not discs", !AudioGrouping.isDisc("Book") && !AudioGrouping.isDisc("Extras")
+          && !AudioGrouping.isDisc("CD 1-2") && !AudioGrouping.isDisc("Dune (unabridged)"))
+
+    let sameDir = AudioGrouping.groups(of: [item("/in/Dune - 01.mp3"), item("/in/Dune - 02.mp3")])
+    check("parts of one book in one folder group", sameDir.count == 1 && sameDir[0].count == 2)
+    let twoBooks = AudioGrouping.groups(of: [item("/in/Dune - 01.mp3"), item("/in/Dune - 02.mp3"),
+                                             item("/in/Emma - 01.mp3"), item("/in/Emma - 02.mp3")])
+    check("two books that shared a folder stay two books", twoBooks.count == 2)
+    let albumSplit = AudioGrouping.groups(of: [item("/in/01.mp3", album: "Dune"), item("/in/02.mp3", album: "Dune"),
+                                               item("/in/03.mp3", album: "Emma")])
+    check("album tags split an otherwise anonymous folder", albumSplit.count == 2
+          && albumSplit[0].count == 2 && albumSplit[1].count == 1)
+    let albumMerge = AudioGrouping.groups(of: [item("/a/01.mp3", album: "Dune"), item("/b/01.mp3", album: "Dune")])
+    check("an album tag spans folders", albumMerge.count == 1 && albumMerge[0].count == 2)
+    let discs = AudioGrouping.groups(of: [item("/Book/CD 1/01.mp3"), item("/Book/CD 1/02.mp3"),
+                                          item("/Book/CD 2/01.mp3"), item("/Book/CD 2/02.mp3")])
+    check("sibling disc folders merge into one book", discs.count == 1 && discs[0].count == 4)
+    let discOrder = AudioGrouping.groups(of: [item("/Book/CD 10/01.mp3"), item("/Book/CD 2/02.mp3"),
+                                              item("/Book/CD 2/01.mp3")])
+    check("'CD 2' tracks come before 'CD 10'", discOrder.count == 1
+          && discOrder[0].map { $0.url.path } == ["/Book/CD 2/01.mp3", "/Book/CD 2/02.mp3", "/Book/CD 10/01.mp3"])
+    let loneDisc = AudioGrouping.groups(of: [item("/Book/CD 1/01.mp3"), item("/Book/02.mp3")])
+    check("a lone disc folder doesn't drag the parent's loose files in", loneDisc.count == 2)
+    let bare = AudioGrouping.groups(of: [item("/in/01.mp3"), item("/in/02.mp3")])
+    check("nameless files still group by folder, as before", bare.count == 1 && bare[0].count == 2)
+    let chOrder = AudioGrouping.groups(of: [item("/in/Dune - 10.mp3"), item("/in/Dune - 2.mp3")])
+    check("'ch2' sorts before 'ch10'", chOrder[0].map { $0.url.lastPathComponent } == ["Dune - 2.mp3", "Dune - 10.mp3"])
+}

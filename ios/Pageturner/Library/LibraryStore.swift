@@ -295,9 +295,11 @@ final class LibraryStore: ObservableObject {
 
     // MARK: - Import
 
-    /// Audio files from one folder become one audiobook (natural-sorted so
-    /// "ch2" comes before "ch10"); different folders become separate books.
-    /// Ebooks import one per file.
+    /// Audio files group into audiobooks by what they are, not just where they
+    /// landed: a shared album tag wins, sibling "CD n" folders merge under
+    /// their parent, and inside a folder a different name stem stays a
+    /// different book (AudioGrouping). Tracks play in natural path order so
+    /// "ch2" comes before "ch10". Ebooks import one per file.
     enum ImportError: LocalizedError {
         case notAnArchive, looksLikeBackup, nothingToImport, emptyText
 
@@ -315,17 +317,50 @@ final class LibraryStore: ObservableObject {
     /// website or a folder of notes shouldn't become hundreds of "books".
     private static let archiveExtensions = Set(["epub", "pdf", "cbz"]).union(Book.audioExtensions)
 
+    /// "Open in" and share-sheet deliveries arrive one URL at a time, back to
+    /// back — hold the batch for a beat so a multi-part book lands as one.
+    private var pendingURLs: [URL] = []
+    private var pendingImport: Task<Void, Never>?
+
     func importFiles(_ urls: [URL]) async {
-        importing = true
-        defer { importing = false }
-        var failures: [String] = []
-        await importBatch(urls, failures: &failures, inArchive: false)
-        if !failures.isEmpty { lastError = failures.joined(separator: "\n") }
+        pendingURLs.append(contentsOf: urls)
+        pendingImport?.cancel()
+        pendingImport = Task {
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled else { return }
+            let batch = pendingURLs
+            pendingURLs = []
+            importing = true
+            defer { importing = false }
+            var failures: [String] = []
+            await importBatch(batch, failures: &failures, inArchive: false)
+            if !failures.isEmpty { lastError = failures.joined(separator: "\n") }
+        }
+        await pendingImport?.value
+    }
+
+    /// A picked folder means its contents — folders and all. Files inside it
+    /// keep their folders, so the audio grouping below still applies.
+    private func expanded(_ urls: [URL]) -> [URL] {
+        var out: [URL] = []
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            if isDir, let walker = fm.enumerator(
+                at: url, includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles, .skipsPackageDescendants])
+            {
+                for case let file as URL in walker { out.append(file) }
+            }
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            if !isDir { out.append(url) }
+        }
+        return out
     }
 
     private func importBatch(_ urls: [URL], failures: inout [String], inArchive: Bool) async {
         var audio: [URL] = []
-        for url in urls {
+        for url in expanded(urls) {
             let ext = url.pathExtension.lowercased()
             if Book.audioExtensions.contains(ext) {
                 audio.append(url)
@@ -343,19 +378,31 @@ final class LibraryStore: ObservableObject {
                 }
             }
         }
-        // group audio by containing folder — a multi-album selection must
-        // not collapse into one book
-        let groups = Dictionary(grouping: audio) { $0.deletingLastPathComponent().path }
-        for dir in groups.keys.sorted() {
-            do { try await importAudiobook(groups[dir] ?? []) } catch {
-                failures.append("\(groups[dir]?.count ?? 0) audio files: \(error.localizedDescription)")
+        // group by what the files are, not just where they landed: an album
+        // tag wins, disc folders merge, a second book's different stem splits
+        var items: [AudioGrouping.Item] = []
+        for url in audio {
+            items.append(.init(url: url, album: audio.count > 1 ? await albumTag(url) : ""))
+        }
+        for group in AudioGrouping.groups(of: items) {
+            do { try await importAudiobook(group.map(\.url)) } catch {
+                failures.append("\(group.count) audio files: \(error.localizedDescription)")
             }
         }
     }
 
+    /// The album tag of one audio file, "" when it has none — read for the
+    /// grouping decision, so a mixed folder or an inbox of parts splits right.
+    private func albumTag(_ url: URL) async -> String {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let metadata = (try? await AVURLAsset(url: url).load(.metadata)) ?? []
+        return metadata.first { $0.commonKey == .commonKeyAlbumName }?.stringValue ?? ""
+    }
+
     /// A zip of books — a folder of audiobook parts, a pile of EPUBs — unpacked
-    /// and imported. Folders inside it stay folders, so each audiobook directory
-    /// becomes one book.
+    /// and imported. Folders inside it stay folders, so each audiobook
+    /// directory becomes one book — and sibling "CD n" folders merge into one.
     private func importArchive(_ source: URL, failures: inout [String]) async throws {
         let scoped = source.startAccessingSecurityScopedResource()
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
@@ -406,8 +453,10 @@ final class LibraryStore: ObservableObject {
     }
 
     private func importAudiobook(_ sources: [URL]) async throws {
+        // full paths, not basenames: sibling "CD 1"/"CD 2" parts can share a
+        // name, and only their folders keep them apart and in order
         let sorted = sources.sorted {
-            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+            $0.path.localizedStandardCompare($1.path) == .orderedAscending
         }
         let id = UUID()
         var fileNames: [String] = []
@@ -436,7 +485,13 @@ final class LibraryStore: ObservableObject {
             fileNames: fileNames,
             addedAt: Date()
         )
-        book.trackTitles = sorted.map { $0.deletingPathExtension().lastPathComponent }
+        // parts from more than one folder need their folder in the chapter
+        // list — "01" in "CD 1" and "01" in "CD 2" are both real tracks
+        let dirs = Set(sorted.map { $0.deletingLastPathComponent().path })
+        book.trackTitles = sorted.map {
+            let name = $0.deletingPathExtension().lastPathComponent
+            return dirs.count > 1 ? "\($0.deletingLastPathComponent().lastPathComponent) — \(name)" : name
+        }
         // Title priority: album metadata → shared folder name → track title →
         // filename. Track-1 title is often a chapter name ("Chapter 1"), which
         // is worse than the folder the files came from.
@@ -445,9 +500,14 @@ final class LibraryStore: ObservableObject {
         func meta(_ key: AVMetadataKey) -> AVMetadataItem? {
             metadata.first { $0.commonKey == key }
         }
-        let dirs = Set(sorted.map { $0.deletingLastPathComponent().path })
-        let dir = sorted[0].deletingLastPathComponent().lastPathComponent
-        let dirTitle = dirs.count == 1 && !dir.isEmpty && dir != "Inbox" && dir != "Documents" ? dir : nil
+        // tracks from one folder take that folder's name; tracks from sibling
+        // "CD n" folders take their common parent's
+        let leaf: String = {
+            if dirs.count == 1 { return sorted[0].deletingLastPathComponent().lastPathComponent }
+            let parents = Set(dirs.map { URL(fileURLWithPath: $0).deletingLastPathComponent().path })
+            return parents.count == 1 ? URL(fileURLWithPath: parents.first!).lastPathComponent : ""
+        }()
+        let dirTitle = !leaf.isEmpty && leaf != "Inbox" && leaf != "Documents" ? leaf : nil
         if let album = meta(.commonKeyAlbumName)?.stringValue, !album.isEmpty {
             book.title = album
         } else if let dirTitle {

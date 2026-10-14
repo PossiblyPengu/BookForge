@@ -19,7 +19,8 @@ struct LibraryView: View {
 
     /// Comics and Markdown have no system type everywhere — match them by extension.
     private static let extraTypes = ["cbz", "md", "markdown"].compactMap { UTType(filenameExtension: $0) }
-    static let pickerTypes: [UTType] = [.epub, .pdf, .audio, .plainText, .html, .zip] + extraTypes
+    /// `.folder`: an audiobook's tracks often come as a folder of parts.
+    static let pickerTypes: [UTType] = [.epub, .pdf, .audio, .plainText, .html, .zip, .folder] + extraTypes
 
     /// Built-in shelf filters carry a "~" a shelf name can't start with.
     private static let allKey = "~all"
@@ -201,7 +202,7 @@ struct LibraryView: View {
         ContentUnavailableView {
             Label("No Books Yet", systemImage: "books.vertical")
         } description: {
-            Text("Add EPUB, PDF, CBZ comic, text or audiobook files (or a zip of them) from Files, or use “Open in Pageturner” from another app.")
+            Text("Add EPUB, PDF, CBZ comic, text or audiobook files — a folder or a zip of an audiobook's parts becomes one book — from Files, or use “Open in Pageturner” from another app.")
         } actions: {
             Button { showImporter = true } label: {
                 Label("Add Books", systemImage: "plus")

@@ -118,6 +118,7 @@ func runData() async {
     await runAudioChecks()
     await runQueueChecks()
     runLogic()
+    runGroupingChecks()
     runStatsChecks()
     runLinkURLChecks()
     runVoiceChecks()

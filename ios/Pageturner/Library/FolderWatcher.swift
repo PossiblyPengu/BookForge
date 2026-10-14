@@ -79,9 +79,16 @@ final class FolderWatcher {
 
         let now = Date()
         let audioExts = Book.audioExtensions
+        // a disc folder settles with its siblings: "Book/CD 2" still arriving
+        // holds "Book/CD 1" back, or the halves import as two books
+        func settleKey(_ url: URL) -> String {
+            let dir = url.deletingLastPathComponent()
+            return AudioGrouping.isDisc(dir.lastPathComponent)
+                ? dir.deletingLastPathComponent().path : dir.path
+        }
         let quietDirs = Set(
             Dictionary(grouping: found.filter { audioExts.contains($0.url.pathExtension.lowercased()) },
-                       by: { $0.url.deletingLastPathComponent().path })
+                       by: { settleKey($0.url) })
                 .filter { $0.value.allSatisfy { now.timeIntervalSince($0.modified) >= folderSettle } }
                 .keys)
 
@@ -89,7 +96,7 @@ final class FolderWatcher {
         for item in found where !known.contains(item.key) {
             if now.timeIntervalSince(item.modified) < fileSettle { continue }
             if audioExts.contains(item.url.pathExtension.lowercased()),
-               !quietDirs.contains(item.url.deletingLastPathComponent().path) { continue }
+               !quietDirs.contains(settleKey(item.url)) { continue }
             ready.append(item)
         }
         guard !ready.isEmpty else { return }
