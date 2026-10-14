@@ -5,6 +5,7 @@ on:
     paths:
       - "ios/**"
       - ".github/workflows/ios.yml"
+      - ".github/workflows/ios-build.yml"
   workflow_dispatch:
 
 concurrency:
@@ -12,159 +13,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ipa:
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          # pinned major — "latest-stable" silently moved us to Xcode 26 once
-          # and the app stopped compiling until it was patched
-          xcode-version: "26"
-
-      - name: Cache Swift packages (Readium)
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/org.swift.swiftpm
-          key: spm-${{ hashFiles('ios/project.yml') }}
-          restore-keys: spm-
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        run: cd ios && xcodegen
-
-      # Liquid Glass lives in the iOS 26 SDK; dump the real signatures so the
-      # UI code is written against them rather than against memory.
-      - name: Probe SwiftUI SDK
-        run: |
-          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          echo "SDK: $SDK" | tee sdk-probe.txt
-          xcodebuild -version | tee -a sdk-probe.txt
-          PAT="glassEffect|GlassEffectContainer|struct Glass\\b|GlassEffectTransition|glassEffectUnion|tabBarMinimizeBehavior|tabViewBottomAccessory|TabViewBottomAccessoryPlacement|ToolbarSpacer|scrollEdgeEffect|backgroundExtensionEffect|sharedBackgroundVisibility|searchToolbarBehavior|TabRole|struct Tab<|safeAreaBar|buttonSizing|DefaultGlassEffectShape|ConcentricRectangle|containerCornerOffset|struct ButtonBorderShape"
-          for NAME in SwiftUICore SwiftUI; do
-            FW="$SDK/System/Library/Frameworks/$NAME.framework"
-            IFACE=$(find "$FW" -name "arm64e-apple-ios.swiftinterface" | head -1)
-            echo "== $NAME interface: ${IFACE:-none}" >> sdk-probe.txt
-            [ -n "$IFACE" ] && grep -nE "$PAT" "$IFACE" | grep -vE "_opaqueReturnTypeOf|Sendable|_makeToolbar" | head -300 >> sdk-probe.txt || true
-          done
-          { echo '### SwiftUI SDK probe'; echo '```'; head -120 sdk-probe.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-        working-directory: ios
-
-      - name: Upload SDK probe
-        if: always()
-        continue-on-error: true   # a diagnostic — an artifact-service hiccup must not skip the build
-        uses: actions/upload-artifact@v4
-        with:
-          name: sdk-probe
-          path: ios/sdk-probe.txt
-          if-no-files-found: ignore
-
-      # The build number is this run's number, so every build is newer than the last and AltStore / SideStore
-      # (which update only when it rises) see each one as an update.
-      - name: Build unsigned app
-        run: |
-          set -o pipefail
-          cd ios
-          xcodebuild \
-            -project Pageturner.xcodeproj \
-            -scheme Pageturner \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath build \
-            -skipPackagePluginValidation \
-            -skipMacroValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
-            build 2>&1 | tee xcodebuild.log
-
-      # The Readium sources the build resolved, so the UI code can be written
-      # against the real 3.x signatures instead of memory (read them from the artifact).
-      - name: Archive Readium sources
-        if: always()
-        run: |
-          D=$(find ios/build/SourcePackages/checkouts -maxdepth 1 -name "swift-toolkit" | head -1)
-          if [ -n "$D" ]; then tar czf readium-src.tgz -C "$D" Sources docs; ls -la readium-src.tgz; fi
-
-      - name: Upload Readium sources
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: readium-src
-          path: readium-src.tgz
-          if-no-files-found: ignore
-
-      # xcodebuild's output is not turned into annotations, so a failed build
-      # otherwise shows up as a bare "exit code 65". Put the diagnostics where
-      # they can be read without downloading anything.
-      - name: Report compiler diagnostics
-        if: always()
-        run: |
-          cd ios
-          {
-            echo "### Swift diagnostics"
-            echo
-            if grep -qE "(error|warning): " xcodebuild.log; then
-              echo '```'
-              grep -E "(error|warning): " xcodebuild.log | sort -u | head -80
-              echo '```'
-            else
-              echo "None."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-          grep -E "error: " xcodebuild.log | sort -u | head -40 || true
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcodebuild-log
-          path: ios/xcodebuild.log
-          if-no-files-found: warn
-
-      # What the build actually produced, checked rather than assumed: a key missing from the
-      # generated Info.plist (background modes, URL scheme, document types) fails quietly on a device.
-      - name: Check the built app's Info.plist and bundle
-        run: |
-          APP=ios/build/Build/Products/Release-iphoneos/Pageturner.app
-          plutil -p "$APP/Info.plist" | tee ios/info-plist.txt
-          missing=0
-          for key in BGTaskSchedulerPermittedIdentifiers CFBundleURLTypes CFBundleDocumentTypes UTImportedTypeDeclarations UIFileSharingEnabled; do
-            grep -q "\"$key\"" ios/info-plist.txt || { echo "::error::Info.plist is missing $key"; missing=1; }
-          done
-          grep -q '=> "fetch"' ios/info-plist.txt || { echo "::error::UIBackgroundModes lacks fetch"; missing=1; }
-          grep -q '=> "audio"' ios/info-plist.txt || { echo "::error::UIBackgroundModes lacks audio"; missing=1; }
-          grep -q 'io.github.possiblypengu.pageturner.refresh' ios/info-plist.txt || { echo "::error::the refresh task id is not permitted"; missing=1; }
-          [ -d "$APP/Metadata.appintents" ] || { echo "::error::no Metadata.appintents (Siri/Shortcuts would not see the intents)"; missing=1; }
-          [ -f "$APP/Assets.car" ] || { echo "::error::no compiled asset catalogue (app icon)"; missing=1; }
-          [ -f "$APP/espeak-ng-data/phondata" ] || { echo "::error::espeak-ng's phoneme data is not in the app (neural voices could not speak)"; missing=1; }
-          [ -f "$APP/NeuralVoices.json" ] || { echo "::error::the neural voice catalogue is not in the app"; missing=1; }
-          du -sh "$APP"
-          ls "$APP" | head -40
-          exit $missing
-
-      - name: Package IPA
-        run: |
-          cd ios/build/Build/Products/Release-iphoneos
-          mkdir -p Payload
-          cp -r Pageturner.app Payload/
-          zip -qr Pageturner.ipa Payload
-          ls -lh Pageturner.ipa
-
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Pageturner-ipa
-          path: ios/build/Build/Products/Release-iphoneos/Pageturner.ipa
-          if-no-files-found: error
+  build:
+    uses: ./.github/workflows/ios-build.yml
 
   # Every green build on main becomes the rolling `ios-latest` release (Pageturner.ipa and an AltStore / SideStore
   # source whose links never change), so a source added once to SideStore offers each build as an update.
   publish:
-    needs: ipa
+    needs: build
     concurrency:
       group: ios-release
       cancel-in-progress: false

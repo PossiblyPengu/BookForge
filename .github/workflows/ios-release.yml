@@ -1,0 +1,71 @@
+name: iOS release
+
+# A `v*` tag cuts the real release: the tag must equal the version in
+# package.json (`npm run version` bumps it everywhere), the shared build
+# compiles the tagged commit, and the result becomes the GitHub "Latest"
+# release — plus an `ios-stable` rolling release so SideStore can follow
+# stable builds instead of nightly ones.
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag is the app's version
+        run: |
+          node scripts/version.js --check
+          VER=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "package.json version: $VER — tag: $TAG"
+          if [ "$VER" != "$TAG" ]; then
+            echo "::error::tag $GITHUB_REF_NAME but the version is $VER — run 'npm run version $TAG', commit, then re-tag"
+            exit 1
+          fi
+
+  build:
+    needs: check
+    uses: ./.github/workflows/ios-build.yml
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the IPA
+        uses: actions/download-artifact@v4
+        with:
+          name: Pageturner-ipa
+          path: out
+
+      # The source the release carries points at the ios-stable alias, not this
+      # tag — adding it follows every stable update, not just this version.
+      - name: Publish the release and the stable source
+        run: |
+          SURL="https://github.com/$REPO/releases/download/ios-stable/Pageturner.ipa"
+          python3 ios/scripts/make-altstore-source.py out/Pageturner.ipa "$REPO" "$SURL" out/altstore.json stable
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" out/Pageturner.ipa out/altstore.json --repo "$REPO" --clobber
+            gh release edit "$TAG" --repo "$REPO" --latest
+          else
+            gh release create "$TAG" out/Pageturner.ipa out/altstore.json --repo "$REPO" \
+              --title "Pageturner $TAG" --generate-notes --latest
+          fi
+          if gh release view ios-stable --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload ios-stable out/Pageturner.ipa --repo "$REPO" --clobber
+            gh release upload ios-stable out/altstore.json --repo "$REPO" --clobber
+            gh release edit ios-stable --repo "$REPO" --title "Pageturner — latest stable" --prerelease
+          else
+            gh release create ios-stable out/Pageturner.ipa out/altstore.json --repo "$REPO" \
+              --title "Pageturner — latest stable" --prerelease
+          fi

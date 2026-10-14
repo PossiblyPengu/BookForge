@@ -41,21 +41,23 @@ CarPlay (needs an Apple entitlement), real push notifications (same), MOBI/AZW3/
 
 ### Install (sideload)
 
-The app isn't on the App Store. CI builds an unsigned IPA on every change to `ios/`:
+The app isn't on the App Store. Releases on GitHub carry an unsigned `Pageturner.ipa`:
 
-1. On GitHub open **Actions → iOS IPA**, pick the latest green run and download the **Pageturner-ipa** artifact; unzip it to get `Pageturner.ipa`.
-2. Install it with [AltStore](https://altstore.io), [SideStore](https://sidestore.io) or [Sideloadly](https://sideloadly.io), signing with your Apple ID.
-3. A free Apple ID signs for 7 days — keep AltStore or SideStore running to refresh it automatically.
+- **Stable:** the [latest release](https://github.com/PossiblyPengu/PageTurner/releases/latest) — cut from a `v*` tag.
+- **Nightly:** the [ios-latest build](https://github.com/PossiblyPengu/PageTurner/releases/tag/ios-latest) — every green build on `main`.
+
+Install it with [AltStore](https://altstore.io), [SideStore](https://sidestore.io) or [Sideloadly](https://sideloadly.io), signing with your Apple ID. A free Apple ID signs for 7 days — keep AltStore or SideStore running to refresh it automatically.
 
 To link BookMaster, tap the gear in the library → **Link BookMaster** (or the button on the BookMaster tab).
 
 ### Update without reinstalling by hand
 
-Add this source once in AltStore or SideStore (Sources → +) and each new build shows up as an update:
+Add a source once in AltStore or SideStore (Sources → +) and new builds show up as updates:
 
-`https://github.com/PossiblyPengu/PageTurner/releases/download/ios-latest/altstore.json`
+- Stable: `https://github.com/PossiblyPengu/PageTurner/releases/download/ios-stable/altstore.json`
+- Nightly: `https://github.com/PossiblyPengu/PageTurner/releases/download/ios-latest/altstore.json`
 
-Every green build on `main` is published there automatically (the **Publish iOS build** workflow does the same by hand for any run you pick). Every build has a higher build number than the one before, which is what makes the app offer it as an update.
+Every green build on `main` publishes the nightly source (the **Publish iOS build** workflow does the same by hand for any run you pick); every `v*` tag refreshes the stable one. Every build has a higher build number than the one before, which is what makes the app offer it as an update. A tag must equal `version` in `package.json` — `npm run version 2.8.0`, commit, tag `v2.8.0`, push both.
 
 ### Build
 

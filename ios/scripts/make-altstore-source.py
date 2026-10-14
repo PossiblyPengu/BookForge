@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Write an AltStore / SideStore source (altstore.json) for a built Pageturner.ipa.
 
-usage: make-altstore-source.py <Pageturner.ipa> <owner/repo> <download-url> <out.json>
+usage: make-altstore-source.py <Pageturner.ipa> <owner/repo> <download-url> <out.json> [variant]
+
+`variant` distinguishes parallel channels ("" for nightly, "stable" for tagged releases) so a
+source added for each doesn't share one identifier inside SideStore.
 
 The version, build number, minimum iOS and bundle id are read from the IPA itself, so the source can never
 disagree with the file it points at. SideStore reads the app-level fields, AltStore the `versions` list; both are written.
@@ -14,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ipa, repo, download_url, out = sys.argv[1:5]
+variant = sys.argv[5] if len(sys.argv) > 5 else ""
 with zipfile.ZipFile(ipa) as z:
     damaged = z.testzip()
     if damaged:
@@ -33,8 +37,8 @@ description = (
 )
 notes = f"Build {build}. See the repository for what changed."
 source = {
-    "name": "Pageturner",
-    "identifier": f"{bundle}.source",
+    "name": "Pageturner" + (f" ({variant})" if variant else ""),
+    "identifier": f"{bundle}.source" + (f".{variant}" if variant else ""),
     "subtitle": "Updates for Pageturner",
     "description": "Pageturner builds, published from GitHub Actions.",
     "iconURL": f"{raw}/ios/Pageturner/Assets.xcassets/AppIcon.appiconset/icon-1024.png",
