@@ -235,7 +235,7 @@ final class BookMaster {
     func beat(place: String? = nil, leaving: Bool = false) async {
         guard let user, syncEnabled else { return }
         var json: [String: Any] = ["username": user.username]
-        json["place"] = place ?? self.place
+        json["place"] = AppPrefs.sharePlace ? (place ?? self.place) : NSNull()
         if leaving { json["leaving"] = true }
         guard let body = try? JSONSerialization.data(withJSONObject: json) else { return }
         _ = try? await post("presence", body: body)

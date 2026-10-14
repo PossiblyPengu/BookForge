@@ -1,8 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Everything that used to crowd the library's menu: the BookMaster link, the
-/// read-aloud voice, the watched folder, and backup.
+/// The app's one settings page, reachable from every tab: the BookMaster link
+/// and what it shares, playback and reading preferences, appearance, the
+/// read-aloud voice, the watched folder, search & stats, and backup.
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var library: LibraryStore
@@ -11,7 +12,10 @@ struct SettingsView: View {
     @State private var showFolderPicker = false
     @State private var showBackupImporter = false
     @State private var confirmResetStats = false
+    /// Where the screen under this sheet said it was — handed back on the way out.
+    @State private var prevPlace = "library"
     @AppStorage(SpotlightIndexer.enabledKey) private var spotlight = true
+    @AppStorage("stats-tracking") private var statsTracking = true
     private let watcher = FolderWatcher.shared
 
     private var version: String {
@@ -66,6 +70,12 @@ struct SettingsView: View {
         Form {
             BookMasterSection()
 
+            PlaybackSection()
+
+            ReadingSection()
+
+            AppearanceSection()
+
             ReadAloudSection()
 
             Section {
@@ -85,11 +95,12 @@ struct SettingsView: View {
 
             Section {
                 Toggle("Show books in Spotlight", isOn: $spotlight)
+                Toggle("Track reading stats on this iPhone", isOn: $statsTracking)
                 Button("Reset Reading Stats…", role: .destructive) { confirmResetStats = true }
             } header: {
                 Text("Search & stats")
             } footer: {
-                Text("Spotlight lists your titles, authors and covers using iOS’s own on-device index. Reading stats are kept on this phone; resetting them doesn’t touch BookMaster.")
+                Text("Spotlight lists your titles, authors and covers using iOS’s own on-device index. Reading stats — sittings, streaks and the pace “time left” guesses from — are kept on this phone; switching tracking off keeps what is there and stops new ones, and resetting clears them either way. BookMaster’s own numbers aren’t touched.")
             }
 
             Section("Backup") {
@@ -113,8 +124,8 @@ struct SettingsView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
         }
-        .onAppear { BookMaster.shared.place = "settings" }
-        .onDisappear { BookMaster.shared.place = "library" }
+        .onAppear { prevPlace = BookMaster.shared.place; BookMaster.shared.place = "settings" }
+        .onDisappear { BookMaster.shared.place = prevPlace }
         .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
             if case let .success(url) = result {
                 Task { await watcher.watch(url, library: library) }

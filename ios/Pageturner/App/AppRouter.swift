@@ -43,7 +43,7 @@ final class AppRouter {
     /// is where the book is. When BookMaster has the book further on than this
     /// device, that is asked about first.
     func open(_ book: Book, library: LibraryStore) {
-        if let fraction = ResumeOffer.target(for: book) {
+        if AppPrefs.resumeAsk, let fraction = ResumeOffer.target(for: book) {
             resumePrompt = ResumePrompt(book: book, fraction: fraction)
             return
         }

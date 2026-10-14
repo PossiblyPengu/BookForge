@@ -73,12 +73,21 @@ struct BookMasterView: View {
             #endif
             .navigationTitle("BookMaster")
             .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { router.showSettings = true } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Settings")
+                }
+            }
             .refreshable { await load() }
             // again when the account is linked or unlinked while the tab is up
             .task(id: BookMaster.shared.isLinked) { await load() }
-            .onAppear { BookMaster.shared.place = "bookmaster" }
-            .onDisappear { BookMaster.shared.place = "library" }
         }
+        // the stack, not the list: a pushed pane is still the BookMaster tab
+        .onAppear { BookMaster.shared.place = "bookmaster" }
+        .onDisappear { BookMaster.shared.place = "library" }
     }
 
     private var linked: Bool { BookMaster.shared.isLinked }

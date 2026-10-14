@@ -5,10 +5,13 @@ import SwiftUI
 /// audiobook plays — the mini player stands in everywhere else.
 struct NowPlayingView: View {
     @ObservedObject var player: AudioPlayer
+    @Environment(AppRouter.self) private var router
     let onStop: () -> Void
     /// The way off the player: the Reading tab is its home, so leaving is a tab switch.
     let onClose: () -> Void
     @State private var scrubbing: TimeInterval?
+    @AppStorage("audio-skip-back") private var skipBack = 15.0
+    @AppStorage("audio-skip-fwd") private var skipFwd = 30.0
     @State private var tint: Color = .ptAccent
     @State private var showChapters = false
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -83,6 +86,9 @@ struct NowPlayingView: View {
                     Button { showChapters = true } label: {
                         Label("Chapters", systemImage: "list.bullet")
                     }
+                }
+                Button { router.showSettings = true } label: {
+                    Label("Settings", systemImage: "gearshape")
                 }
                 Button(role: .destructive) {
                     onStop()
@@ -189,8 +195,8 @@ struct NowPlayingView: View {
                         player.previousChapter()
                     }
                 }
-                transportButton("gobackward.15", label: "Back 15 seconds", size: chapterSkips ? 56 : 64) {
-                    player.skip(by: -15)
+                transportButton("gobackward.\(Int(skipBack))", label: "Back \(Int(skipBack)) seconds", size: chapterSkips ? 56 : 64) {
+                    player.skip(by: -skipBack)
                 }
                 Button { player.togglePlay() } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
@@ -202,8 +208,8 @@ struct NowPlayingView: View {
                 .buttonStyle(.plain)
                 .ptGlass(in: Circle(), tint: .ptAccent.opacity(0.55), interactive: true)
                 .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
-                transportButton("goforward.30", label: "Forward 30 seconds", size: chapterSkips ? 56 : 64) {
-                    player.skip(by: 30)
+                transportButton("goforward.\(Int(skipFwd))", label: "Forward \(Int(skipFwd)) seconds", size: chapterSkips ? 56 : 64) {
+                    player.skip(by: skipFwd)
                 }
                 if chapterSkips {
                     transportButton("forward.end.fill", label: "Next chapter", size: 50) {

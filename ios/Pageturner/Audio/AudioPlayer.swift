@@ -164,8 +164,8 @@ final class AudioPlayer: ObservableObject {
             toggle: { [weak self] in self?.togglePlay() },
             next: { [weak self] in self?.skipForwardAChapter() },
             previous: { [weak self] in self?.skipBackAChapter() },
-            skipForward: { [weak self] in self?.skip(by: 30) },
-            skipBackward: { [weak self] in self?.skip(by: -15) },
+            skipForward: { [weak self] in self?.skip(by: AppPrefs.skipForward) },
+            skipBackward: { [weak self] in self?.skip(by: -AppPrefs.skipBack) },
             seekTo: { [weak self] t in self?.seek(to: t, resume: self?.isPlaying ?? false) },
             setRate: { [weak self] r in self?.rate = r },
             refresh: { [weak self] in self?.updateNowPlaying() })

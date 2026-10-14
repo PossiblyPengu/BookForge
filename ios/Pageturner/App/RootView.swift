@@ -6,16 +6,29 @@ import SwiftUI
 /// tab bar with the mini player above it.
 struct RootView: View {
     @EnvironmentObject private var library: LibraryStore
+    @AppStorage("app-appearance") private var appAppearance = "system"
+    @AppStorage("bm-badge") private var bmBadge = true
     @State private var router = AppRouter()
     private let playback = PlaybackCoordinator.shared
     private let bookMaster = BookMaster.shared
     private let notifier = Notifier.shared
     private let intents = IntentRouter.shared
 
+    /// The app-wide scheme: "system" leaves it to iOS.
+    private var scheme: ColorScheme? {
+        switch appAppearance {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
+
     var body: some View {
         // grouped, so no one expression is a long chain the compiler has to solve at once
         routing(alerts(bookSheets(shell)))
             .tint(.ptAccent)
+            // the reader sets its own scheme inside; this is the preference for the rest
+            .preferredColorScheme(scheme)
             // outermost, so the tabs and everything presented over them can read it
             .environment(router)
     }
@@ -43,9 +56,13 @@ struct RootView: View {
     private func handle(_ request: IntentRouter.Request) {
         switch request {
         case let .open(id):
+            // a book that is gone still answers with its shelf, not with nothing
+            router.tab = .library
             guard let book = library.books.first(where: { $0.id == id }) else { return }
             router.open(book, library: library)
         case .continueReading:
+            // with nothing in progress the request still lands where one starts
+            router.tab = .reading
             guard let book = library.continueBook else { return }
             router.open(book, library: library)
         }
@@ -207,7 +224,7 @@ struct RootView: View {
             Tab("BookMaster", systemImage: "bookmark.circle", value: AppTab.together) {
                 togetherTab
             }
-            .badge(notifier.pendingCount)
+            .badge(bmBadge ? notifier.pendingCount : 0)
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
                 SearchTab()
             }
@@ -227,7 +244,7 @@ struct RootView: View {
                 .tag(AppTab.library)
             withMiniPlayer(togetherTab)
                 .tabItem { Label("BookMaster", systemImage: "bookmark.circle") }
-                .badge(notifier.pendingCount)
+                .badge(bmBadge ? notifier.pendingCount : 0)
                 .tag(AppTab.together)
             withMiniPlayer(SearchTab())
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }

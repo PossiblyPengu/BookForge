@@ -3,6 +3,7 @@ import SwiftUI
 /// Search across the whole library. On iOS 26 the field lives in the tab bar.
 struct SearchTab: View {
     @EnvironmentObject private var library: LibraryStore
+    @Environment(AppRouter.self) private var router
     @State private var query = ""
 
     var body: some View {
@@ -23,6 +24,14 @@ struct SearchTab: View {
             .ptSoftScrollEdges()
             .navigationTitle("Search")
             .searchable(text: $query, prompt: "Books and audiobooks")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { router.showSettings = true } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Settings")
+                }
+            }
         }
     }
 }

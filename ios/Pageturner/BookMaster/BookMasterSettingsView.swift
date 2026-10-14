@@ -3,6 +3,10 @@ import SwiftUI
 /// Link (or unlink) this device's BookMaster account — sections for the settings form.
 struct BookMasterSection: View {
     @EnvironmentObject private var library: LibraryStore
+    @AppStorage("bm-share-place") private var sharePlace = true
+    @AppStorage("bm-covers") private var sendCovers = true
+    @AppStorage("bm-resume-ask") private var resumeAsk = true
+    @AppStorage("bm-badge") private var showBadge = true
     @State private var working = false
     @State private var error: String?
     @State private var showLink = false
@@ -24,6 +28,9 @@ struct BookMasterSection: View {
                         : "Paused. Nothing is sent while you read; comments, suggestions and quotes still work.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    Toggle("Tell the other reader where I am", isOn: $sharePlace)
+                    Toggle("Send my covers", isOn: $sendCovers)
+                    Toggle("Ask to jump to BookMaster’s place", isOn: $resumeAsk)
                     Toggle("Notify me about suggestions", isOn: Binding(
                         get: { notifier.enabled },
                         set: { on in Task { await notifier.setEnabled(on) } }
@@ -42,6 +49,7 @@ struct BookMasterSection: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                    Toggle("Badge the BookMaster tab when suggestions wait", isOn: $showBadge)
                     Button("Unlink BookMaster", role: .destructive) {
                         bookMaster.unlink()
                         library.clearBookMasterFields()

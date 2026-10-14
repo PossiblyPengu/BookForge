@@ -6,7 +6,7 @@ extension BookMaster {
     /// Send the jackets of the library's books that are pinned to a shelf row, once each, so BookMaster's
     /// shelf shows the cover of the copy read here. BookMaster keeps its own art where it has better.
     func pushCovers(from library: LibraryStore) async {
-        guard isLinked, syncEnabled else { return }
+        guard isLinked, syncEnabled, AppPrefs.sendCovers else { return }
         var sent = Set(UserDefaults.standard.stringArray(forKey: Self.sentKey) ?? [])
         for book in library.books where book.bookmasterId != nil && !sent.contains(book.id.uuidString) {
             guard !Task.isCancelled, isLinked else { return }

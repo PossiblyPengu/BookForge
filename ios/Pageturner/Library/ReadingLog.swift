@@ -32,7 +32,7 @@ final class ReadingLog: ObservableObject {
 
     /// Note a finished sitting. Anything under six seconds is a tap, not reading.
     func record(book: Book, minutes: Double, from start: Double, to end: Double, audio: Bool, at date: Date = Date()) {
-        guard minutes.isFinite, minutes >= 0.1 else { return }
+        guard AppPrefs.statsTracking, minutes.isFinite, minutes >= 0.1 else { return }
         sessions.append(ReadingSession(
             bookID: book.id, title: book.title, end: date,
             minutes: min(minutes, Self.longestSession),
