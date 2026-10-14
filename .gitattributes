@@ -8,3 +8,6 @@
 
 # espeak-ng data is read by espeak-ng as it is: no line-ending conversion
 ios/Resources/espeak-ng-data/** -text
+
+# Check fixtures are compared to the tool's own output to the byte
+ios/Checks/**/Fixtures/** text eol=lf

@@ -144,7 +144,7 @@ enum DebugScenario {
         case "reading": selectTab(.reading)
         case "stats", "together", "shelf", "bmbook",
              "bmprogress", "bmtogether", "bmquotes", "bmdiscover", "bmsearch", "bmwrapped":
-            selectTab(.together)
+            selectTab(.bookmaster)
         case "search": selectTab(.search)
         case "settings": router.showSettings = true
         case "detail": router.detail = text

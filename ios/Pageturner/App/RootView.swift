@@ -39,7 +39,7 @@ struct RootView: View {
         content
             .onChange(of: notifier.openTogether, initial: true) { _, open in
                 guard open else { return }
-                router.tab = .together
+                router.tab = .bookmaster
                 notifier.openTogether = false
             }
             .onChange(of: intents.request, initial: true) { _, request in
@@ -239,7 +239,7 @@ struct RootView: View {
             Tab("Library", systemImage: "books.vertical", value: AppTab.library) {
                 LibraryView()
             }
-            Tab("BookMaster", systemImage: "bookmark.circle", value: AppTab.together) {
+            Tab("BookMaster", systemImage: "bookmark.circle", value: AppTab.bookmaster) {
                 togetherTab
             }
             .badge(bmBadge ? notifier.pendingCount : 0)
@@ -263,7 +263,7 @@ struct RootView: View {
             withMiniPlayer(togetherTab)
                 .tabItem { Label("BookMaster", systemImage: "bookmark.circle") }
                 .badge(bmBadge ? notifier.pendingCount : 0)
-                .tag(AppTab.together)
+                .tag(AppTab.bookmaster)
             withMiniPlayer(SearchTab())
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 .tag(AppTab.search)

@@ -425,4 +425,12 @@ func runGroupingChecks() {
     check("nameless files still group by folder, as before", bare.count == 1 && bare[0].count == 2)
     let chOrder = AudioGrouping.groups(of: [item("/in/Dune - 10.mp3"), item("/in/Dune - 2.mp3")])
     check("'ch2' sorts before 'ch10'", chOrder[0].map { $0.url.lastPathComponent } == ["Dune - 2.mp3", "Dune - 10.mp3"])
+
+    func urls(_ names: String...) -> [URL] { names.map { URL(fileURLWithPath: "/in/\($0)") } }
+    check("a shared stem names the group", AudioGrouping.title(for: urls("Dune - 01.mp3", "Dune - 09.mp3")) == "Dune")
+    check("a one-file group has no stem title", AudioGrouping.title(for: urls("Dune - 01.mp3")) == nil)
+    check("mixed stems spell nothing", AudioGrouping.title(for: urls("Dune - 01.mp3", "Emma - 01.mp3")) == nil)
+    check("nameless files spell nothing", AudioGrouping.title(for: urls("01.mp3", "02.mp3")) == nil)
+    check("a medium word is not a title", AudioGrouping.title(for: urls("Track - 01.mp3", "Track - 02.mp3")) == nil)
+    check("the stem title keeps its words", AudioGrouping.title(for: urls("harry potter 2 - 01.mp3", "harry potter 2 - 02.mp3")) == "Harry Potter 2")
 }

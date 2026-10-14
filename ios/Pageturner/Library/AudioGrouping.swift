@@ -56,6 +56,30 @@ enum AudioGrouping {
         return Set(seen.filter { $0.value.count > 1 }.keys)
     }
 
+    /// What a group's files spell together — the stem every file shares
+    /// ("Dune - 01"…"Dune - 09" → "Dune"), when there is exactly one. Files
+    /// whose stems are only numbering, that differ, or that name a generic
+    /// word ("track 1" → "track") have nothing to say: nil, and the caller's
+    /// other guesses (folder, tag, filename) decide.
+    static func title(for urls: [URL]) -> String? {
+        guard urls.count > 1 else { return nil }
+        var shared: String?
+        for url in urls {
+            let s = stem(url.lastPathComponent)
+            guard !s.isEmpty, shared == nil || shared == s else { return nil }
+            shared = s
+        }
+        guard let s = shared,
+              !Self.genericStems.contains(s) else { return nil }
+        return s.capitalized
+    }
+
+    /// Stems that are a medium word, not a title — "track", "part", "audio".
+    private static let genericStems: Set<String> = [
+        "audio", "audiobook", "book", "cd", "chapter", "disc", "disk",
+        "file", "part", "track", "trk", "vol", "volume",
+    ]
+
     /// "CD 1", "Disc 02", "Part 3" — one stretch of a book, not a book itself.
     static func isDisc(_ dirName: String) -> Bool {
         dirName.range(

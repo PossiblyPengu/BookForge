@@ -10,6 +10,8 @@ import UniformTypeIdentifiers
 final class BackupStore {
     enum BackupError: LocalizedError {
         case notAZip, missingIndex, foreign, futureVersion, missingPayload, damagedIndex
+        /// The book is already in the library — not an error, but it counts as skipped.
+        case alreadyHaveIt
 
         var errorDescription: String? {
             switch self {
@@ -19,6 +21,7 @@ final class BackupStore {
             case .futureVersion: return "This backup was made by a newer version of Pageturner."
             case .missingPayload: return "A book's file wasn't in the backup."
             case .damagedIndex: return "The backup's index is damaged."
+            case .alreadyHaveIt: return "This book is already in the library."
             }
         }
     }
@@ -222,7 +225,7 @@ final class BackupStore {
         guard let data = try? JSONSerialization.data(withJSONObject: rec),
               var book = try? JSONDecoder().decode(Book.self, from: data)
         else { throw BackupError.missingIndex }
-        guard !library.books.contains(where: { $0.id == book.id }) else { return }
+        guard !library.books.contains(where: { $0.id == book.id }) else { throw BackupError.alreadyHaveIt }
         // a backup can come from another BookMaster account — its shelf pins
         // are that reader's, so the next pull re-matches them for this one
         book.bookmasterId = nil
@@ -276,6 +279,11 @@ final class BackupStore {
             fileNames: fileNames,
             addedAt: Date()
         )
+        // web records carry no stable id — the same book restored twice is
+        // still the same book (title+author is how the catalogue knows it)
+        guard !library.books.contains(where: {
+            $0.title == book.title && $0.author == book.author && $0.fileNames.count == book.fileNames.count
+        }) else { throw BackupError.alreadyHaveIt }
         // web stores progress as {fraction, positionSec}; accept a bare
         // number too in case an older export wrote one
         if let p = rec["progress"] as? [String: Any] {

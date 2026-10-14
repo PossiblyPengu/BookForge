@@ -353,7 +353,12 @@ final class AudioPlayer: ObservableObject {
 
     // MARK: - Sleep timer
 
+    /// In chapter-end mode the deadline is re-aimed at the boundary each tick,
+    /// so a seek moves it instead of stranding it (and a pause freezes it).
+    private var sleepAtChapterEnd = false
+
     func setSleepTimer(minutes: Int?) {
+        sleepAtChapterEnd = false
         sleepTimer?.invalidate()
         sleepTimer = nil
         guard let minutes, minutes > 0 else {
@@ -363,12 +368,37 @@ final class AudioPlayer: ObservableObject {
         }
         sleepDeadline = Date().addingTimeInterval(TimeInterval(minutes) * 60)
         sleepRemaining = sleepDeadline?.timeIntervalSinceNow
+        armSleepTimer()
+    }
+
+    /// "Stop at the end of this chapter" — the same countdown, aimed at the
+    /// chapter boundary rather than a wall-clock length.
+    func setSleepTimerToChapterEnd() {
+        guard chapterEnd != nil else { return }
+        sleepAtChapterEnd = true
+        armSleepTimer()
+        tickSleepTimer()
+    }
+
+    private func armSleepTimer() {
+        sleepTimer?.invalidate()
         sleepTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tickSleepTimer() }
         }
     }
 
+    /// Where the chapter being played ends — nil for a book without chapters.
+    private var chapterEnd: TimeInterval? {
+        guard chapters.count > 1, let i = currentChapterIndex else { return nil }
+        return i + 1 < chapters.count ? chapters[i + 1].start : duration
+    }
+
     private func tickSleepTimer() {
+        if sleepAtChapterEnd, let end = chapterEnd {
+            // media time → wall clock: at 2× the boundary arrives twice as soon
+            let wall = max(0, end - position) / Double(max(rate, 0.1))
+            sleepDeadline = Date().addingTimeInterval(wall)
+        }
         guard let deadline = sleepDeadline else { return }
         let left = deadline.timeIntervalSinceNow
         if left <= 0 {

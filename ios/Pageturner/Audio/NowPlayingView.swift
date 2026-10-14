@@ -254,6 +254,9 @@ struct NowPlayingView: View {
                     ForEach([5, 10, 15, 20, 30, 45, 60], id: \.self) { minutes in
                         Button("\(minutes) minutes") { player.setSleepTimer(minutes: minutes) }
                     }
+                    if player.chapters.count > 1 {
+                        Button("End of chapter") { player.setSleepTimerToChapterEnd() }
+                    }
                 } label: {
                     if let left = player.sleepRemaining {
                         chip("\(Int(left / 60) + 1)m", symbol: "moon.fill")

@@ -4,6 +4,10 @@ import SwiftUI
 struct MiniPlayer: View {
     @ObservedObject var player: AudioPlayer
     let onOpen: () -> Void
+    // the same keys NowPlayingView and PlaybackSection bind — so a changed
+    // interval retitles these icons even while playback (and its ticks) pause
+    @AppStorage("audio-skip-back") private var skipBack = 15.0
+    @AppStorage("audio-skip-fwd") private var skipFwd = 30.0
 
     /// The chapter being played, when the book has chapters; otherwise the author.
     private var subtitle: String? {
@@ -46,13 +50,13 @@ struct MiniPlayer: View {
             .accessibilityLabel("Now playing: \(player.bookTitle)")
             .accessibilityHint("Opens the player")
 
-            Button { player.skip(by: -AppPrefs.skipBack) } label: {
-                Image(systemName: "gobackward.\(Int(AppPrefs.skipBack))")
+            Button { player.skip(by: -skipBack) } label: {
+                Image(systemName: "gobackward.\(Int(skipBack))")
                     .font(.title3)
                     .frame(width: 36, height: 36)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Skip back \(Int(AppPrefs.skipBack)) seconds")
+            .accessibilityLabel("Skip back \(Int(skipBack)) seconds")
 
             Button { player.togglePlay() } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
@@ -63,13 +67,13 @@ struct MiniPlayer: View {
             .buttonStyle(.plain)
             .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
 
-            Button { player.skip(by: AppPrefs.skipForward) } label: {
-                Image(systemName: "goforward.\(Int(AppPrefs.skipForward))")
+            Button { player.skip(by: skipFwd) } label: {
+                Image(systemName: "goforward.\(Int(skipFwd))")
                     .font(.title3)
                     .frame(width: 36, height: 36)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Skip forward \(Int(AppPrefs.skipForward)) seconds")
+            .accessibilityLabel("Skip forward \(Int(skipFwd)) seconds")
         }
         .padding(.horizontal, 16)
     }

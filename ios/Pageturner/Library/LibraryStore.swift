@@ -453,6 +453,11 @@ final class LibraryStore: ObservableObject {
         try await register(id: id, fileName: fileName, fallbackTitle: converted.title)
     }
 
+    /// Folder names that hold whatever was dumped into them — never a title.
+    private static let dumpFolders: Set<String> = [
+        "inbox", "documents", "downloads", "desktop", "tmp", "temp",
+    ]
+
     private func importAudiobook(_ sources: [URL]) async throws {
         // full paths, not basenames: sibling "CD 1"/"CD 2" parts can share a
         // name, and only their folders keep them apart and in order
@@ -508,11 +513,15 @@ final class LibraryStore: ObservableObject {
             let parents = Set(dirs.map { URL(fileURLWithPath: $0).deletingLastPathComponent().path })
             return parents.count == 1 ? URL(fileURLWithPath: parents.first!).lastPathComponent : ""
         }()
-        let dirTitle = !leaf.isEmpty && leaf != "Inbox" && leaf != "Documents" ? leaf : nil
+        // a dump folder ("Downloads", the share sheet's "Inbox") names where
+        // files sat, not the book — only a folder the reader named counts
+        let dirTitle = !leaf.isEmpty && !Self.dumpFolders.contains(leaf.lowercased()) ? leaf : nil
         if let album = meta(.commonKeyAlbumName)?.stringValue, !album.isEmpty {
             book.title = album
         } else if let dirTitle {
             book.title = dirTitle
+        } else if let stemTitle = AudioGrouping.title(for: sorted) {
+            book.title = stemTitle
         } else if let name = meta(.commonKeyTitle)?.stringValue, !name.isEmpty {
             book.title = name
         }
