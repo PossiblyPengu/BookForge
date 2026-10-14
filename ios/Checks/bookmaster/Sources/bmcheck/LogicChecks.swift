@@ -434,3 +434,56 @@ func runGroupingChecks() {
     check("a medium word is not a title", AudioGrouping.title(for: urls("Track - 01.mp3", "Track - 02.mp3")) == nil)
     check("the stem title keeps its words", AudioGrouping.title(for: urls("harry potter 2 - 01.mp3", "harry potter 2 - 02.mp3")) == "Harry Potter 2")
 }
+
+func runCurlChecks() {
+    section("Page curl")
+    let w = 390.0, h = 844.0
+    let cols = 6, rows = 8
+    let src = PageCurl.source(columns: cols, rows: rows, width: w, height: h)
+    check("the grid covers the sheet", src.count == (cols + 1) * (rows + 1)
+        && src.first == PageCurl.Point(x: 0, y: 0) && src.last == PageCurl.Point(x: w, y: h))
+
+    let still = PageCurl.Grab(origin: .init(x: w, y: h / 2), touch: .init(x: w, y: h / 2))
+    check("nothing pulled is the flat page", PageCurl.positions(columns: cols, rows: rows, width: w, height: h, grab: still) == src)
+    check("nothing pulled draws no fold", PageCurl.foldLine(width: w, height: h, grab: still) == nil)
+    check("nothing pulled is no progress", PageCurl.progress(width: w, height: h, grab: still) == 0)
+
+    // a pull from the right edge, most of the way across
+    let pull = PageCurl.Grab(origin: .init(x: w, y: h / 2), touch: .init(x: w * 0.4, y: h / 2))
+    let warped = PageCurl.positions(columns: cols, rows: rows, width: w, height: h, grab: pull)
+    check("warped stays finite", warped.allSatisfy { $0.x.isFinite && $0.y.isFinite })
+    check("the spine side holds still", warped[0].x < 0.5 && warped[0].y < 0.5,
+        "\(warped[0].x),\(warped[0].y)")
+    // the free edge is face-down on the finger: the sheet point the finger
+    // caught lands under it — its destination x is the touch's x exactly
+    check("the grabbed edge follows the finger", abs(warped[cols].x - w * 0.4) < 0.5
+        && abs(warped[cols].y - 0) < 0.5, "\(warped[cols].x),\(warped[cols].y) expect \(w * 0.4),0")
+
+    if let fold = PageCurl.foldLine(width: w, height: h, grab: pull) {
+        let onPage: (PageCurl.Point) -> Bool = { $0.x >= -0.5 && $0.x <= w + 0.5 && $0.y >= -0.5 && $0.y <= h + 0.5 }
+        check("the crease meets the page's edges", onPage(fold.a) && onPage(fold.b) && fold.a != fold.b)
+        // a straight pull across the middle: the crease is a vertical line
+        check("a straight pull's crease is vertical", abs(fold.a.x - fold.b.x) < 0.001, "\(fold.a),\(fold.b)")
+    } else {
+        check("a pulled page has a crease", false)
+    }
+
+    // deeper pulls turn more, capped at a full turn
+    let half = PageCurl.progress(width: w, height: h, grab: pull)
+    let deep = PageCurl.Grab(origin: .init(x: w, y: h / 2), touch: .init(x: -w, y: h / 2))
+    check("pulling further turns further", half > 0 && half < 1
+        && PageCurl.progress(width: w, height: h, grab: deep) >= half)
+    check("travel is the whole sheet and the roll", PageCurl.travel(width: w, height: h, grab: pull) > w)
+
+    // the same pull from the left edge (a backward turn) moves the other side
+    let back = PageCurl.Grab(origin: .init(x: 2, y: h / 2), touch: .init(x: w * 0.6, y: h / 2))
+    let backWarp = PageCurl.positions(columns: cols, rows: rows, width: w, height: h, grab: back)
+    check("a backward pull holds the right side still", abs(backWarp[cols].x - w) < 0.5 && backWarp[cols].y < 0.5,
+        "\(backWarp[cols].x),\(backWarp[cols].y)")
+
+    // a tilted pull (corner grabbed) still folds cleanly
+    let corner = PageCurl.Grab(origin: .init(x: w, y: h), touch: .init(x: w * 0.45, y: h * 0.4))
+    check("a corner pull stays finite", PageCurl.positions(columns: cols, rows: rows, width: w, height: h, grab: corner)
+        .allSatisfy { $0.x.isFinite && $0.y.isFinite })
+    check("a corner pull has a crease", PageCurl.foldLine(width: w, height: h, grab: corner) != nil)
+}

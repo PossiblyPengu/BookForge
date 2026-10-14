@@ -26,7 +26,7 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   `gh api repos/<owner>/<repo>/actions/artifacts/<id>/zip`.
 - `ios/Checks/bookmaster/` compiles the app's **real** pure-logic sources (BookMaster client and
   models, the `Book` model, text→EPUB converter, chapters, audiobook grouping, resume offer, notification plan, jump
-  history, highlight export, reading stats, voice lists, neural voice conversion, word timings and the playhead clock) on Linux with a Swift 6 toolchain and runs them: against a
+  history, highlight export, reading stats, voice lists, neural voice conversion, word timings, the playhead clock and the page-curl geometry) on Linux with a Swift 6 toolchain and runs them: against a
   live local BookMaster (`run.sh`, needs a BookMaster checkout, `wrangler`, `python3`) or alone
   (`run.sh data`, ~430 checks, no servers). Anything that can be written without UIKit/Readium should
   be, so it can be checked there; `assemble.sh` lists the files it copies. `run.sh` stops if the target fails to
@@ -78,6 +78,13 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
 - Audiobooks play through `Audio/PlaybackCoordinator.swift`; `NowPlayingView` and `MiniPlayer` observe
   it. Chapters (`Audio/AudioChapter.swift`) are an m4b's embedded markers or one per file.
 - The reader (`Reader/`): `ReaderModel` owns the Readium navigator; `JumpHistory` drives the Back chip;
+  page turns are `PageTurnStyle`: Readium's slide, a hinge `flip`, a `fade`, and `curl` — a finger-tracked
+  peel. `PageCurl` is the pure geometry (fold line, cylinder roll, warped mesh — Linux-checked);
+  `PageCurlOverlay` warps a photographed page with `SKWarpGeometryGrid` over the live navigator, which
+  is silently moved underneath so the reveal is real content. `SKWarpGeometryGrid` positions are
+  **normalized (0…1), row-major from the bottom-left** — the page math is point space, rows top-first,
+  so the overlay flips both. While a curl runs, `ReaderModel.curling` holds position saves, jump
+  history and BookMaster sync; a commit replays the landed location, a cancel restores `curlBefore`.
   highlights live on the `Book` (colour, note, chapter, progression) and are painted as decorations;
   `HighlightExport` writes them as Markdown. PDFs are searched by Readium itself (its PDF parser
   registers a content search service).

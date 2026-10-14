@@ -10,7 +10,7 @@ A native SwiftUI app (iOS 17+) built on the [Readium](https://readium.org) toolk
 - **Reading:** EPUB, PDF and CBZ comics, plus plain text, Markdown and HTML (converted to EPUB on import).
   Five page themes in the web reader's palettes (Paper, Sepia, Gray, Night, Black — the chrome follows the page), fonts, sizes, spacing and margins;
   in-book search; a draggable position scrubber; footnotes and endnotes open in a sheet instead of throwing you to the end of the chapter,
-  and any jump — contents, search hit, link, scrubber — leaves a **Back** chip; a **Page turn** choice for edge taps — slide, book flip or fade (a swipe always follows your finger; Reduce Motion gets a fade); bookmarks; highlights in five colours with notes (tap one to edit it),
+  and any jump — contents, search hit, link, scrubber — leaves a **Back** chip; a **Page turn** choice — page curl, slide, book flip or fade (a swipe follows your finger; Reduce Motion gets a fade); bookmarks; highlights in five colours with notes (tap one to edit it),
   exported as Markdown; select text → Look Up / Translate / Share like any iOS reader
 - **Listening:** multi-file audiobooks (M4B/M4A/MP3/FLAC/OGG/OPUS/WAV) with chapters (an m4b's embedded markers, or a file each), a chapter list,
   previous/next chapter, time left in the chapter, speed, sleep timer and lock-screen controls. Read-aloud and an audiobook never talk over each other

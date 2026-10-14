@@ -198,6 +198,18 @@ final class ReaderModel: ObservableObject {
         (navigator as? DecorableNavigator)?.observeDecorationInteractions(inGroup: Self.highlightGroup) { [weak self] event in
             self?.highlightActivated(event.decoration.id)
         }
+
+        // the leaf that follows the finger — only when the style asks for it
+        // and the book is paged (a scrolling page has nothing to peel)
+        container.canCurl = { [weak self] in
+            self?.settings.pageTurn == .curl && !(self?.navigator?.presentation.scroll ?? true)
+        }
+        container.onCurlStep = { [weak self] forward in
+            await self?.curlStep(forward) ?? false
+        }
+        container.onCurlCommit = { [weak self] in self?.curlCommitted() }
+        container.onCurlCancel = { [weak self] in await self?.curlCancelled() }
+        container.rightToLeft = navigator.presentation.readingProgression == .rtl
     }
 
     private var tapOnLeft = false
@@ -217,7 +229,59 @@ final class ReaderModel: ObservableObject {
         }
         // less motion asked for: a cross-fade, never a swing
         let style: PageTurnStyle = UIAccessibility.isReduceMotionEnabled ? .fade : settings.pageTurn
+        if style == .curl {
+            container.beginCurl(towardLeft: !tapOnLeft, frozenAt: frozenAt)
+            return
+        }
         container.beginTurn(towardLeft: !tapOnLeft, style: style, frozenAt: frozenAt)
+    }
+
+    // MARK: - Page curl
+
+    /// While a finger-tracked curl holds the navigator: the page underneath
+    /// has already been moved to wherever the leaf lands, so position saves,
+    /// jump history and BookMaster sync must wait for it to settle — or be
+    /// put back on cancel.
+    private(set) var curling = false
+    /// Where the reader was when the leaf was caught — the place to return to
+    /// if the peel is released. `curlMoved` tracks whether the navigator
+    /// actually moved, so a cancelled turn that never did isn't restored onto
+    /// itself (a `go` to the current page can reload the resource visibly).
+    private var curlBefore: Locator?
+    private var curlMoved = false
+
+    /// Silently steps the navigator one page with all side-effects held.
+    /// False = no page that way (the gesture aborts).
+    private func curlStep(_ forward: Bool) async -> Bool {
+        guard let navigator else { return false }
+        if curlBefore == nil { curlBefore = navigator.currentLocation; curlMoved = false }
+        curling = true
+        let moved = forward
+            ? await navigator.goForward(options: NavigatorGoOptions(animated: false))
+            : await navigator.goBackward(options: NavigatorGoOptions(animated: false))
+        curlMoved = curlMoved || moved
+        return moved
+    }
+
+    /// The leaf landed: release the hold and let the arrived page count.
+    private func curlCommitted() {
+        curling = false
+        curlBefore = nil
+        curlMoved = false
+        if let navigator, let locator = navigator.currentLocation {
+            self.navigator(navigator, locationDidChange: locator)
+        }
+    }
+
+    /// The leaf sprang back: silently restore the page it was lifted from.
+    private func curlCancelled() async {
+        guard curling, let navigator else { curlBefore = nil; curlMoved = false; return }
+        if curlMoved, let before = curlBefore {
+            _ = await navigator.go(to: before, options: NavigatorGoOptions(animated: false))
+        }
+        curling = false
+        curlBefore = nil
+        curlMoved = false
     }
 
     #if DEBUG
@@ -720,6 +784,7 @@ final class ReaderModel: ObservableObject {
 
 extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
     func navigator(_ navigator: Navigator, didJumpTo locator: Locator) {
+        guard !curling else { return }   // the curl's own silent move
         recordJump(to: locator)
         noteJump()
     }
@@ -735,6 +800,7 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
     }
 
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
+        guard !curling else { return }   // the curl replays it on commit
         previousLocator = currentLocator
         currentLocator = locator
         // reading on from where a jump landed lets the way back go
