@@ -330,19 +330,42 @@ final class ReadAloud: NSObject, ObservableObject {
     /// the jump actually moved got its target put at the top, so shifting up
     /// half a screen centres it. A jump that didn't move the page means the
     /// spot is already visible and stays where the reader sees it.
+    ///
+    /// Readium's smooth scroll is fire-and-forget — `go` returns while the page
+    /// is still moving — and a group container only enters the DOM a frame
+    /// after its decoration is applied. Measuring right away reads a mid-flight
+    /// scrollTop (the no-mark case would shift up half a screen from wherever
+    /// the scroll happened to be) or finds no mark that a frame would have
+    /// painted. So this waits, frame by frame, for the page to be still and
+    /// (briefly) for a mark to show, then centres. ~1.5 s is the most it waits —
+    /// a reader dragging the page keeps their scroll instead of being fought.
     private func centerSpokenLine(on navigator: EPUBNavigatorViewController, pageWasAt before: Double) async {
         let script = """
-        (function() {
-          var el = document.querySelector('[data-group="tts-line"] > div')
+        new Promise(function(resolve) {
+          var mark = function() {
+            return document.querySelector('[data-group="tts-line"] > div')
                 || document.querySelector('[data-group="tts-word"] > div')
                 || document.querySelector('[data-group="tts"] > div');
-          if (el) {
-            var r = el.getBoundingClientRect();
-            window.scrollBy({ top: r.top + r.height / 2 - window.innerHeight / 2, behavior: 'smooth' });
-          } else if (Math.abs(document.scrollingElement.scrollTop - \(before)) > 1) {
-            window.scrollBy({ top: -window.innerHeight / 2, behavior: 'smooth' });
-          }
-        })();
+          };
+          var last = -1, still = 0, ticks = 0;
+          (function tick() {
+            var y = document.scrollingElement.scrollTop;
+            still = Math.abs(y - last) < 1 ? still + 1 : 0;
+            last = y;
+            ticks += 1;
+            var el = mark();
+            if ((still >= 2 && (el || ticks > 18)) || ticks > 90) {
+              if (el) {
+                var r = el.getBoundingClientRect();
+                window.scrollBy({ top: r.top + r.height / 2 - window.innerHeight / 2, behavior: 'smooth' });
+              } else if (Math.abs(y - \(before)) > 1) {
+                window.scrollBy({ top: -window.innerHeight / 2, behavior: 'smooth' });
+              }
+              return resolve();
+            }
+            requestAnimationFrame(tick);
+          })();
+        })
         """
         _ = await navigator.evaluateJavaScript(script)
     }
