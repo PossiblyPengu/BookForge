@@ -5,6 +5,8 @@ name: iOS Simulator
 # the only way to look at the UI without a Mac — read them from the artifact.
 on:
   push:
+    branches:
+      - main
     paths:
       - "ios/**"
       - ".github/workflows/ios-sim.yml"
