@@ -147,6 +147,22 @@ export const sendableAuthor = (a) => {
 };
 
 /**
+ * How every push names the book — the identity fields, then the catalogue
+ * facts this copy already knows, so a push fills gaps in BookMaster's row
+ * rather than leaving them for a later lookup. The shelf row BookMaster
+ * gave back pins it, beating every guess.
+ */
+const bookRef = (book) => ({
+  user_book_id: book.bookmasterId || undefined,
+  title: book.title,
+  author: sendableAuthor(book.author),
+  isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
+  open_library_id: book.identifiers?.open_library || undefined,
+  description: book.desc || undefined,
+  published_year: parseInt(book.year, 10) || undefined,
+});
+
+/**
  * Park a push the network couldn't take. Sessions always queue — each one is
  * a distinct stretch of reading — but progress is positional, so a newer
  * position for the same book replaces the queued one rather than adding a
@@ -280,11 +296,7 @@ export const syncCover = async (book) => {
     if (!cover) return;
     const res = await postBookmaster("cover", {
       username: user.username,
-      user_book_id: book.bookmasterId || undefined,
-      title: book.title,
-      author: sendableAuthor(book.author),
-      isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
-      open_library_id: book.identifiers?.open_library || undefined,
+      ...bookRef(book),
       ...cover.fields,
     });
     if (res.ok && book.bmCoverTag !== cover.tag) {
@@ -308,13 +320,7 @@ export const syncProgress = async (book, { force = false } = {}) => {
     lastPush.set(book.id, { at: Date.now(), pct });
     const payload = {
       username: user.username,
-      title: book.title,
-      author: sendableAuthor(book.author),
-      isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
-      open_library_id: book.identifiers?.open_library || undefined,
-      // The shelf row BookMaster gave back last time; pinning beats every
-      // guess the other side could make about which book this file is.
-      user_book_id: book.bookmasterId || undefined,
+      ...bookRef(book),
       percent: pct,
       format: book.kind === "audio" ? "audio" : "ebook",
       // 'read' is the only status a push may claim — finishing here (a page
@@ -370,11 +376,7 @@ export const syncSession = async (book, { percentStart, percentEnd, minutes, at 
     if (!user?.username) return;
     const res = await send("session", {
       username: user.username,
-      user_book_id: book.bookmasterId || undefined,
-      title: book.title,
-      author: sendableAuthor(book.author),
-      isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
-      open_library_id: book.identifiers?.open_library || undefined,
+      ...bookRef(book),
       percent_start: percentStart,
       percent_end: percentEnd,
       duration_minutes: Math.round(minutes) || undefined,
@@ -404,11 +406,7 @@ export const postQuote = async (book, { content, percent } = {}) => {
     if (!user?.username) return false;
     const res = await send("quote", {
       username: user.username,
-      user_book_id: book.bookmasterId || undefined,
-      title: book.title,
-      author: sendableAuthor(book.author),
-      isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
-      open_library_id: book.identifiers?.open_library || undefined,
+      ...bookRef(book),
       content,
       // the reader measures in percent — BookMaster converts to pages when
       // the shelf row knows the book's length

@@ -5,7 +5,6 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
     @EnvironmentObject private var library: LibraryStore
     @Environment(AppRouter.self) private var router
-    @State private var showImporter = false
     @AppStorage("libraryFilter") private var filter: Filter = .all
     @AppStorage("libraryStatus") private var status: Status = .any
     @AppStorage("librarySort") private var sortOrder = LibraryStore.SortOrder.recent.rawValue
@@ -100,23 +99,6 @@ struct LibraryView: View {
                 if selecting { selectionBar }
             }
             .overlay { if let finding { findingCard(finding) } }
-            .fileImporter(
-                isPresented: $showImporter,
-                allowedContentTypes: Self.pickerTypes,
-                allowsMultipleSelection: true
-            ) { result in
-                if case let .success(urls) = result {
-                    Task { await library.importFiles(urls) }
-                }
-            }
-            .alert("Import problem", isPresented: Binding(
-                get: { library.lastError != nil },
-                set: { if !$0 { library.lastError = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(library.lastError ?? "")
-            }
             .alert("Find Details", isPresented: Binding(
                 get: { findResult != nil },
                 set: { if !$0 { findResult = nil } }
@@ -155,13 +137,25 @@ struct LibraryView: View {
                 if !selecting { shelfChips }
 
                 if visible.isEmpty {
+                    let shelved = activeShelfKey != Self.allKey
+                    let filtered = status != .any || filter != .all || shelved
                     ContentUnavailableView {
                         Label(filter == .audiobooks ? "No Audiobooks" : "No Books",
                               systemImage: filter == .audiobooks ? "headphones" : "book.closed")
                     } description: {
-                        if status != .any { Text("Showing only \(status.rawValue.lowercased()) books.") }
+                        if filtered {
+                            Text("The current shelf and filters are hiding everything.")
+                        } else {
+                            Text("Nothing matches yet.")
+                        }
                     } actions: {
-                        if status != .any { Button("Show Every Status") { status = .any } }
+                        if filtered {
+                            Button("Show All Books") { status = .any; filter = .all; shelfKey = Self.allKey }
+                        } else {
+                            Button { router.showImporter = true } label: {
+                                Label("Add Books", systemImage: "plus")
+                            }
+                        }
                     }
                     .padding(.top, 40)
                 } else {
@@ -204,7 +198,7 @@ struct LibraryView: View {
         } description: {
             Text("Add EPUB, PDF, CBZ comic, text or audiobook files — a folder or a zip of an audiobook's parts becomes one book — from Files, or use “Open in Pageturner” from another app.")
         } actions: {
-            Button { showImporter = true } label: {
+            Button { router.showImporter = true } label: {
                 Label("Add Books", systemImage: "plus")
             }
             .ptButtonStyle(prominent: true)
@@ -261,7 +255,7 @@ struct LibraryView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showImporter = true } label: {
+                Button { router.showImporter = true } label: {
                     if library.importing { ProgressView() } else { Image(systemName: "plus") }
                 }
                 .disabled(library.importing)

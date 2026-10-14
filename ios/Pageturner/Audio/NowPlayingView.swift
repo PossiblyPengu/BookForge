@@ -39,6 +39,7 @@ struct NowPlayingView: View {
             extras
         }
         .padding(.bottom, 12)
+        .ptReadableWidth(560)
         .background(backdrop)
         .onAppear { BookMaster.shared.place = "player" }
         .onDisappear { BookMaster.shared.place = "library" }

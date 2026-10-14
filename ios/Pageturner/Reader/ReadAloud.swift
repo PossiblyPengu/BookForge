@@ -17,6 +17,8 @@ final class SpeechTuning: AVTTSEngineDelegate {
 
     func avTTSEngine(_ engine: AVTTSEngine, didCreateUtterance utterance: AVSpeechUtterance) {
         utterance.rate = SpeechRateMap.avRate(forMultiplier: multiplier)
+        utterance.preUtteranceDelay = 0
+        utterance.postUtteranceDelay = 0
         // Not the chosen voice (no choice, or a voice for another language than this
         // passage): "Automatic" — the best Enhanced/Premium voice for its language.
         guard let voice = utterance.voice, voice.identifier != chosenVoiceID,
@@ -39,6 +41,9 @@ final class ReadAloud: NSObject, ObservableObject {
     @Published private(set) var rate: Double
     /// Seconds left on the sleep timer, nil when unset.
     @Published private(set) var sleepRemaining: TimeInterval?
+    /// Estimated seconds of narration left in the book, once enough of it has
+    /// played to judge; nil before that.
+    @Published private(set) var estimatedRemaining: TimeInterval?
 
     private let publication: Publication
     private weak var navigator: VisualNavigator?
@@ -74,11 +79,28 @@ final class ReadAloud: NSObject, ObservableObject {
     /// Where the page is taken to follow the narration: the word being said in a paged book, the
     /// sentence in a scrolling one (a scrolling page that put each word at the top would never be still).
     private let followTarget = PassthroughSubject<Locator, Never>()
+    /// Where the follow is taking the page next; the newest send wins — a
+    /// swallowed jump waits here for the retry, not back in the subject where
+    /// removeDuplicates would drop it.
+    private var pendingFollow: Locator?
     private var isTurning = false
     private var consecutiveFailures = 0
     private var subscriptions: Set<AnyCancellable> = []
     private var sleepTimer: Timer?
     private var sleepDeadline: Date?
+    /// Seconds actually spoken this session (pauses don't count) — the lock
+    /// screen's clock is estimated from how fast the narration moves.
+    private var playedSeconds: TimeInterval = 0
+    private var lastTickAt: Date?
+    /// Where narration began, for the estimate's progress baseline.
+    private var startProgression: Double?
+    private var currentProgression: Double = 0
+    /// Estimated seconds the whole book takes to read aloud, once enough of it
+    /// has played to judge; nil before that.
+    private var estimatedDuration: TimeInterval?
+    private var artworkItem: MPMediaItemArtwork?
+    /// A failed cover fetch doesn't retry every sentence — once is enough.
+    private var artworkTried = false
 
     /// Surfaces problems the caller should show (e.g. utterances keep failing).
     var onError: ((String) -> Void)?
@@ -103,7 +125,8 @@ final class ReadAloud: NSObject, ObservableObject {
         guard let synthesizer = PublicationSpeechSynthesizer(
             publication: publication,
             config: .init(voiceIdentifier: settings.voiceIdentifier),
-            engineFactory: { CompositeTTSEngine(system: AVTTSEngine(delegate: tuning), neural: neural) }
+            engineFactory: { CompositeTTSEngine(system: AVTTSEngine(delegate: tuning), neural: neural) },
+            tokenizerFactory: makeReadingTokenizer
         ) else { return nil }
 
         self.publication = publication
@@ -139,14 +162,42 @@ final class ReadAloud: NSObject, ObservableObject {
             .removeDuplicates()
             .throttle(for: .seconds(1), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] locator in
-                guard let self, !self.isTurning, let navigator = self.navigator else { return }
-                self.isTurning = true
-                Task { @MainActor in
-                    _ = await navigator.go(to: locator, options: NavigatorGoOptions(animated: true))
-                    self.isTurning = false
-                }
+                guard let self else { return }
+                self.pendingFollow = locator
+                self.follow()
             }
             .store(in: &subscriptions)
+    }
+
+    // MARK: - Following
+
+    /// Take the page to `pendingFollow`, newest target first. The navigator
+    /// refuses a `go` while it is mid-jump or mid-turn — exactly when narration
+    /// crosses a chapter — and a refused jump is what leaves the page a chapter
+    /// behind the marks, so a no just waits a moment and goes again. A fresh
+    /// target arriving meanwhile replaces the stale one rather than queueing.
+    private func follow() {
+        guard !isTurning, let navigator else { return }
+        isTurning = true
+        Task { @MainActor in
+            var attempts = 0
+            while let locator = pendingFollow, attempts < 15 {
+                pendingFollow = nil
+                attempts += 1
+                let epub = navigator as? EPUBNavigatorViewController
+                let scrolledFrom = scrolls ? await epub?.scrollTop() : nil
+                if await navigator.go(to: locator, options: NavigatorGoOptions(animated: true)) {
+                    if let epub, let scrolledFrom {
+                        await centerSpokenLine(on: epub, pageWasAt: scrolledFrom)
+                    }
+                    attempts = 0
+                } else {
+                    pendingFollow = pendingFollow ?? locator
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                }
+            }
+            isTurning = false
+        }
     }
 
     // MARK: - Controls
@@ -207,6 +258,7 @@ final class ReadAloud: NSObject, ObservableObject {
         wordTimeout?.cancel()
         namedAWordIn = nil
         spoken = Spoken()
+        pendingFollow = nil
         neural.reset()
         NeuralSynth.shared.unload()   // the model's memory back
         AudioFocus.shared.unregister("readaloud")
@@ -269,6 +321,30 @@ final class ReadAloud: NSObject, ObservableObject {
     /// Whether the book is laid out as one long scrolling page.
     private var scrolls: Bool {
         (navigator as? EPUBNavigatorViewController)?.settings.scroll ?? false
+    }
+
+    /// `go` lands a followed locator at the very top of the screen, under the
+    /// status bar. In a scrolling book, bring the spoken line to the middle
+    /// instead — the painted line band when there is one (it sits at the exact
+    /// line), else the word or sentence mark; with no mark painted, a page that
+    /// the jump actually moved got its target put at the top, so shifting up
+    /// half a screen centres it. A jump that didn't move the page means the
+    /// spot is already visible and stays where the reader sees it.
+    private func centerSpokenLine(on navigator: EPUBNavigatorViewController, pageWasAt before: Double) async {
+        let script = """
+        (function() {
+          var el = document.querySelector('[data-group="tts-line"] > div')
+                || document.querySelector('[data-group="tts-word"] > div')
+                || document.querySelector('[data-group="tts"] > div');
+          if (el) {
+            var r = el.getBoundingClientRect();
+            window.scrollBy({ top: r.top + r.height / 2 - window.innerHeight / 2, behavior: 'smooth' });
+          } else if (Math.abs(document.scrollingElement.scrollTop - \(before)) > 1) {
+            window.scrollBy({ top: -window.innerHeight / 2, behavior: 'smooth' });
+          }
+        })();
+        """
+        _ = await navigator.evaluateJavaScript(script)
     }
 
     /// If the voice has named no word of `sentence` in a moment, it won't: stop marking the first.
@@ -334,19 +410,48 @@ final class ReadAloud: NSObject, ObservableObject {
 
     // MARK: - Lock screen / Control Center
 
-    /// The lock screen's title, author and cover. The buttons are `RemoteControls`'.
+    /// Call on every spoken sentence and pause: the estimate sharpens as the
+    /// narration covers more of the book.
+    private func noteProgression(_ locator: Locator) {
+        let now = Date()
+        if case .playing = synthesizer.state, let last = lastTickAt {
+            playedSeconds += now.timeIntervalSince(last)
+        }
+        lastTickAt = isPlaying ? now : nil
+        guard let prog = locator.locations.totalProgression else { return }
+        if startProgression == nil { startProgression = prog }
+        currentProgression = prog
+        // under ~0.2% read the ratio is mostly noise; past it, the estimate holds
+        guard let start = startProgression, prog - start >= 0.002, playedSeconds >= 10 else { return }
+        let whole = playedSeconds / (prog - start)
+        if whole.isFinite { estimatedDuration = whole }
+        estimatedRemaining = estimatedDuration.map { max($0 * (1 - prog), 0) }
+    }
+
+    /// The lock screen's title, author, cover and clock. Speech has no media
+    /// file, so the timeline is the book: duration estimated from how far the
+    /// narration has carried it, elapsed = where it is now. The buttons are
+    /// `RemoteControls`'.
     private func publishNowPlaying() {
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: displayTitle,
             MPMediaItemPropertyArtist: displayAuthor,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentProgression * (estimatedDuration ?? 0),
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1 : 0,
         ]
+        if let estimatedDuration {
+            info[MPMediaItemPropertyPlaybackDuration] = estimatedDuration
+        }
+        if let artworkItem { info[MPMediaItemPropertyArtwork] = artworkItem }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        guard artworkItem == nil, !artworkTried else { return }
+        artworkTried = true
         Task { @MainActor in
             if let image = try? await publication.cover().get() {
-                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                artworkItem = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
                 // only if read-aloud still has the lock screen
                 if RemoteControls.shared.activeOwner == "readaloud" {
-                    MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+                    publishNowPlaying()
                 }
             }
         }
@@ -361,12 +466,18 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
         switch state {
         case .stopped:
             isPlaying = false
+            lastTickAt = nil
+            startProgression = nil
+            playedSeconds = 0
             wordTimeout?.cancel()
             namedAWordIn = nil
             spoken = Spoken()
+            pendingFollow = nil
         case let .playing(utterance, range: word):
             isActive = true
             isPlaying = true
+            noteProgression(utterance.locator)
+            publishNowPlaying()
             // the sentence, and in it the word being said — the first until the voice says which
             spoken = Spoken(sentence: utterance.locator, word: word ?? firstWord(of: utterance))
             if word != nil {
@@ -389,6 +500,8 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
             }
         case let .paused(utterance):
             isPlaying = false
+            noteProgression(utterance.locator)
+            publishNowPlaying()
             // stays where it was if this is the sentence that was being said
             let stayed = spoken.sentence == utterance.locator ? spoken.word : nil
             spoken = Spoken(sentence: utterance.locator, word: stayed ?? firstWord(of: utterance))
@@ -423,6 +536,14 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
             return
         }
         synthesizer.next()
+    }
+}
+
+extension EPUBNavigatorViewController {
+    /// How far down its document the current page is scrolled, or nil when the
+    /// page isn't there to answer.
+    fileprivate func scrollTop() async -> Double? {
+        (try? await evaluateJavaScript("document.scrollingElement.scrollTop").get()) as? Double
     }
 }
 

@@ -29,7 +29,9 @@ struct BMPushReply: Decodable {
     var newAchievements: [BMAchievement]?
 }
 
-/// The fields every push uses to say which book it means.
+/// The fields every push uses to say which book it means — identity first,
+/// then the catalogue facts this copy already knows, so a push fills gaps in
+/// BookMaster's row rather than leaving them for a later lookup.
 struct BMBookRef: Encodable {
     var title: String
     var author: String
@@ -37,11 +39,15 @@ struct BMBookRef: Encodable {
     var openLibraryId: String?
     /// The shelf row BookMaster gave back last time; pinning beats guessing.
     var userBookId: String?
+    var bookDescription: String?
+    var publishedYear: Int?
 
     enum CodingKeys: String, CodingKey {
         case title, author, isbn
         case openLibraryId = "open_library_id"
         case userBookId = "user_book_id"
+        case bookDescription = "description"
+        case publishedYear = "published_year"
     }
 }
 

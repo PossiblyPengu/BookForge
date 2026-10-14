@@ -11,8 +11,16 @@ struct SearchTab: View {
             ScrollView {
                 let results = library.sortedBooks(order: .recent, query: query)
                 if library.books.isEmpty {
-                    ContentUnavailableView("No Books Yet", systemImage: "books.vertical")
-                        .padding(.top, 60)
+                    ContentUnavailableView {
+                        Label("No Books Yet", systemImage: "books.vertical")
+                    } description: {
+                        Text("Nothing to search until a book is in the library.")
+                    } actions: {
+                        Button { router.showImporter = true } label: {
+                            Label("Add Books", systemImage: "plus")
+                        }
+                    }
+                    .padding(.top, 60)
                 } else if results.isEmpty {
                     ContentUnavailableView.search(text: query)
                         .padding(.top, 60)

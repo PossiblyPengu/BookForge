@@ -5,12 +5,14 @@ import SwiftUI
 /// Reading is Pageturner's job; this is where it is tracked.
 struct BookMasterView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var together: BMTogether?
     @State private var overview: BMOverview?
     @State private var showShelf = false
     @State private var debugScreen: BMScreen?
     @State private var error: String?
     @State private var loading = true
+    @ObservedObject private var readingLog = ReadingLog.shared
 
     /// The deeper pages, for the simulator's -PTDebugScreen names.
     enum BMScreen: String, Identifiable {
@@ -20,30 +22,19 @@ struct BookMasterView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if linked {
-                    accountSection
-                    if let overview { overviewSections(overview) }
-                } else {
-                    linkSection
-                }
-                // this phone's own record — with BookMaster linked its streaks and totals are the ones above
-                LocalStatsSection(compact: linked)
-                if linked {
-                    placesSection
-                    shelfSection
-                    if let together {
-                        partnerSection(together.partner)
-                        if !together.nudges.isEmpty { nudgeSection(together.nudges) }
-                        if !together.sent.isEmpty { sentSection(together.sent) }
-                        if !together.notices.isEmpty { noticeSection(together.notices) }
-                    }
-                    if let error { Section { Text(error).foregroundStyle(.secondary) } }
-                    if loading, together == nil, overview == nil {
-                        ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear)
+            ScrollView {
+                LazyVStack(spacing: 20) {
+                    if linked {
+                        linkedDashboard
+                    } else {
+                        unlinkedDashboard
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .ptReadableWidth()
             }
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationDestination(isPresented: $showShelf) { BookMasterShelfView() }
             .navigationDestination(item: $debugScreen) { screen in
                 switch screen {
@@ -91,6 +82,375 @@ struct BookMasterView: View {
     }
 
     private var linked: Bool { BookMaster.shared.isLinked }
+
+    @ViewBuilder
+    private var linkedDashboard: some View {
+        statusCard
+        if loading, together == nil, overview == nil {
+            ProgressView("Bringing BookMaster up to date…")
+                .frame(maxWidth: .infinity, minHeight: 160)
+                .bmCard()
+        } else {
+            if let overview {
+                progressCard(overview)
+                if !overview.goals.isEmpty { goalsCard(overview.goals) }
+            }
+            shelfDashboard
+            if let together {
+                togetherCard(together)
+                if !together.nudges.isEmpty { suggestionsCard(together.nudges) }
+                if !together.sent.isEmpty { waitingCard(together.sent) }
+                if !together.notices.isEmpty { noticesCard(together.notices) }
+            }
+            exploreGrid
+            deviceCard
+            if let error {
+                Label(error, systemImage: "wifi.exclamationmark")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .bmCard()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var unlinkedDashboard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Image(systemName: "books.vertical.fill")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundStyle(Color.ptAccent)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Your reading life, together")
+                    .font(.title2.bold())
+                Text("Link BookMaster to bring your shelf, streaks, goals, quotes and the other reader into Pageturner.")
+                    .foregroundStyle(.secondary)
+            }
+            Button { router.showLink = true } label: {
+                Label("Link BookMaster", systemImage: "link")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.ptAccent)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bmCard()
+
+        deviceCard
+    }
+
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle().fill(Color.ptAccent.opacity(0.14))
+                    Image(systemName: "book.closed.fill").foregroundStyle(Color.ptAccent)
+                }
+                .frame(width: 46, height: 46)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(BookMaster.shared.user?.displayName ?? BookMaster.shared.user?.username ?? "BookMaster")
+                        .font(.headline)
+                    Label(BookMaster.shared.syncEnabled ? "Reading is syncing" : "Sync is paused",
+                          systemImage: BookMaster.shared.syncEnabled ? "checkmark.circle.fill" : "pause.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(BookMaster.shared.syncEnabled ? Color.green : Color.orange)
+                }
+                Spacer()
+                Toggle("Sync", isOn: Binding(
+                    get: { BookMaster.shared.syncEnabled },
+                    set: { BookMaster.shared.syncEnabled = $0 }))
+                    .labelsHidden()
+            }
+            if let partner = together?.partner {
+                Divider()
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(partner.online ? Color.green : Color.secondary.opacity(0.35))
+                        .frame(width: 9, height: 9)
+                    Text(partner.online ? "\(partner.name) is here now" : "\(partner.name) is away")
+                        .font(.subheadline.weight(.medium))
+                    Spacer()
+                    NavigationLink("Together") { BookMasterTogetherView() }
+                        .font(.subheadline)
+                }
+            }
+        }
+        .bmCard()
+    }
+
+    private func progressCard(_ overview: BMOverview) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Your momentum").font(.headline)
+                    Text("Everything BookMaster has tracked")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                NavigationLink { BookMasterProgressView() } label: {
+                    Image(systemName: "arrow.up.right")
+                }
+                .accessibilityLabel("Open progress")
+            }
+            HStack(spacing: 0) {
+                metric("\(Int(overview.stats.currentStreak))", "day streak", "flame.fill", .orange)
+                Divider().frame(height: 48)
+                metric("\(Int(overview.stats.booksFinished))", "finished", "books.vertical.fill", .ptAccent)
+                Divider().frame(height: 48)
+                metric(Self.duration(minutes: Int(overview.stats.minutesRead)), "time read", "clock.fill", .blue)
+            }
+            if let achievement = overview.recentAchievements.first {
+                Label("\(achievement.icon ?? "🏆")  \(achievement.name)", systemImage: "sparkles")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .bmCard()
+    }
+
+    private func metric(_ value: String, _ label: String, _ icon: String, _ color: Color) -> some View {
+        VStack(spacing: 5) {
+            Image(systemName: icon).foregroundStyle(color)
+            Text(value).font(.title3.bold()).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            Text(label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func goalsCard(_ goals: [BMGoal]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("Goals", systemImage: "target").font(.headline)
+                Spacer()
+                NavigationLink("Progress") { BookMasterProgressView() }.font(.subheadline)
+            }
+            ForEach(goals.prefix(3), id: \.stableId) { goal in
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack {
+                        Text(Self.goalLabel(goal.type)).font(.subheadline.weight(.medium))
+                        Spacer()
+                        Text("\(Int(goal.current)) of \(Int(goal.target ?? 0))")
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    ProgressView(value: min(1, max(0, goal.progress))).tint(.ptAccent)
+                }
+            }
+        }
+        .bmCard()
+    }
+
+    @ViewBuilder
+    private var shelfDashboard: some View {
+        let rows = BookMaster.shared.shelfRows
+        let reading = rows.filter { $0.status == "reading" }
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(reading.isEmpty ? "Your shelf" : "Reading now").font(.headline)
+                        Text("\(rows.count) book\(rows.count == 1 ? "" : "s") in BookMaster")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    NavigationLink("See all") { BookMasterShelfView() }.font(.subheadline)
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach((reading.isEmpty ? rows : reading).prefix(5)) { row in
+                            NavigationLink { BookMasterDetailView(pin: row.userBookId) } label: {
+                                shelfBook(row)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .contentMargins(.horizontal, 1, for: .scrollContent)
+            }
+            .bmCard()
+        }
+    }
+
+    private func shelfBook(_ row: BMShelfRow) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            AsyncImage(url: row.coverURL) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    Color.ptAccent.opacity(0.13).overlay {
+                        Image(systemName: row.isAudio ? "headphones" : "book.closed.fill")
+                            .font(.title2).foregroundStyle(Color.ptAccent)
+                    }
+                }
+            }
+            .frame(width: 118, height: 154)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            Text(row.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+            Text(row.author ?? "Unknown author").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            if let percent = row.percent {
+                ProgressView(value: min(max(percent / 100, 0), 1)).tint(.ptAccent)
+            }
+        }
+        .frame(width: 118, alignment: .leading)
+    }
+
+    private func togetherCard(_ value: BMTogether) -> some View {
+        NavigationLink { BookMasterTogetherView() } label: {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Label("Together", systemImage: "person.2.fill").font(.headline)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.tertiary)
+                }
+                if let partner = value.partner {
+                    HStack(alignment: .top, spacing: 12) {
+                        Circle()
+                            .fill(partner.online ? Color.green.opacity(0.16) : Color.secondary.opacity(0.12))
+                            .overlay {
+                                Image(systemName: "person.fill")
+                                    .foregroundStyle(partner.online ? Color.green : Color.secondary)
+                            }
+                            .frame(width: 44, height: 44)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(partner.name).font(.subheadline.weight(.semibold))
+                            if let book = partner.reading {
+                                Text("Reading \(book.title)").font(.subheadline).lineLimit(1)
+                                if let percent = book.percent {
+                                    Text("\(Int(percent.rounded()))% through")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            } else {
+                                Text("Nothing open right now").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } else {
+                    Text("Invite the other reader to share books, progress and suggestions.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            .foregroundStyle(.primary)
+            .bmCard()
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func suggestionsCard(_ nudges: [BMNudge]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Waiting for you", systemImage: "sparkles").font(.headline)
+            ForEach(nudges) { nudge in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(nudge.title).font(.headline)
+                    Text("From \(nudge.fromName)\(nudge.author.map { " · \($0)" } ?? "")")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let note = nudge.note, !note.isEmpty { Text("“\(note)”").font(.subheadline) }
+                    HStack {
+                        Button("Add to shelf") { Task { await answer(nudge, accept: true) } }
+                            .buttonStyle(.borderedProminent).tint(.ptAccent)
+                        Button("Not for me") { Task { await answer(nudge, accept: false) } }
+                            .buttonStyle(.bordered)
+                    }
+                    .controlSize(.small)
+                }
+                if nudge.id != nudges.last?.id { Divider() }
+            }
+        }
+        .bmCard()
+    }
+
+    private func waitingCard(_ sent: [BMSentNudge]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("You suggested", systemImage: "paperplane.fill").font(.headline)
+            ForEach(sent.prefix(3)) { item in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title).font(.subheadline.weight(.medium)).lineLimit(1)
+                        Text("To \(item.toName)").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(item.status.capitalized)
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .bmCard()
+    }
+
+    private func noticesCard(_ notices: [BMNotice]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("From your apps", systemImage: "bell.badge.fill").font(.headline)
+            ForEach(notices.prefix(3)) { notice in Text(notice.text).font(.subheadline) }
+        }
+        .bmCard()
+    }
+
+    private var exploreGrid: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Explore BookMaster").font(.headline)
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible()), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2),
+                spacing: 12
+            ) {
+                destinationTile("Shelf", "books.vertical.fill", Color.ptAccent) { BookMasterShelfView() }
+                destinationTile("Progress", "chart.line.uptrend.xyaxis", .blue) { BookMasterProgressView() }
+                destinationTile("Quotes", "quote.bubble.fill", .purple) { BookMasterQuotesView() }
+                destinationTile("Discover", "sparkles", .orange) { BookMasterDiscoverView() }
+                destinationTile("Find a book", "magnifyingglass", .green) { BookMasterSearchView() }
+                destinationTile("Year so far", "calendar", .pink) { BookMasterWrappedView() }
+            }
+        }
+    }
+
+    private func destinationTile<Destination: View>(
+        _ title: String, _ icon: String, _ color: Color, @ViewBuilder destination: () -> Destination
+    ) -> some View {
+        NavigationLink {
+            destination()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.headline).foregroundStyle(color)
+                    .frame(width: 32, height: 32)
+                    .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                Text(title).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.primary)
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var deviceCard: some View {
+        let stats = readingLog.stats
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("On this iPhone").font(.headline)
+                    Text("Private to this device").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                NavigationLink { BookMasterProgressView() } label: {
+                    Image(systemName: "arrow.up.right")
+                }
+                .accessibilityLabel("Open progress")
+            }
+            if readingLog.sessions.isEmpty {
+                Text("Reading and listening time will appear here after your first session.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 0) {
+                    metric(ReadingStats.duration(minutes: stats.minutesToday), "today", "sun.max.fill", .orange)
+                    Divider().frame(height: 48)
+                    metric(ReadingStats.duration(minutes: stats.minutesLast7Days), "last 7 days", "calendar", .blue)
+                    Divider().frame(height: 48)
+                    metric("\(stats.currentStreak)", "day streak", "flame.fill", .orange)
+                }
+            }
+        }
+        .bmCard()
+    }
 
     /// The way to every part of BookMaster the bridge reaches — the glance
     /// rows below stay glance-sized; these open the whole pages.
@@ -340,5 +700,15 @@ struct BookMasterView: View {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+}
+
+private extension View {
+    func bmCard() -> some View {
+        padding(18)
+            .background(
+                Color(uiColor: .secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+            )
     }
 }

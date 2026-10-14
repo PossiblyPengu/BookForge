@@ -84,12 +84,34 @@ struct ReaderSettings: Codable, Equatable {
         }
     }
 
+    /// How a page is laid out on screens wide enough for two. Meaningless in scroll mode.
+    enum Columns: String, Codable, CaseIterable, Identifiable {
+        case auto, one, two
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .auto: return "Two pages when wide"
+            case .one: return "One page"
+            case .two: return "Two pages"
+            }
+        }
+        var readium: ColumnCount {
+            switch self {
+            case .auto: return .auto
+            case .one: return .one
+            case .two: return .two
+            }
+        }
+    }
+
     var theme: ThemeChoice = .night
     var font: FontChoice = .book
     var fontSize: Double = 1.0
     var spacing: Spacing = .book
     var justify: Bool = true
     var scroll: Bool = false
+    /// One page or a two-page spread when the screen is wide enough.
+    var columns: Columns = .auto
     /// How a tap on the page edge turns the page.
     var pageTurn: PageTurnStyle = .slide
     /// Keep the screen on while a book is open.
@@ -114,6 +136,7 @@ struct ReaderSettings: Codable, Equatable {
         spacing = try c.decodeIfPresent(Spacing.self, forKey: .spacing) ?? spacing
         justify = try c.decodeIfPresent(Bool.self, forKey: .justify) ?? justify
         scroll = try c.decodeIfPresent(Bool.self, forKey: .scroll) ?? scroll
+        columns = try c.decodeIfPresent(Columns.self, forKey: .columns) ?? columns
         pageTurn = try c.decodeIfPresent(PageTurnStyle.self, forKey: .pageTurn) ?? pageTurn
         keepAwake = try c.decodeIfPresent(Bool.self, forKey: .keepAwake) ?? keepAwake
         margins = try c.decodeIfPresent(Double.self, forKey: .margins) ?? margins
@@ -129,6 +152,7 @@ struct ReaderSettings: Codable, Equatable {
         p.textColor = Color(rawValue: theme.text)
         p.fontSize = fontSize
         p.scroll = scroll
+        p.columnCount = scroll ? nil : columns.readium
         p.pageMargins = margins
         p.fontFamily = font.family
         p.lineHeight = spacing.lineHeight

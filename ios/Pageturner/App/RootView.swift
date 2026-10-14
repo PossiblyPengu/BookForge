@@ -79,6 +79,15 @@ struct RootView: View {
             .sheet(item: $r.shelfTarget) { ShelvesSheet(target: $0) }
             .sheet(isPresented: $r.showSettings) { SettingsView() }
             .sheet(isPresented: $r.showLink) { linkSheet }
+            .fileImporter(
+                isPresented: $r.showImporter,
+                allowedContentTypes: LibraryView.pickerTypes,
+                allowsMultipleSelection: true
+            ) { result in
+                if case let .success(urls) = result {
+                    Task { await library.importFiles(urls) }
+                }
+            }
     }
 
     /// BookMaster's sign-in; the code it ends with is spent here and the shelf pulled.
@@ -140,6 +149,15 @@ struct RootView: View {
     /// BookMaster's notice, the "continue from BookMaster?" question and the remove confirmation.
     private func alerts<V: View>(_ content: V) -> some View {
         content
+            // imports can start from any tab, so their failures are reported here
+            .alert("Import problem", isPresented: Binding(
+                get: { library.lastError != nil },
+                set: { if !$0 { library.lastError = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(library.lastError ?? "")
+            }
             .alert("BookMaster", isPresented: noticeShown) {
                 Button("OK", role: .cancel) {}
             } message: {

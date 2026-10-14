@@ -10,6 +10,7 @@
  */
 import { kvGet, kvSet, allBooks, putBook } from "./db.js";
 import { bookmasterUser, sendableAuthor, syncCover } from "./bookmaster.js";
+import { fetchCoverBlob } from "./metadata.js";
 import { listSheet, toast } from "./util.js";
 
 const PULL_KEY = "bm-pull";
@@ -121,7 +122,7 @@ export const matchShelfRow = (book, rows) => {
  * enough to persist.
  */
 const mergeRow = (book, row) => {
-  const before = JSON.stringify([book.bmStatus, book.bmRating, book.bmRemotePercent, book.bmUpNext, book.bookmasterId, book.bmBookId, book.rating]);
+  const before = JSON.stringify([book.bmStatus, book.bmRating, book.bmRemotePercent, book.bmUpNext, book.bookmasterId, book.bmBookId, book.rating, book.isbn, book.desc, book.year]);
   book.bookmasterId = book.bookmasterId || row.userBookId;
   book.bmBookId = book.bmBookId || row.bookId;
   book.bmStatus = row.status;
@@ -129,7 +130,15 @@ const mergeRow = (book, row) => {
   book.bmUpNext = row.upNext != null;
   if (book.rating == null && typeof row.rating === "number") book.rating = row.rating;
   book.bmRating = row.rating ?? null;
-  return JSON.stringify([book.bmStatus, book.bmRating, book.bmRemotePercent, book.bmUpNext, book.bookmasterId, book.bmBookId, book.rating]) !== before;
+  // catalogue facts fill gaps only — what this copy already knows about
+  // itself is never rewritten from afar
+  if (!book.isbn && row.isbn) book.isbn = row.isbn;
+  if (!book.identifiers?.open_library && row.openLibraryId) {
+    book.identifiers = { ...(book.identifiers || {}), open_library: row.openLibraryId };
+  }
+  if (!book.year && row.publishedYear) book.year = String(row.publishedYear);
+  if (!book.desc && row.description) book.desc = row.description;
+  return JSON.stringify([book.bmStatus, book.bmRating, book.bmRemotePercent, book.bmUpNext, book.bookmasterId, book.bmBookId, book.rating, book.isbn, book.desc, book.year]) !== before;
 };
 
 const getJSON = async (path) => {
@@ -168,6 +177,12 @@ export const bmPull = async ({ force = false } = {}) => {
       // a matched book with a jacket hands it over — once, then the tag on
       // the record says done. Books with no coverBlob send nothing.
       syncCover(b);
+      // and the other way: a book with none of its own takes BookMaster's —
+      // the bridge's stored art and the providers' alike
+      if (row?.coverUrl && !b.coverBlob) {
+        const blob = await fetchCoverBlob(row.coverUrl).catch(() => null);
+        if (blob) await putBook({ ...b, coverBlob: blob }).catch(() => {});
+      }
     }
   } catch (err) {
     console.warn("BookMaster pull failed", err);
@@ -221,6 +236,8 @@ const bookFields = (book) => ({
   author: sendableAuthor(book.author),
   isbn: book.isbn || book.identifiers?.isbn13 || book.identifiers?.isbn10 || undefined,
   open_library_id: book.identifiers?.open_library || undefined,
+  description: book.desc || undefined,
+  published_year: parseInt(book.year, 10) || undefined,
 });
 
 /**

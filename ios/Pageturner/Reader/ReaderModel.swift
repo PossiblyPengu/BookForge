@@ -22,7 +22,7 @@ final class ReaderModel: ObservableObject {
 
     @Published private(set) var phase: Phase = .loading
     @Published private(set) var book: Book
-    @Published var showChrome = true
+    @Published private(set) var showChrome = true
     @Published var settings = ReaderSettings.load()
     @Published var toc: [ReadiumShared.Link] = []
     @Published var canReadAloud = false
@@ -65,8 +65,7 @@ final class ReaderModel: ObservableObject {
     private var previousLocator: Locator?
     /// Set while "Back" is navigating, so returning isn't recorded as a jump.
     private var returning = false
-    /// Whether the reader has shown or hidden the controls themselves.
-    private var chromeTouched = false
+    private var chromeHideTask: Task<Void, Never>?
     static let highlightGroup = "user-highlights"
 
     init(book: Book, library: LibraryStore) {
@@ -234,24 +233,39 @@ final class ReaderModel: ObservableObject {
     #endif
 
     func toggleChrome() {
-        chromeTouched = true
-        withAnimation { showChrome.toggle() }
+        if showChrome {
+            hideChrome()
+        } else {
+            revealChrome()
+        }
     }
 
-    /// A book opens with the controls showing — long enough to find them — and
-    /// then they step aside, so the first page isn't read from under a bar. Not
-    /// with VoiceOver on (it needs them), and not once the reader has touched them.
+    func revealChrome() {
+        if !showChrome { withAnimation { showChrome = true } }
+        autoHideChrome()
+    }
+
+    func holdChrome() {
+        chromeHideTask?.cancel()
+        if !showChrome { withAnimation { showChrome = true } }
+    }
+
+    private func hideChrome() {
+        chromeHideTask?.cancel()
+        withAnimation { showChrome = false }
+    }
+
     private func autoHideChrome() {
+        chromeHideTask?.cancel()
         guard !UIAccessibility.isVoiceOverRunning else { return }
         #if DEBUG
         // CI simulator run: keep the controls up for the screenshots (Debug/DebugScenario.swift)
         if UserDefaults.standard.bool(forKey: "PTDebugKeepChrome") { return }
         #endif
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
-            if showChrome, !chromeTouched, readAloud?.isActive != true {
-                withAnimation { showChrome = false }
-            }
+        chromeHideTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled, let self, self.showChrome else { return }
+            self.hideChrome()
         }
     }
 

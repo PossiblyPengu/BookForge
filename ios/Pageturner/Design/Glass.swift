@@ -139,4 +139,10 @@ extension View {
             self
         }
     }
+
+    /// Caps content at a comfortable reading width and centres it — cards and
+    /// text stop stretching edge to edge on iPad and in landscape.
+    func ptReadableWidth(_ width: CGFloat = 720) -> some View {
+        frame(maxWidth: width).frame(maxWidth: .infinity)
+    }
 }

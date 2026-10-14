@@ -48,6 +48,9 @@ struct ReadingNowView: View {
                             Text("Open a book from your library and it waits for you here.")
                         } actions: {
                             Button("Open Library", action: onBrowse)
+                            Button { router.showImporter = true } label: {
+                                Label("Add Books", systemImage: "plus")
+                            }
                         }
                         .padding(.top, 60)
                     }
@@ -58,6 +61,7 @@ struct ReadingNowView: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.bottom, 24)
+                .ptReadableWidth()
             }
             .ptSoftScrollEdges()
             .navigationTitle("Reading")

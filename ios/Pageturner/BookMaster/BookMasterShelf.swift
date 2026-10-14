@@ -15,12 +15,21 @@ struct BMShelfRow: Codable, Hashable, Identifiable {
     var totalPages: Int?
     var openLibraryId: String?
     var isbn: String?
+    /// Catalogue facts the bridge shares so this device can fill what its own
+    /// file never said — a year, a blurb, the jacket.
+    var publishedYear: Int?
+    var description: String?
+    /// The cover BookMaster actually serves for the row, already absolute —
+    /// including jackets this app pushed up (`/api/covers/…`).
+    var coverUrl: String?
 
     var id: String { userBookId }
     var isAudio: Bool { format == "audio" }
 
-    /// A jacket for the row: Open Library knows covers by ISBN and by its own id.
+    /// A jacket for the row: the stored cover when BookMaster knows one, else
+    /// Open Library's guess by ISBN or work id.
     var coverURL: URL? {
+        if let coverUrl, let url = URL(string: coverUrl) { return url }
         let digits = (isbn ?? "").filter { $0.isNumber || $0 == "X" || $0 == "x" }
         if digits.count >= 10 { return URL(string: "https://covers.openlibrary.org/b/isbn/\(digits)-M.jpg?default=false") }
         if let ol = openLibraryId, !ol.isEmpty { return URL(string: "https://covers.openlibrary.org/b/olid/\(ol)-M.jpg?default=false") }
@@ -155,6 +164,7 @@ extension BookMaster {
         else { return }
         keepShelf(reply.books)
         var changes: [(UUID, (inout Book) -> Void)] = []
+        var covers: [(Book, URL)] = []
         for book in library.books {
             guard let row = BMShelf.match(book, in: reply.books) else { continue }
             let shelf = (id: row.userBookId, status: row.status, rating: row.rating,
@@ -167,8 +177,24 @@ extension BookMaster {
                 b.bmRating = shelf.rating
                 b.bmRemotePercent = shelf.percent
                 b.bmUpNext = shelf.upNext
+                // catalogue facts fill gaps only — what this copy already
+                // knows about itself is never rewritten from afar
+                if b.isbn == nil { b.isbn = row.isbn }
+                if b.openLibraryId == nil { b.openLibraryId = row.openLibraryId }
+                if b.year == nil, let year = row.publishedYear { b.year = String(year) }
+                if b.bookDescription == nil || b.bookDescription?.isEmpty == true {
+                    if let blurb = row.description, !blurb.isEmpty { b.bookDescription = blurb }
+                }
             }))
+            if let url = row.coverURL,
+               !FileManager.default.fileExists(atPath: library.coverURL(for: book).path) {
+                covers.append((book, url))
+            }
         }
         library.applyShelf(changes)
+        // and the jackets: a book with none of its own takes BookMaster's
+        for (book, url) in covers where !Task.isCancelled {
+            await MetadataLookup.applyCover(from: url, to: book, library: library)
+        }
     }
 }

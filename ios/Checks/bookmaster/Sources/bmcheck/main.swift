@@ -122,6 +122,7 @@ func runData() async {
     runStatsChecks()
     runLinkURLChecks()
     runVoiceChecks()
+    runSpeechTextChecks()
     runSampleChecks()
     runReadingSpanChecks()
     runNeuralChecks()

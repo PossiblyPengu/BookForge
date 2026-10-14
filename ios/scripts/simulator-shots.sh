@@ -146,6 +146,7 @@ shot 64-readaloud-neural 30 $RA -PTDebugVoice neural -PTDebugHighlights sentence
 xcrun simctl spawn "$UDID" log show --style compact --last 2m \
   --predicate 'process == "Pageturner" AND eventMessage CONTAINS "PTReadAloud"' > "$OUT/readaloud-neural.txt" 2>/dev/null || true
 shot 65-readaloud-neural-word 30 $RA -PTDebugVoice neural -PTDebugHighlights word
+shot 66-readaloud-autohide 20 -PTDebugScreen reader -PTDebugReaderSheet readaloud -PTDebugHighlights sentence,line,word
 
 # crash reports from the host (the simulator writes them there)
 mkdir -p "$OUT/crashes"

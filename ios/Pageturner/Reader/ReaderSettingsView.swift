@@ -25,19 +25,27 @@ struct ReaderSettingsView: View {
                         Text($0.label).tag($0)
                     }
                 }
+                Toggle("Justify text", isOn: $settings.justify)
+            }
+
+            Section("Layout") {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Margins")
                         .font(.subheadline)
                     Slider(value: $settings.margins, in: 0.5 ... 2, step: 0.25)
                 }
-                Toggle("Justify text", isOn: $settings.justify)
                 Toggle("Scroll instead of pages", isOn: $settings.scroll)
-                Toggle("Keep the screen on", isOn: $settings.keepAwake)
                 if !settings.scroll {
+                    Picker("Page layout", selection: $settings.columns) {
+                        ForEach(ReaderSettings.Columns.allCases) {
+                            Text($0.label).tag($0)
+                        }
+                    }
                     Picker("Page turn", selection: $settings.pageTurn) {
                         ForEach(PageTurnStyle.allCases) { Text($0.label).tag($0) }
                     }
                 }
+                Toggle("Keep the screen on", isOn: $settings.keepAwake)
             }
 
             Section("Read aloud") {

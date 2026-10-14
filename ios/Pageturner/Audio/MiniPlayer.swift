@@ -46,6 +46,14 @@ struct MiniPlayer: View {
             .accessibilityLabel("Now playing: \(player.bookTitle)")
             .accessibilityHint("Opens the player")
 
+            Button { player.skip(by: -AppPrefs.skipBack) } label: {
+                Image(systemName: "gobackward.\(Int(AppPrefs.skipBack))")
+                    .font(.title3)
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Skip back \(Int(AppPrefs.skipBack)) seconds")
+
             Button { player.togglePlay() } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.title3)
@@ -55,13 +63,13 @@ struct MiniPlayer: View {
             .buttonStyle(.plain)
             .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
 
-            Button { player.skip(by: 30) } label: {
-                Image(systemName: "goforward.30")
+            Button { player.skip(by: AppPrefs.skipForward) } label: {
+                Image(systemName: "goforward.\(Int(AppPrefs.skipForward))")
                     .font(.title3)
                     .frame(width: 36, height: 36)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Skip forward 30 seconds")
+            .accessibilityLabel("Skip forward \(Int(AppPrefs.skipForward)) seconds")
         }
         .padding(.horizontal, 16)
     }

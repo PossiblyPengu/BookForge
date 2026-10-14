@@ -29,7 +29,7 @@ final class SentenceLookahead {
 
     init(publication: Publication) {
         self.publication = publication
-        tokenizer = PublicationSpeechSynthesizer.defaultTokenizerFactory(publication.metadata.language)
+        tokenizer = makeReadingTokenizer(publication.metadata.language)
     }
 
     /// The sentence that follows `current`, or nil at the end of the book (or when this is busy answering

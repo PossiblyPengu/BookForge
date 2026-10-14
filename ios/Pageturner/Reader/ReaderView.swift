@@ -39,22 +39,27 @@ struct ReaderView: View {
             content
             if model.phase == .ready {
                 VStack(spacing: 8) {
-                    if model.showChrome { header.transition(.move(edge: .top).combined(with: .opacity)) }
-                    Spacer(minLength: 0)
-                    if let label = model.backLabel {
-                        backChip(label)
+                    if model.showChrome {
+                        header.transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    if let readAloud = model.readAloud, readAloud.isActive {
-                        ReadAloudBar(
-                            readAloud: readAloud,
-                            rate: model.settings.speechRate,
-                            onRate: { model.cycleRate() },
-                            onVoice: { showVoices = true },
-                            onStop: { model.stopReadAloud() }
-                        )
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    } else if model.showChrome {
-                        footer.transition(.move(edge: .bottom).combined(with: .opacity))
+                    Spacer(minLength: 0)
+                    if model.showChrome {
+                        if let label = model.backLabel {
+                            backChip(label)
+                        }
+                        if let readAloud = model.readAloud, readAloud.isActive {
+                            ReadAloudBar(
+                                readAloud: readAloud,
+                                rate: model.settings.speechRate,
+                                onInteraction: model.revealChrome,
+                                onRate: { model.cycleRate(); model.revealChrome() },
+                                onVoice: { model.holdChrome(); showVoices = true },
+                                onStop: { model.stopReadAloud(); model.revealChrome() }
+                            )
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        } else {
+                            footer.transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                     }
                 }
             }
@@ -137,15 +142,23 @@ struct ReaderView: View {
 
     private func sheets<V: View>(_ content: V) -> some View {
         panels(content)
-            .sheet(isPresented: $showVoices) { voiceSheet.preferredColorScheme(scheme) }
+            .sheet(isPresented: $showVoices, onDismiss: model.revealChrome) {
+                voiceSheet.preferredColorScheme(scheme)
+            }
     }
 
     private func panels<V: View>(_ content: V) -> some View {
         content
             // a sheet is its own presentation: it doesn't inherit the reader's colour scheme
-            .sheet(isPresented: $showContents) { contentsSheet.preferredColorScheme(scheme) }
-            .sheet(isPresented: $showSettings) { settingsSheet.preferredColorScheme(scheme) }
-            .sheet(isPresented: $showSearch) { searchSheet.preferredColorScheme(scheme) }
+            .sheet(isPresented: $showContents, onDismiss: model.revealChrome) {
+                contentsSheet.preferredColorScheme(scheme)
+            }
+            .sheet(isPresented: $showSettings, onDismiss: model.revealChrome) {
+                settingsSheet.preferredColorScheme(scheme)
+            }
+            .sheet(isPresented: $showSearch, onDismiss: model.revealChrome) {
+                searchSheet.preferredColorScheme(scheme)
+            }
             .sheet(item: $model.footnote) { note in
                 FootnoteSheet(note: note) { model.goToFootnote(note) }
                     .preferredColorScheme(scheme)
@@ -223,13 +236,13 @@ struct ReaderView: View {
 
                 HStack(spacing: 0) {
                     if model.isSearchable {
-                        toolButton("magnifyingglass", label: "Search in book") { showSearch = true }
+                        toolButton("magnifyingglass", label: "Search in book") { model.holdChrome(); showSearch = true }
                     }
                     toolButton(
                         model.isCurrentLocationBookmarked ? "bookmark.fill" : "bookmark",
                         label: model.isCurrentLocationBookmarked ? "Remove bookmark" : "Add bookmark"
-                    ) { model.toggleBookmark() }
-                    toolButton("list.bullet", label: "Contents, bookmarks and highlights") { showContents = true }
+                    ) { model.toggleBookmark(); model.revealChrome() }
+                    toolButton("list.bullet", label: "Contents, bookmarks and highlights") { model.holdChrome(); showContents = true }
                 }
                 .padding(.horizontal, 4)
                 .ptGlassCapsule()
@@ -243,7 +256,7 @@ struct ReaderView: View {
     private var footer: some View {
         PTGlassGroup(spacing: 10) {
             HStack(spacing: 10) {
-                PTIconButton(systemImage: "textformat.size", label: "Reading settings") { showSettings = true }
+                PTIconButton(systemImage: "textformat.size", label: "Reading settings") { model.holdChrome(); showSettings = true }
 
                 HStack(spacing: 10) {
                     progressLabel
@@ -252,6 +265,7 @@ struct ReaderView: View {
                         in: 0...1,
                         onEditingChanged: { editing in
                             dragging = editing
+                            if editing { model.holdChrome() } else { model.revealChrome() }
                             guard !editing, let target = scrubbing else { return }
                             model.go(toProgression: target)
                             // if the page never reports back, let go anyway
@@ -274,7 +288,7 @@ struct ReaderView: View {
                     PTIconButton(
                         systemImage: model.readAloud != nil ? "speaker.wave.2.fill" : "speaker.wave.2",
                         label: "Read aloud"
-                    ) { model.toggleReadAloud() }
+                    ) { model.toggleReadAloud(); model.revealChrome() }
                 }
             }
             .padding(.horizontal, 12)
@@ -306,7 +320,7 @@ struct ReaderView: View {
             .ptNumberRoll(on: left ?? percent)
         // a button only when there is a time left to switch to
         if available != nil {
-            Button { showsTimeLeft.toggle() } label: { label.contentShape(Rectangle()) }
+            Button { showsTimeLeft.toggle(); model.revealChrome() } label: { label.contentShape(Rectangle()) }
                 .buttonStyle(.plain)
                 .accessibilityLabel(left ?? "\(percent) through the book")
                 .accessibilityHint("Switches between percent and time left")
@@ -322,7 +336,7 @@ struct ReaderView: View {
     /// "Back to 45%" — after a jump, one tap returns to where the reader was.
     private func backChip(_ label: String) -> some View {
         HStack(spacing: 0) {
-            Button { model.goBack() } label: {
+            Button { model.goBack(); model.revealChrome() } label: {
                 Label("Back to \(label)", systemImage: "arrow.uturn.backward")
                     .font(.subheadline.weight(.semibold))
                     .padding(.leading, 16)
@@ -331,7 +345,7 @@ struct ReaderView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            Button { model.dismissBack() } label: {
+            Button { model.dismissBack(); model.revealChrome() } label: {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.bold))
                     .frame(width: 38, height: 40)
@@ -593,50 +607,36 @@ private struct OutlineRows: View {
 private struct ReadAloudBar: View {
     @ObservedObject var readAloud: ReadAloud
     let rate: Double
+    let onInteraction: () -> Void
     let onRate: () -> Void
     let onVoice: () -> Void
     let onStop: () -> Void
 
     var body: some View {
-        HStack(spacing: 4) {
-            barButton("backward.fill", label: "Previous sentence") { readAloud.previous() }
-            barButton(readAloud.isPlaying ? "pause.fill" : "play.fill", label: readAloud.isPlaying ? "Pause" : "Play", large: true) {
-                readAloud.playPause()
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) {
+                transportControls
+                rateButton
+                barButton("person.wave.2", label: "Voice", action: onVoice)
+                sleepMenu
+                barButton("xmark", label: "Stop reading aloud", action: onStop)
             }
-            barButton("forward.fill", label: "Next sentence") { readAloud.next() }
-
-            Button(action: onRate) {
-                Text(String(format: "%.3g×", rate))
-                    .font(.subheadline.weight(.medium).monospacedDigit())
-                    .ptNumberRoll(on: rate)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Speaking speed")
-
-            barButton("person.wave.2", label: "Voice", action: onVoice)
-
-            Menu {
-                Button("Off") { readAloud.setSleepTimer(minutes: nil) }
-                ForEach([5, 10, 15, 20, 30, 45, 60], id: \.self) { minutes in
-                    Button("\(minutes) minutes") { readAloud.setSleepTimer(minutes: minutes) }
+            HStack(spacing: 2) {
+                transportControls
+                rateButton
+                Menu {
+                    Button("Voice", systemImage: "person.wave.2", action: onVoice)
+                    Divider()
+                    sleepChoices
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(minWidth: 40, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
-            } label: {
-                Group {
-                    if let left = readAloud.sleepRemaining {
-                        // ceil — "5:00 left" shows 5m until it drops under 4:00
-                        Text("\(Int(left / 60) + 1)m").font(.subheadline.monospacedDigit())
-                    } else {
-                        Image(systemName: "moon")
-                    }
-                }
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
+                .accessibilityLabel("More read-aloud controls")
+                .simultaneousGesture(TapGesture().onEnded { _ in onInteraction() })
+                barButton("xmark", label: "Stop reading aloud", action: onStop)
             }
-            .accessibilityLabel("Sleep timer")
-
-            barButton("xmark", label: "Stop reading aloud", action: onStop)
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 10)
@@ -645,8 +645,63 @@ private struct ReadAloudBar: View {
         .padding(.bottom, 4)
     }
 
+    private var transportControls: some View {
+        Group {
+            barButton("backward.fill", label: "Previous sentence") { readAloud.previous() }
+            barButton(readAloud.isPlaying ? "pause.fill" : "play.fill", label: readAloud.isPlaying ? "Pause" : "Play", large: true) {
+                readAloud.playPause()
+            }
+            barButton("forward.fill", label: "Next sentence") { readAloud.next() }
+        }
+    }
+
+    private var rateButton: some View {
+        Button(action: onRate) {
+            Text(String(format: "%.3g×", rate))
+                .font(.subheadline.weight(.medium).monospacedDigit())
+                .ptNumberRoll(on: rate)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Speaking speed")
+    }
+
+    private var sleepMenu: some View {
+        Menu {
+            sleepChoices
+        } label: {
+            Group {
+                if let left = readAloud.sleepRemaining {
+                    // ceil — "5:00 left" shows 5m until it drops under 4:00
+                    Text("\(Int(left / 60) + 1)m").font(.subheadline.monospacedDigit())
+                } else {
+                    Image(systemName: "moon")
+                }
+            }
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Sleep timer")
+        .simultaneousGesture(TapGesture().onEnded { _ in onInteraction() })
+    }
+
+    @ViewBuilder
+    private var sleepChoices: some View {
+        if let left = readAloud.estimatedRemaining {
+            Text("\(ReadingPace.label(minutesLeft: left / 60)) in the book")
+        }
+        Button("Sleep timer off") { onInteraction(); readAloud.setSleepTimer(minutes: nil) }
+        ForEach([5, 10, 15, 20, 30, 45, 60], id: \.self) { minutes in
+            Button("Sleep in \(minutes) minutes") { onInteraction(); readAloud.setSleepTimer(minutes: minutes) }
+        }
+    }
+
     private func barButton(_ symbol: String, label: String, large: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            onInteraction()
+            action()
+        } label: {
             Image(systemName: symbol)
                 .font(large ? .title2 : .body)
                 .ptSymbolSwap(on: symbol)

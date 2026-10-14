@@ -204,7 +204,8 @@ extension Book {
     /// How a BookMaster push names this book.
     var bookMasterRef: BMBookRef {
         BMBookRef(title: title, author: sendableAuthor(author), isbn: isbn,
-                  openLibraryId: openLibraryId, userBookId: bookmasterId)
+                  openLibraryId: openLibraryId, userBookId: bookmasterId,
+                  bookDescription: bookDescription, publishedYear: year.flatMap(Int.init))
     }
 }
 
