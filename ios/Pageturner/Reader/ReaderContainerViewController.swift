@@ -113,7 +113,7 @@ final class ReaderContainerViewController: UIViewController {
             shadow.fillMode = .both
             shadow.isRemovedOnCompletion = false
             shade.layer.add(shadow, forKey: "shadow")
-        case .fade, .slide:
+        case .fade, .slide, .curl:   // a curl that reaches here falls back to a fade
             page.layer.add(animation("opacity", from: 1, to: 0), forKey: "fade")
         }
         CATransaction.commit()
