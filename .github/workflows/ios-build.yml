@@ -5,6 +5,9 @@ name: iOS build
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   ipa:
     runs-on: macos-15

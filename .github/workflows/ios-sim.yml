@@ -16,6 +16,9 @@ concurrency:
   group: ios-sim-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   screens:
     runs-on: macos-15
