@@ -142,7 +142,11 @@ const mergeRow = (book, row) => {
 };
 
 const getJSON = async (path) => {
-  const res = await fetch(`/api/bookmaster/${path}`, { cache: "no-store" });
+  const user = await bookmasterUser();
+  const res = await fetch(`/api/bookmaster/${path}`, {
+    cache: "no-store",
+    headers: user?.deviceKey ? { "x-pt-key": user.deviceKey } : {},
+  });
   if (!res.ok) throw new Error(`BookMaster ${path} → ${res.status}`);
   return res.json();
 };
@@ -221,7 +225,10 @@ export const bmPost = async (path, body = {}) => {
   if (!user?.username) throw new Error("not linked");
   const res = await fetch(`/api/bookmaster/${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(user.deviceKey ? { "x-pt-key": user.deviceKey } : {}),
+    },
     body: JSON.stringify({ username: user.username, ...body }),
   });
   const data = await res.json().catch(() => ({}));

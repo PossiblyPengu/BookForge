@@ -856,6 +856,7 @@ final class BookMaster {
         parts.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         var request = URLRequest(url: parts.url!)
         request.timeoutInterval = 20
+        if let key = user?.deviceKey { request.setValue(key, forHTTPHeaderField: "x-pt-key") }
         let (data, response) = try await session.data(for: request)
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
@@ -866,6 +867,7 @@ final class BookMaster {
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = body
         request.timeoutInterval = 20
+        if let key = user?.deviceKey { request.setValue(key, forHTTPHeaderField: "x-pt-key") }
         let (data, response) = try await session.data(for: request)
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }

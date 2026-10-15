@@ -1,14 +1,17 @@
 import Foundation
 
-/// The reader this device is linked as. BookMaster's bridge knows people by
-/// username; there is no token — the secret lives in the Pages Function.
+/// The reader this device is linked as. The bridge secret lives in the Pages
+/// Function; `deviceKey` is this device's own credential, minted at link and
+/// sent as X-PT-Key — BookMaster requires it once PAGETURNER_REQUIRE_KEY is on.
 struct BMUser: Codable, Equatable {
     var username: String
     var displayName: String?
+    var deviceKey: String?
 
     enum CodingKeys: String, CodingKey {
         case username
         case displayName = "display_name"
+        case deviceKey = "device_key"
     }
 }
 

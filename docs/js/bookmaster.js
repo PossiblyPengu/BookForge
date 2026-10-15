@@ -58,7 +58,13 @@ export const finishBookmasterLink = async () => {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(data?.error || `Link failed (${res.status})`);
-    userCache = { username: data.username, display_name: data.display_name };
+    userCache = {
+      username: data.username,
+      display_name: data.display_name,
+      // This device's own credential — BookMaster asks for it (X-PT-Key) once
+      // PAGETURNER_REQUIRE_KEY is on; until then it rides the link record.
+      deviceKey: data.device_key,
+    };
     await kvSet(USER_KEY, userCache);
     toast("Linked to BookMaster");
     return true;
@@ -91,7 +97,10 @@ export const postBookmaster = (path, body) => {
   const json = JSON.stringify(body);
   return fetch(`/api/bookmaster/${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(userCache?.deviceKey ? { "x-pt-key": userCache.deviceKey } : {}),
+    },
     // keepalive lets a close-time push outlive the page, but the platform
     // caps those bodies near 64KB — a cover-bearing push is far over and
     // would throw every time, parked in the queue blocking what came after.

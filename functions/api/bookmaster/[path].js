@@ -88,8 +88,16 @@ export const onRequest = async ({ request, env, params }) => {
       headers: {
         authorization: `Bearer ${env.PAGETURNER_SECRET}`,
         ...(isGet ? {} : { "content-type": "application/json" }),
+        // The linking device's own credential — BookMaster demands it once
+        // PAGETURNER_REQUIRE_KEY flips on upstream.
+        ...(request.headers.get("x-pt-key")
+          ? { "x-pt-key": request.headers.get("x-pt-key") }
+          : {}),
       },
       body,
+      // A hung upstream otherwise holds the function for its whole CPU budget
+      // and leaves the app parked on a 60s URLSession default.
+      signal: AbortSignal.timeout(15_000),
     });
   } catch {
     // 502 is the answer clients park a push on and try again later
