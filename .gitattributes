@@ -9,5 +9,9 @@
 # espeak-ng data is read by espeak-ng as it is: no line-ending conversion
 ios/Resources/espeak-ng-data/** -text
 
+# Vendored builds are byte-frozen — the pdf-vendor test compares them to the
+# upstream tarball byte for byte, so no line-ending conversion may touch them.
+docs/vendor/** -text
+
 # Check fixtures are compared to the tool's own output to the byte
 ios/Checks/**/Fixtures/** text eol=lf

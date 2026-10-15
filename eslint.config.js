@@ -42,6 +42,7 @@ export default [
         PushManager: "readonly",
         indexedDB: "readonly",
         AbortController: "readonly",
+        AbortSignal: "readonly",
         URLSearchParams: "readonly",
         OfflineAudioContext: "readonly",
         getComputedStyle: "readonly",
