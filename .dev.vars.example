@@ -1,0 +1,10 @@
+# Copy to .dev.vars and fill in. .dev.vars is gitignored.
+# Feeds `wrangler pages dev` for the bridge function in functions/.
+# The full suite matrix lives in BookMaster's SECRETS.md.
+
+# Required: the bridge credential. Must equal BookMaster's PAGETURNER_SECRET —
+# the function sends it as Bearer to every /api/pageturner/* route.
+PAGETURNER_SECRET=change-me
+
+# Optional: point the bridge at a local BookMaster instead of production.
+# BOOKMASTER_URL=http://localhost:8788
