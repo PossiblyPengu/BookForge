@@ -158,6 +158,16 @@ final class BookMaster {
 
     // MARK: Pushes
 
+    /// Same dedup `syncProgress` applies, run synchronously — a page turn can
+    /// ask before paying for the Task that would only bail out anyway.
+    func wantsProgress(bookKey: String, percent: Double, force: Bool = false) -> Bool {
+        guard user != nil, syncEnabled else { return false }
+        if force { return true }
+        let pct = (percent * 1000).rounded() / 10
+        guard let last = lastPush[bookKey] else { return true }
+        return last.percent != pct && Date().timeIntervalSince(last.at) >= 30
+    }
+
     /// Reading position, throttled to once per 30s per book unless forced
     /// (book closed, playback paused). Fire-and-forget: never blocks reading.
     func syncProgress(
@@ -232,13 +242,16 @@ final class BookMaster {
     }
 
     /// "I'm here" — never queued: a replayed beat lies about when you were there.
-    func beat(place: String? = nil, leaving: Bool = false) async {
-        guard let user, syncEnabled else { return }
+    /// True when it landed, so a missed one can be tried again while the
+    /// presence window still covers the gap.
+    @discardableResult
+    func beat(place: String? = nil, leaving: Bool = false) async -> Bool {
+        guard let user, syncEnabled else { return false }
         var json: [String: Any] = ["username": user.username]
         json["place"] = AppPrefs.sharePlace ? (place ?? self.place) : NSNull()
         if leaving { json["leaving"] = true }
-        guard let body = try? JSONSerialization.data(withJSONObject: json) else { return }
-        _ = try? await post("presence", body: body)
+        guard let body = try? JSONSerialization.data(withJSONObject: json) else { return false }
+        return (try? await post("presence", body: body)) != nil
     }
 
     // MARK: Reads

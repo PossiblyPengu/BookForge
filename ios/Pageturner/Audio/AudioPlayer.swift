@@ -24,6 +24,7 @@ final class AudioPlayer: ObservableObject {
             if isPlaying { player?.rate = rate }
             UserDefaults.standard.set(Double(rate), forKey: "audioPlaybackRate")
             updateNowPlaying()   // the lock screen's clock runs at this speed
+            reaimSleepTimer()    // at 2× the boundary arrives twice as soon
         }
     }
     /// Seconds left on the sleep timer, nil when unset.
@@ -41,6 +42,10 @@ final class AudioPlayer: ObservableObject {
     private var interruptionObserver: NSObjectProtocol?
     private var sleepTimer: Timer?
     private var sleepDeadline: Date?
+    /// A paused player lets the audio session go after a while — the task waits
+    /// out the pause, then releases the route so nothing stays warm for hours.
+    private var releaseSessionTask: Task<Void, Never>?
+    private var sessionReleased = false
     private var lastSavedPosition: TimeInterval = -1
     private var lastChapterIndex: Int?
     private var artworkItem: MPMediaItemArtwork?
@@ -222,9 +227,12 @@ final class AudioPlayer: ObservableObject {
             }
         }
         AudioFocus.shared.claim("audiobook")
+        releaseSessionTask?.cancel()
+        if sessionReleased { configureSession(); sessionReleased = false }
         if sessionStart == nil, duration > 0 { sessionStart = (Date(), position / duration) }
         resumePlayback()
         isPlaying = true
+        reaimSleepTimer()   // a pause froze the playhead — the chapter deadline is stale
         startTimeObserver()
         MPNowPlayingInfoCenter.default().playbackState = .playing
         updateNowPlaying()
@@ -246,6 +254,21 @@ final class AudioPlayer: ObservableObject {
         endBookMasterSession()
         MPNowPlayingInfoCenter.default().playbackState = .paused
         updateNowPlaying()   // the clock stops, and the lock screen should say so
+        armSessionRelease()
+    }
+
+    /// A paused player does not need the route held warm: after ten quiet
+    /// minutes, hand the session back — but only when nobody else (read-aloud)
+    /// is speaking through it. `play()` puts it back.
+    private func armSessionRelease() {
+        releaseSessionTask?.cancel()
+        releaseSessionTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 600_000_000_000)
+            guard !Task.isCancelled, let self, !self.isPlaying,
+                  AudioFocus.shared.soleOwner("audiobook") else { return }
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            self.sessionReleased = true
+        }
     }
 
     func skip(by seconds: TimeInterval) {
@@ -265,6 +288,7 @@ final class AudioPlayer: ObservableObject {
         position = t
         if resume { resumePlayback() }
         updateNowPlaying()
+        reaimSleepTimer()   // the playhead moved — the chapter boundary moved with it
     }
 
     /// Chapters when the book has them, otherwise files.
@@ -353,8 +377,9 @@ final class AudioPlayer: ObservableObject {
 
     // MARK: - Sleep timer
 
-    /// In chapter-end mode the deadline is re-aimed at the boundary each tick,
-    /// so a seek moves it instead of stranding it (and a pause freezes it).
+    /// In chapter-end mode the deadline is re-aimed at the boundary by whatever
+    /// can move it (seek, rate, a resume after a pause) — the bell itself is
+    /// rung once, exactly on the boundary, instead of a poll every 15 seconds.
     private var sleepAtChapterEnd = false
 
     func setSleepTimer(minutes: Int?) {
@@ -376,15 +401,32 @@ final class AudioPlayer: ObservableObject {
     func setSleepTimerToChapterEnd() {
         guard chapterEnd != nil else { return }
         sleepAtChapterEnd = true
-        armSleepTimer()
-        tickSleepTimer()
+        reaimSleepTimer()
     }
 
+    /// One bell, rung once. No tolerance to coalesce against: the boundary is
+    /// the point, and a single wakeup per timer is already cheap.
     private func armSleepTimer() {
         sleepTimer?.invalidate()
-        sleepTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tickSleepTimer() }
+        sleepTimer = nil
+        guard let deadline = sleepDeadline else { return }
+        let timer = Timer(fire: deadline, interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.sleepTimerFired() }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        sleepTimer = timer
+    }
+
+    /// Chapter mode's wall clock moves with the playhead — the only deadline a
+    /// seek, a rate change or a resume can shift. Minute mode is absolute and
+    /// needs no re-aim (re-arming it at the same deadline is a harmless no-op).
+    private func reaimSleepTimer() {
+        if sleepAtChapterEnd, let end = chapterEnd {
+            sleepDeadline = Date().addingTimeInterval(
+                SleepTiming.wall(remainingMedia: end - position, rate: Double(rate)))
+        }
+        armSleepTimer()
+        sleepRemaining = sleepDeadline?.timeIntervalSinceNow
     }
 
     /// Where the chapter being played ends — nil for a book without chapters.
@@ -393,20 +435,16 @@ final class AudioPlayer: ObservableObject {
         return i + 1 < chapters.count ? chapters[i + 1].start : duration
     }
 
-    private func tickSleepTimer() {
-        if sleepAtChapterEnd, let end = chapterEnd {
-            // media time → wall clock: at 2× the boundary arrives twice as soon
-            let wall = max(0, end - position) / Double(max(rate, 0.1))
-            sleepDeadline = Date().addingTimeInterval(wall)
-        }
+    private func sleepTimerFired() {
+        sleepTimer = nil
         guard let deadline = sleepDeadline else { return }
-        let left = deadline.timeIntervalSinceNow
-        if left <= 0 {
-            setSleepTimer(minutes: nil)
-            pause()
-        } else {
-            sleepRemaining = left
-        }
+        // Paused in chapter mode: the boundary cannot drift nearer while the
+        // playhead is still — leave the bell set for play() to re-aim.
+        guard SleepTiming.shouldPause(now: Date(), deadline: deadline,
+                                      isPlaying: isPlaying, chapterMode: sleepAtChapterEnd)
+        else { return }
+        setSleepTimer(minutes: nil)
+        pause()
     }
 
     // MARK: - Teardown
@@ -415,6 +453,8 @@ final class AudioPlayer: ObservableObject {
     func close() {
         savePosition()
         pause()
+        releaseSessionTask?.cancel()
+        releaseSessionTask = nil
         closed = true
         libraryChanges?.cancel()
         AudioFocus.shared.unregister("audiobook")   // the lock-screen buttons pass on, or are cleared
@@ -485,12 +525,16 @@ final class AudioPlayer: ObservableObject {
 
     private func startTimeObserver() {
         guard timeObserver == nil else { return }
+        // already delivered on the main queue — no task hop per second
         timeObserver = player?.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 1, preferredTimescale: 2), queue: .main
         ) { [weak self] time in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self else { return }
                 self.position = self.trackOffsets[self.trackIndex] + time.seconds
+                if let deadline = self.sleepDeadline {
+                    self.sleepRemaining = max(0, deadline.timeIntervalSinceNow)
+                }
                 // the lock screen shows the chapter's name — keep it current
                 if self.currentChapterIndex != self.lastChapterIndex {
                     self.lastChapterIndex = self.currentChapterIndex

@@ -166,6 +166,10 @@ final class PageCurlOverlay: UIView {
         displayLink?.invalidate()
         let start = Date()
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        // Low Power Mode: the finish still lands, it just draws fewer frames
+        if LowPower.on {
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 15, preferred: 15)
+        }
         animState = Anim(origin: origin, dir: dir, from: from, to: to, start: start,
                          duration: duration, completion: completion)
         link.add(to: .main, forMode: .common)

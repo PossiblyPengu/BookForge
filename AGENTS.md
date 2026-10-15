@@ -77,6 +77,17 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   the tabs (reader, book sheets, settings, the "continue from BookMaster?" prompt).
 - Audiobooks play through `Audio/PlaybackCoordinator.swift`; `NowPlayingView` and `MiniPlayer` observe
   it. Chapters (`Audio/AudioChapter.swift`) are an m4b's embedded markers or one per file.
+  The sleep timers are one bell rung once at the deadline (`Audio/SleepTiming.swift` is the pure
+  arithmetic, Linux-checked): whatever can move it — a seek, the rate, a resume — re-arms it, and
+  chapter-end fires exactly on the boundary (a paused player keeps the bell set for `play()` to
+  re-aim). A player paused ten minutes gives the audio session back, but only when
+  `AudioFocus.soleOwner` says the session is really its own.
+- Battery: presence beats run every 90s in front (120s under Low Power Mode) with one retry on a
+  miss — BookMaster holds presence for two minutes. `App/LowPower.swift` names the mode: it slows
+  the neural voice's playhead ticker, throttles the curl's animated finishes to 15fps, and drops the
+  marks that move per spoken word (the sentence mark stays). Grid covers come from
+  `LibraryStore.coverThumbnail(for:maxPixels:)` — ImageIO-decoded at cell size and NSCache'd —
+  never `cover(for:)` in a list.
 - The reader (`Reader/`): `ReaderModel` owns the Readium navigator; `JumpHistory` drives the Back chip;
   page turns are `PageTurnStyle`: Readium's slide, a hinge `flip`, a `fade`, and `curl` — a finger-tracked
   peel. `PageCurl` is the pure geometry (fold line, cylinder roll, warped mesh — Linux-checked);

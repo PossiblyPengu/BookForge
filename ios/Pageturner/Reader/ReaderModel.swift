@@ -839,10 +839,14 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
         reading.moved(to: locator.locations.totalProgression)
         let ref = book.bookMasterRef
         let progression = reading.reportable(book.progression ?? 0)
-        Task {
-            await BookMaster.shared.syncProgress(
-                bookKey: book.id.uuidString, ref: ref, percent: progression, isAudio: false,
-                pinned: { [weak self] id in self?.pin(id) })
+        // the push's own dedup still decides inside the task; this just skips
+        // paying for a task the dedup would only throw away
+        if BookMaster.shared.wantsProgress(bookKey: book.id.uuidString, percent: progression) {
+            Task {
+                await BookMaster.shared.syncProgress(
+                    bookKey: book.id.uuidString, ref: ref, percent: progression, isAudio: false,
+                    pinned: { [weak self] id in self?.pin(id) })
+            }
         }
     }
 

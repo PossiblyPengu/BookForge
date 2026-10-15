@@ -32,7 +32,7 @@ struct ReadingNowView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     if let book = current {
-                        ContinueCard(book: book, cover: library.cover(for: book)) {
+                        ContinueCard(book: book, cover: library.coverThumbnail(for: book, maxPixels: 640)) {
                             router.open(book, library: library)
                         }
                         if let left = timeLeft(book) {

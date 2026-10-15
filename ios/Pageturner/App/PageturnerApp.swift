@@ -46,8 +46,9 @@ struct PageturnerApp: App {
                     }
                 }
                 // runs while the app is in front: say hello first (the slow work
-                // below must not delay it), then every 45s — BookMaster counts
-                // you as here for two minutes after a beat
+                // below must not delay it), then beat sparsely — BookMaster counts
+                // you as here for two minutes after a beat, and a missed one gets
+                // a single retry so a dropped request never gaps the window
                 .task(id: scenePhase) {
                     guard scenePhase == .active else { return }
                     await BookMaster.shared.beat()
@@ -58,9 +59,13 @@ struct PageturnerApp: App {
                     await Notifier.shared.refresh(notify: false)
                     SpotlightIndexer.shared.libraryChanged(library)
                     while !Task.isCancelled {
-                        try? await Task.sleep(for: .seconds(45))
+                        try? await Task.sleep(for: .seconds(LowPower.on ? 120 : 90))
                         guard !Task.isCancelled else { return }
-                        await BookMaster.shared.beat()
+                        if await !BookMaster.shared.beat() {
+                            try? await Task.sleep(for: .seconds(8))
+                            guard !Task.isCancelled else { return }
+                            await BookMaster.shared.beat()
+                        }
                     }
                 }
         }

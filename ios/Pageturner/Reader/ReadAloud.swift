@@ -88,6 +88,10 @@ final class ReadAloud: NSObject, ObservableObject {
     private var subscriptions: Set<AnyCancellable> = []
     private var sleepTimer: Timer?
     private var sleepDeadline: Date?
+    /// The navigator that takes decorations — kept so a Low Power Mode change
+    /// can repaint without waiting for the next spoken thing.
+    private var decorable: DecorableNavigator?
+    private var lowPowerObserver: NSObjectProtocol?
     /// Seconds actually spoken this session (pauses don't count) — the lock
     /// screen's clock is estimated from how fast the narration moves.
     private var playedSeconds: TimeInterval = 0
@@ -121,7 +125,9 @@ final class ReadAloud: NSObject, ObservableObject {
         // the voices iOS ships with, and the neural ones that have been downloaded
         let neural = NeuralTTSEngine(index: NeuralVoiceStore.shared.index)
         neural.speed = settings.speechRate
-        neural.reportsWords = settings.highlights.needsWords
+        // Low Power Mode drops the per-word work entirely: no word schedule,
+        // no 30Hz playhead report, no mark repainted for every word
+        neural.reportsWords = settings.highlights.needsWords && !LowPower.on
         guard let synthesizer = PublicationSpeechSynthesizer(
             publication: publication,
             config: .init(voiceIdentifier: settings.voiceIdentifier),
@@ -149,12 +155,24 @@ final class ReadAloud: NSObject, ObservableObject {
 
         // light the sentence, the line and the word being spoken, as chosen
         if let decorable = navigator as? DecorableNavigator {
+            self.decorable = decorable
             Publishers.CombineLatest($spoken, $highlights)
                 .removeDuplicates { $0.0 == $1.0 && $0.1 == $1.1 }
                 .sink { [weak self] spoken, highlights in
                     self?.paint(spoken, as: highlights, on: decorable)
                 }
                 .store(in: &subscriptions)
+            // iOS toggling Low Power Mode mid-book adds or drops the word marks
+            // on the next repaint rather than the next open
+            lowPowerObserver = NotificationCenter.default.addObserver(
+                forName: LowPower.changed, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.neural.reportsWords = self.highlights.needsWords && !LowPower.on
+                    self.paint(self.spoken, as: self.highlights, on: decorable)
+                }
+            }
         }
 
         // follow the narration, turning pages mid-sentence when needed
@@ -250,6 +268,10 @@ final class ReadAloud: NSObject, ObservableObject {
     func next() { synthesizer.next() }
     func previous() { synthesizer.previous() }
 
+    deinit {
+        if let lowPowerObserver { NotificationCenter.default.removeObserver(lowPowerObserver) }
+    }
+
     func stop() {
         startup.cancel()
         synthesizer.stop()
@@ -268,7 +290,9 @@ final class ReadAloud: NSObject, ObservableObject {
 
     // MARK: - Sleep timer
 
-    /// Stop read-aloud after the given number of minutes; nil cancels.
+    /// Stop read-aloud after the given number of minutes; nil cancels. One bell
+    /// rung once at the deadline — the label refreshes on each spoken sentence
+    /// (`noteProgression`), so no poll is needed just to count down.
     func setSleepTimer(minutes: Int?) {
         sleepTimer?.invalidate()
         sleepTimer = nil
@@ -277,22 +301,17 @@ final class ReadAloud: NSObject, ObservableObject {
             sleepRemaining = nil
             return
         }
-        sleepDeadline = Date().addingTimeInterval(TimeInterval(minutes) * 60)
-        sleepRemaining = sleepDeadline?.timeIntervalSinceNow
-        // 15s ticks — the label shows whole minutes so precision doesn't matter
-        sleepTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tickSleepTimer() }
+        let deadline = Date().addingTimeInterval(TimeInterval(minutes) * 60)
+        sleepDeadline = deadline
+        sleepRemaining = deadline.timeIntervalSinceNow
+        let timer = Timer(fire: deadline, interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let deadline = self.sleepDeadline, Date() >= deadline else { return }
+                self.stop()   // stop() also clears the timer
+            }
         }
-    }
-
-    private func tickSleepTimer() {
-        guard let deadline = sleepDeadline else { return }
-        let left = deadline.timeIntervalSinceNow
-        if left <= 0 {
-            stop()   // stop() also clears the timer
-        } else {
-            sleepRemaining = left
-        }
+        RunLoop.main.add(timer, forMode: .common)
+        sleepTimer = timer
     }
 
     /// Takes effect from the next sentence.
@@ -306,7 +325,7 @@ final class ReadAloud: NSObject, ObservableObject {
     func setHighlights(_ value: ReadAloudHighlights) {
         guard value != highlights else { return }
         highlights = value
-        neural.reportsWords = value.needsWords
+        neural.reportsWords = value.needsWords && !LowPower.on
     }
 
     var availableVoices: [TTSVoice] { synthesizer.availableVoices }
@@ -397,7 +416,9 @@ final class ReadAloud: NSObject, ObservableObject {
         if highlights.sentence, let locator = spoken.sentence {
             sentence = [Decoration(id: markID("tts", locator), locator: locator.anchorable, style: .highlight(tint: .systemOrange))]
         }
-        if let locator = spoken.word, !spoken.wordIsTheSentence {
+        // Low Power Mode: the marks that move for every word — the word itself
+        // and the line band it sits on — are the per-word cost; drop them both.
+        if let locator = spoken.word, !spoken.wordIsTheSentence, !LowPower.on {
             if highlights.word {
                 // a navigator that doesn't know the stronger mark gets the plain highlight
                 let style: Decoration.Style = navigator.supports(decorationStyle: .spokenWord)
@@ -437,6 +458,9 @@ final class ReadAloud: NSObject, ObservableObject {
     /// narration covers more of the book.
     private func noteProgression(_ locator: Locator) {
         let now = Date()
+        if let deadline = sleepDeadline {
+            sleepRemaining = max(0, deadline.timeIntervalSince(now))
+        }
         if case .playing = synthesizer.state, let last = lastTickAt {
             playedSeconds += now.timeIntervalSince(last)
         }

@@ -251,7 +251,9 @@ final class NeuralPlayer {
             while !Task.isCancelled {
                 guard let self, !self.pending.isEmpty else { break }
                 self.tick()
-                try? await Task.sleep(nanoseconds: 33_000_000)
+                // the word timing is fitted to ~105ms, so 15Hz is already finer
+                // than the marks can show; Low Power Mode trades it for wakeups
+                try? await Task.sleep(nanoseconds: LowPower.on ? 200_000_000 : 66_000_000)
             }
             self?.ticker = nil
         }

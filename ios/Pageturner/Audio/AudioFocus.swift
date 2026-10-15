@@ -36,6 +36,11 @@ final class AudioFocus {
     /// may then give the audio session back when it is done.
     var isIdle: Bool { owners.isEmpty }
 
+    /// `id` is the only sound source registered — the session really is its own
+    /// to put down (a paused audiobook must not release it while read-aloud is
+    /// speaking through it).
+    func soleOwner(_ id: String) -> Bool { owners.count == 1 && owners[id] != nil }
+
     func pauseAll() {
         for pause in owners.values { pause() }
     }

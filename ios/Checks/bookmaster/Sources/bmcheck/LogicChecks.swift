@@ -445,6 +445,35 @@ func runGroupingChecks() {
     check("the stem title keeps its words", AudioGrouping.title(for: urls("harry potter 2 - 01.mp3", "harry potter 2 - 02.mp3")) == "Harry Potter 2")
 }
 
+func runSleepChecks() async {
+    section("Sleep timer")
+    check("120s of media at 2× is a minute away", SleepTiming.wall(remainingMedia: 120, rate: 2) == 60)
+    check("60s at 1× is a minute", SleepTiming.wall(remainingMedia: 60, rate: 1) == 60)
+    check("a boundary already reached is no wait", SleepTiming.wall(remainingMedia: -5, rate: 1) == 0)
+    check("a stopped rate cannot divide by zero",
+          SleepTiming.wall(remainingMedia: 60, rate: 0) == 600, "\(SleepTiming.wall(remainingMedia: 60, rate: 0))")
+
+    let now = Date()
+    let past = now.addingTimeInterval(-1)
+    let future = now.addingTimeInterval(60)
+    check("a rung bell while playing pauses", SleepTiming.shouldPause(now: now, deadline: past, isPlaying: true, chapterMode: false))
+    check("a minute timer elapses even while paused", SleepTiming.shouldPause(now: now, deadline: past, isPlaying: false, chapterMode: false))
+    check("chapter mode on a paused player stays set for play() to re-aim",
+          !SleepTiming.shouldPause(now: now, deadline: past, isPlaying: false, chapterMode: true))
+    check("a bell before its deadline does nothing", !SleepTiming.shouldPause(now: now, deadline: future, isPlaying: true, chapterMode: false))
+
+    section("Audio focus")
+    let focus = AudioFocus.shared
+    await focus.register("audiobook", pause: {})
+    check("the only sound registered owns the session", await focus.soleOwner("audiobook"))
+    check("an id that is not registered cannot be the owner", await !focus.soleOwner("readaloud"))
+    await focus.register("readaloud", pause: {})
+    check("a sibling registered means the session is shared", await !focus.soleOwner("audiobook"))
+    await focus.unregister("readaloud")
+    check("back to one", await focus.soleOwner("audiobook"))
+    await focus.unregister("audiobook")
+}
+
 func runCurlChecks() {
     section("Page curl")
     let w = 390.0, h = 844.0

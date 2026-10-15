@@ -123,7 +123,7 @@ struct BookGrid: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 6) {
                         BookCoverView(
-                            book: book, cover: library.cover(for: book),
+                            book: book, cover: library.coverThumbnail(for: book, maxPixels: 640),
                             selected: selection.map { $0.wrappedValue.contains(book.id) })
                         Text(book.title)
                             .font(.footnote.weight(.semibold))

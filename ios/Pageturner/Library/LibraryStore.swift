@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import ImageIO
 import ReadiumShared
 import ReadiumZIPFoundation
 import SwiftUI
@@ -298,6 +299,27 @@ final class LibraryStore: ObservableObject {
 
     func cover(for book: Book) -> UIImage? {
         UIImage(contentsOfFile: coverURL(for: book).path)
+    }
+
+    /// Cell-sized covers, decoded once and remembered: the grid asks on every
+    /// layout, and a 2400px EPUB jacket should not be decoded at full size for
+    /// a 120pt cell. ImageIO makes the thumbnail from the file directly, so the
+    /// big decode never happens.
+    private let coverThumbs = NSCache<NSString, UIImage>()
+
+    func coverThumbnail(for book: Book, maxPixels: Int) -> UIImage? {
+        let key = "\(book.id.uuidString)-\(maxPixels)" as NSString
+        if let hit = coverThumbs.object(forKey: key) { return hit }
+        guard let source = CGImageSourceCreateWithURL(coverURL(for: book) as CFURL, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+              ] as CFDictionary)
+        else { return cover(for: book) }
+        let image = UIImage(cgImage: cg)
+        coverThumbs.setObject(image, forKey: key)
+        return image
     }
 
     // MARK: - Import
@@ -714,7 +736,12 @@ final class LibraryStore: ObservableObject {
     }
 
     /// A cover file changed on disk — views read covers by path, so nudge them to look again.
-    func coverChanged() { objectWillChange.send() }
+    /// A cover was replaced — the thumbnails are stale (rare enough that
+    /// dropping them all is simpler than tracking which size keys exist).
+    func coverChanged() {
+        coverThumbs.removeAllObjects()
+        objectWillChange.send()
+    }
 
     /// Finished: it leaves the Continue card and BookMaster shelves it as read.
     /// The position is left alone, so reopening still lands where they stopped.
@@ -774,6 +801,8 @@ final class LibraryStore: ObservableObject {
     func delete(_ book: Book) {
         for url in fileURLs(for: book) { try? fm.removeItem(at: url) }
         try? fm.removeItem(at: coverURL(for: book))
+        // a restored backup can resurrect the id with different art
+        coverThumbs.removeAllObjects()
         books.removeAll { $0.id == book.id }
         save()
     }

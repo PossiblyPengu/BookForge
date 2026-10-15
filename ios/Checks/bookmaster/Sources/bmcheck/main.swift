@@ -120,6 +120,7 @@ func runData() async {
     runLogic()
     runGroupingChecks()
     runCurlChecks()
+    await runSleepChecks()
     runStatsChecks()
     runLinkURLChecks()
     runVoiceChecks()
