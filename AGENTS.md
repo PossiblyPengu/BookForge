@@ -49,6 +49,16 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   `ReadiumShared.Link`; keep Readium's `Color` in files that don't import SwiftUI.
 - `tabViewBottomAccessory(isEnabled:)` is iOS 26.1; the plain `tabViewBottomAccessory` is 26.0.
 - `.backgroundTask` is a *Scene* modifier, not a View one.
+- Locking the screen is `.inactive`, not necessarily `.background` — with the keep-awake idle timer or
+  live read-aloud the app can be suspended without `.background` ever firing. Anything that must reach
+  disk on lock (the reader's position) is saved on `.inactive` too (`ReaderView`); session-end bookkeeping
+  still waits for `.background`.
+- Logging: `App/Log.swift` writes a rolling `pageturner.log`/`pageturner.prev.log` plus `crash.log`
+  (signal/exception trap with a backtrace, then re-raise so the .ips still exists) into
+  `Documents/Logs` — visible in the Files app — and mirrors to `os.Logger`. A `.running` marker tells
+  the next launch whether the previous run ended cleanly; Settings → Diagnostics shows the flag and
+  shares a combined report (`Log.shareURL()`). The same deduped queue backs `Log.event`/`Log.error`;
+  `ios/Checks` stubs it.
 - Catalogue dates are seconds since 1970 on disk but `JSONDecoder`'s default reads 2001-based, which
   moved dates forward 31 years per save. Anything with a `Date` inside `Book` decodes it through
   `StoredDate.read` (see the `Book`, `Bookmark` and `Highlight` decoders).

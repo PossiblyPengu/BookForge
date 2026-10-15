@@ -522,8 +522,12 @@ final class AudioPlayer: ObservableObject {
     // MARK: - Plumbing
 
     private func configureSession() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            Log.error("audio", "session setup failed: \(error.localizedDescription)")
+        }
     }
 
     private func startTimeObserver() {

@@ -112,6 +112,21 @@ struct SettingsView: View {
                 }
             }
 
+            Section {
+                NavigationLink("View Log") { LogView() }
+                Button { shareItem = ShareItem(url: Log.shareURL()) } label: {
+                    Label("Share Diagnostics…", systemImage: "doc.text.magnifyingglass")
+                }
+                if Log.lastRunEndedUncleanly {
+                    Label("Last run didn’t shut down cleanly — its crash log is in the diagnostics.", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
+            } header: {
+                Text("Diagnostics")
+            } footer: {
+                Text("Diagnostics is one file: this run’s log, the previous one, and any crash record. The same files are in Files ▸ On My iPhone ▸ Pageturner ▸ Logs.")
+            }
+
             Section("About") {
                 LabeledContent("Version", value: version)
                 Text("Reading is built on the Readium toolkit.")

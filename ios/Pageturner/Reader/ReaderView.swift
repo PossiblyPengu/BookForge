@@ -94,9 +94,13 @@ struct ReaderView: View {
                 model.stopReadAloud()
                 BookMaster.shared.place = "library"
             }
-            // a sitting ends when the app leaves the screen — not whenever it is next opened
+            // a sitting ends when the app leaves the screen — not whenever it is next opened.
+            // .inactive is its own case: locking the screen can park the app there without a
+            // .background ever arriving (keep-awake or a live read-aloud session), so the
+            // position lands on disk there too — only the session end waits for .background.
             .onChange(of: scenePhase) { _, phase in
                 switch phase {
+                case .inactive: model.flushSave()
                 case .background: model.flushSave(); model.endSession(); keepAwake(false)
                 case .active: model.beginSession(); keepAwake(true)
                 default: break

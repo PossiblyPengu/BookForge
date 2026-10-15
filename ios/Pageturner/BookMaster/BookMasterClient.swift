@@ -795,6 +795,7 @@ final class BookMaster {
     /// A 404 "Unknown reader" is a dead link — stop failing on every page turn.
     private func handleRefusal(status: Int, data: Data) {
         guard status == 404, Self.errorMessage(data) == "Unknown reader" else { return }
+        Log.event("bookmaster", "link refused (404 Unknown reader) — unlinked")
         setUser(nil)
         resetAccountCaches()
         queue.removeAll()

@@ -363,7 +363,10 @@ final class LibraryStore: ObservableObject {
             defer { importing = false }
             var failures: [String] = []
             await importBatch(batch, failures: &failures, inArchive: false)
-            if !failures.isEmpty { lastError = failures.joined(separator: "\n") }
+            if !failures.isEmpty {
+                lastError = failures.joined(separator: "\n")
+                for failure in failures { Log.error("import", failure) }
+            }
         }
         await pendingImport?.value
     }
@@ -860,8 +863,13 @@ final class LibraryStore: ObservableObject {
     private func save() {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .secondsSince1970
-        guard let data = try? encoder.encode(books) else { return }
-        try? data.write(to: catalogueURL, options: .atomic)
+        do {
+            let data = try encoder.encode(books)
+            try data.write(to: catalogueURL, options: .atomic)
+        } catch {
+            Log.error("library", "catalogue save failed: \(error.localizedDescription)")
+            return
+        }
         SpotlightIndexer.shared.libraryChanged(self)
     }
 }

@@ -71,5 +71,11 @@ import Foundation
 enum MetadataLookup {
     static func applyCover(from url: URL, to book: Book, library: LibraryStore) async {}
 }
+/// The real logger writes Documents/Logs and needs a real home dir; checks
+/// only need its calls to compile.
+enum Log {
+    static func event(_ category: String, _ message: String) {}
+    static func error(_ category: String, _ message: String) {}
+}
 SW
 echo "assembled into $OUT"

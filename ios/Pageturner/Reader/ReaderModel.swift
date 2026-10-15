@@ -146,6 +146,7 @@ final class ReaderModel: ObservableObject {
             Task { await debugTurn() }
             #endif
         } catch {
+            Log.error("reader", "open failed for \(book.title): \(error.localizedDescription)")
             phase = .failed(error.localizedDescription)
         }
     }
@@ -721,6 +722,8 @@ final class ReaderModel: ObservableObject {
             notice = "That voice can't play — switched to the automatic voice."
         }
         self.readAloud = readAloud
+        let voice = settings.voiceIdentifier ?? "auto"
+        Log.event("readaloud", "started — voice \(voice), rate \(settings.speechRate)")
         readAloud.start()
     }
 
@@ -751,9 +754,16 @@ final class ReaderModel: ObservableObject {
         }
     }
 
+    /// Write the place to disk now. Called when the reader or the app is
+    /// going away — also snapshots the navigator's own location, so a turn
+    /// whose callback never landed isn't the page that is lost.
     func flushSave() {
         saveTask?.cancel()
         saveTask = nil
+        if !curling, let locator = navigator?.currentLocation {
+            book.locatorJSON = try? locator.jsonString()
+            book.progression = locator.locations.totalProgression
+        }
         library.update(book)
     }
 
@@ -851,6 +861,7 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
     }
 
     func navigator(_ navigator: Navigator, presentError error: NavigatorError) {
+        Log.error("reader", "navigator error: \(error)")
         notice = "This action isn't allowed in this publication."
     }
 }

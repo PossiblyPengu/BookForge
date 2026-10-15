@@ -8,6 +8,7 @@ struct PageturnerApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        Log.install()
         // taps on a suggestion notification come back through here
         UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
     }
@@ -40,9 +41,14 @@ struct PageturnerApp: App {
                     }
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .background {
+                    Log.event("lifecycle", "scene → \(String(describing: phase))")
+                    switch phase {
+                    case .active: Log.markForeground()
+                    case .background:
+                        Log.markBackground()
                         Task { await BookMaster.shared.beat(leaving: true) }
                         Notifier.shared.scheduleRefresh()
+                    default: break
                     }
                 }
                 // runs while the app is in front: say hello first (the slow work
