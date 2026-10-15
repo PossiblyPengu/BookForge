@@ -385,13 +385,19 @@ final class ReadAloud: NSObject, ObservableObject {
     /// painted. So this waits, frame by frame, for the page to be still and
     /// (briefly) for a mark to show, then centres. ~1.5 s is the most it waits —
     /// a reader dragging the page keeps their scroll instead of being fought.
+    ///
+    /// The mark queried is the painted line, not the decoration's own wrapper:
+    /// a group container holds a plain div per item, and that wrapper is static —
+    /// it sits at the end of the document, so centring on it throws the page to
+    /// the chapter's last screen. Only the absolutely-positioned children carry
+    /// `data-writing-mode`, which picks the mark out of the wrapper.
     private func centerSpokenLine(on navigator: EPUBNavigatorViewController, pageWasAt before: Double) async {
         let script = """
         new Promise(function(resolve) {
           var mark = function() {
-            return document.querySelector('[data-group="tts-line"] > div')
-                || document.querySelector('[data-group="tts-word"] > div')
-                || document.querySelector('[data-group="tts"] > div');
+            return document.querySelector('[data-group="tts-line"] [data-writing-mode]')
+                || document.querySelector('[data-group="tts-word"] [data-writing-mode]')
+                || document.querySelector('[data-group="tts"] [data-writing-mode]');
           };
           var last = -1, still = 0, ticks = 0;
           (function tick() {
