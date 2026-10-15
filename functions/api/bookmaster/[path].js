@@ -40,6 +40,15 @@ const ROUTES = new Set([
   "push-subscribe",
   "push-unsubscribe",
   "push-inbox",
+  "series",
+  "series-detail",
+  "series-book",
+  "goal",
+  "up-next",
+  "edit-book",
+  "export",
+  "profile",
+  "import",
 ]);
 
 const json = (status, body) =>
