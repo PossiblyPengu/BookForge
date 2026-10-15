@@ -195,7 +195,8 @@ struct BookMasterBooksView: View {
     private func shelfBook(_ row: BMShelfRow) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             BMCover(row: row)
-                .frame(width: 110, height: 144)
+                .aspectRatio(2/3, contentMode: .fit)
+                .frame(width: 110)
             Text(row.title).font(.subheadline.weight(.semibold)).lineLimit(2)
             Text(row.author ?? "Unknown author").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             if let percent = row.percent {
@@ -331,8 +332,8 @@ struct BookMasterBooksView: View {
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 BMCover(row: row)
+                    .aspectRatio(2/3, contentMode: .fit)
                     .frame(maxWidth: .infinity)
-                    .aspectRatio(2/3, contentMode: .fill)
                     .overlay(alignment: .topTrailing) {
                         if selecting {
                             Image(systemName: selected.contains(row.userBookId)
