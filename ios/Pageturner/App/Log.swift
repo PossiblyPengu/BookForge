@@ -144,15 +144,15 @@ enum Log {
     /// and re-raises so the system crash report is still written.
     private static func trapFaults() {
         NSSetUncaughtExceptionHandler { exception in
-            appendFault(
+            Log.appendFault(
                 "exception \(exception.name.rawValue): \(exception.reason ?? "")\n"
                     + exception.callStackSymbols.joined(separator: "\n"))
         }
         for sig in [SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGTRAP, SIGFPE] {
             signal(sig) { sig in
-                appendFault("signal \(sig)\n" + Thread.callStackSymbols.joined(separator: "\n"))
+                Log.appendFault("signal \(sig)\n" + Thread.callStackSymbols.joined(separator: "\n"))
                 signal(sig, SIG_DFL)
-                raise(sig)
+                _ = raise(sig)
             }
         }
     }
