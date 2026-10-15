@@ -1,0 +1,26 @@
+name: iOS build environment
+description: Xcode, the SwiftPM cache and a generated XcodeGen project — shared by the IPA and simulator builds so versions pin in one place.
+
+runs:
+  using: composite
+  steps:
+    - uses: maxim-lobanov/setup-xcode@v1
+      with:
+        # pinned major — "latest-stable" silently moved us to Xcode 26 once
+        # and the app stopped compiling until it was patched
+        xcode-version: "26"
+
+    - name: Cache Swift packages (Readium)
+      uses: actions/cache@v4
+      with:
+        path: ~/Library/Caches/org.swift.swiftpm
+        key: spm-${{ hashFiles('ios/project.yml') }}
+        restore-keys: spm-
+
+    - name: Install XcodeGen
+      run: brew install xcodegen
+      shell: bash
+
+    - name: Generate Xcode project
+      run: cd ios && xcodegen
+      shell: bash

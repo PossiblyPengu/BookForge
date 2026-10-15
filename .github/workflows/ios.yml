@@ -8,6 +8,7 @@ on:
       - "ios/**"
       - ".github/workflows/ios.yml"
       - ".github/workflows/ios-build.yml"
+      - ".github/actions/ios-env/**"
 
 concurrency:
   group: ios-${{ github.ref }}
@@ -24,7 +25,6 @@ jobs:
     concurrency:
       group: ios-release
       cancel-in-progress: false
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
