@@ -16,6 +16,8 @@ struct BookMasterStatsView: View {
     @State private var importing = false
     @State private var confirmUnlink = false
     @State private var error: String?
+    /// Good news — an import's tally, not a failure.
+    @State private var notice: String?
     @State private var loading = true
 
     var body: some View {
@@ -48,7 +50,7 @@ struct BookMasterStatsView: View {
             .sheet(isPresented: $goalSheet) { BMGoalSheet { Task { await load() } } }
             .sheet(isPresented: $importing) {
                 BMImportSheet { message in
-                    error = message
+                    notice = message
                     Task { await load() }
                 }
             }
@@ -85,6 +87,12 @@ struct BookMasterStatsView: View {
             achievementsCard
             wrappedRow
             profileCard
+        }
+        if let notice {
+            Label(notice, systemImage: "checkmark.circle.fill")
+                .font(.footnote).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .bmCard()
         }
         if let error {
             Label(error, systemImage: "wifi.exclamationmark")

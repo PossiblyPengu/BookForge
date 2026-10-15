@@ -231,8 +231,11 @@ final class ReaderContainerViewController: UIViewController {
                 touch: .init(x: Double(touch.x), y: Double(touch.y)))
             let p = PageCurl.progress(
                 width: Double(view.bounds.width), height: Double(view.bounds.height), grab: g)
-            // a flick carries the turn through; a slow finger has to be past half
-            let fling = grab.forward ? v.x < -450 : v.x > 450
+            // a flick carries the turn through — the way the peel was already
+            // going, which is rightward for a backward LTR peel or a forward
+            // RTL one; a slow finger has to be past half
+            let peelLeft = grab.forward != rightToLeft
+            let fling = peelLeft ? v.x < -450 : v.x > 450
             let commit = p > 0.45 || fling
             let forward = grab.forward
             overlay.isUserInteractionEnabled = false

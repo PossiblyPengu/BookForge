@@ -145,7 +145,8 @@ struct BookMasterDetailView: View {
     private var cover: some View {
         let isbn = detail?.catalogue?.isbn ?? detail?.book?.isbn
         let olid = detail?.catalogue?.openLibraryId ?? detail?.book?.openLibraryId
-        return AsyncImage(url: bmCoverURL(isbn: isbn, openLibraryId: olid)) { phase in
+        let stored = detail?.catalogue?.coverUrl.flatMap { URL(string: $0) }
+        return AsyncImage(url: stored ?? bmCoverURL(isbn: isbn, openLibraryId: olid)) { phase in
             if let image = phase.image {
                 image.resizable().scaledToFill()
             } else {

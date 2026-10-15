@@ -136,6 +136,7 @@ struct BookMasterSearchView: View {
         do {
             var extra: [String: Any] = [:]
             if let pages = hit.totalPages { extra["total_pages"] = pages }
+            if let year = hit.year.flatMap({ Int($0) }) { extra["published_year"] = year }
             if let cover = hit.coverUrl { extra["cover_url"] = cover }
             _ = try await BookMaster.shared.shelve(
                 ref: BMBookRef(

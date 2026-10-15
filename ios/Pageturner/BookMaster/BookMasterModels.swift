@@ -588,6 +588,9 @@ struct BMActivityDay: Decodable, Hashable {
 struct BMReadingRow: Decodable, Identifiable, Hashable {
     var id: String
     var currentPage: Double?
+    /// The e-reader's own number for a page-less book — kept beside the page
+    /// count rather than folded into it.
+    var pushedPercent: Double?
     var status: String?
     var format: String?
     var title: String
@@ -598,13 +601,20 @@ struct BMReadingRow: Decodable, Identifiable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id, status, format, title, author
         case currentPage = "current_page"
+        case pushedPercent = "percent"
         case coverUrl = "cover_url"
         case totalPages = "total_pages"
     }
 
+    /// The rule the bridge's `withPercent` spells: real pages when the book
+    /// knows them, the pushed percent when it does not, the audio convention
+    /// (current_page holds the percent) after that.
     var percent: Double? {
-        guard let currentPage, let totalPages, totalPages > 0 else { return nil }
-        return currentPage / Double(totalPages) * 100
+        if let currentPage, let totalPages, totalPages > 0 {
+            return currentPage / Double(totalPages) * 100
+        }
+        if let pushedPercent { return pushedPercent }
+        return format == "audio" ? currentPage : nil
     }
 }
 
