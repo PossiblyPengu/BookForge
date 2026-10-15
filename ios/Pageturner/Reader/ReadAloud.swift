@@ -92,6 +92,10 @@ final class ReadAloud: NSObject, ObservableObject {
     /// can repaint without waiting for the next spoken thing.
     private var decorable: DecorableNavigator?
     private var lowPowerObserver: NSObjectProtocol?
+    /// An engine failure reports `.paused` a moment before `didFailWithError` —
+    /// the retry then plays on, so a "pause" shorter than a beat is never
+    /// shown. A real pause outlives this and surfaces normally.
+    private var pauseFlash: Task<Void, Never>?
     /// Seconds actually spoken this session (pauses don't count) — the lock
     /// screen's clock is estimated from how fast the narration moves.
     private var playedSeconds: TimeInterval = 0
@@ -512,6 +516,7 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
     ) {
         switch state {
         case .stopped:
+            pauseFlash?.cancel()
             isPlaying = false
             lastTickAt = nil
             startProgression = nil
@@ -521,6 +526,7 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
             spoken = Spoken()
             pendingFollow = nil
         case let .playing(utterance, range: word):
+            pauseFlash?.cancel()
             isActive = true
             isPlaying = true
             noteProgression(utterance.locator)
@@ -546,9 +552,15 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
                 #endif
             }
         case let .paused(utterance):
-            isPlaying = false
+            pauseFlash?.cancel()
+            pauseFlash = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard !Task.isCancelled, let self else { return }
+                self.isPlaying = false
+                self.publishNowPlaying()
+                MPNowPlayingInfoCenter.default().playbackState = .paused
+            }
             noteProgression(utterance.locator)
-            publishNowPlaying()
             // stays where it was if this is the sentence that was being said
             let stayed = spoken.sentence == utterance.locator ? spoken.word : nil
             spoken = Spoken(sentence: utterance.locator, word: stayed ?? firstWord(of: utterance))

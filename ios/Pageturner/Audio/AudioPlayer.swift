@@ -189,10 +189,13 @@ final class AudioPlayer: ObservableObject {
 
     private func observeEnd(of item: AVPlayerItem) {
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        // advance synchronously on the main queue it already arrives on: a Task
+        // hop leaves a gap where the item has ended (player reads .paused) but
+        // nothing has loaded the next file — the stalled-tick watchdog can see it
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.advance() }
+            MainActor.assumeIsolated { self?.advance() }
         }
     }
 
