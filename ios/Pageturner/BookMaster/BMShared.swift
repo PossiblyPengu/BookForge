@@ -61,10 +61,10 @@ struct BMDeviceCard: View {
                     .font(.subheadline).foregroundStyle(.secondary)
             } else {
                 HStack(spacing: 0) {
-                    BMMetric(value: BMFormat.duration(minutes: stats.minutesToday),
+                    BMMetric(value: BMFormat.duration(minutes: Int(stats.minutesToday)),
                              label: "today", icon: "sun.max.fill", color: .orange)
                     Divider().frame(height: 48)
-                    BMMetric(value: BMFormat.duration(minutes: stats.minutesLast7Days),
+                    BMMetric(value: BMFormat.duration(minutes: Int(stats.minutesLast7Days)),
                              label: "last 7 days", icon: "calendar", color: .blue)
                     Divider().frame(height: 48)
                     BMMetric(value: "\(stats.currentStreak)",

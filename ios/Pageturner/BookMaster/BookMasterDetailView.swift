@@ -174,20 +174,7 @@ struct BookMasterDetailView: View {
             if let percent = book.percent {
                 LabeledContent("Position", value: "\(Int(percent.rounded()))%")
             }
-            {
-                // The shelf row carries percent, not pages — convert it back
-                // with the catalogue count so the pace math sees real pages.
-                let pages = detail?.catalogue?.totalPages ?? book.totalPages
-                let at = book.percent.map { $0 / 100 * Double(pages ?? 0) }
-                if let estimate = BMPace.estimate(
-                    sessions: detail?.sessions ?? [],
-                    totalPages: pages,
-                    currentPage: at) {
-                    Label(BMPace.label(estimate), systemImage: "chart.line.uptrend.xyaxis")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }()
+            paceRow(book)
             HStack {
                 Text("Rating")
                 Spacer()
@@ -213,6 +200,24 @@ struct BookMasterDetailView: View {
                 }
             }
             Button("Remove from Shelf", role: .destructive) { confirmRemove = true }
+        }
+    }
+
+    /// The web's pace line: pages a day from the last seven sittings, and the
+    /// date that pace lands on the end — nil until it has something to say.
+    @ViewBuilder
+    private func paceRow(_ book: BMShelfRow) -> some View {
+        // The shelf row carries percent, not pages — convert it back with the
+        // catalogue count so the pace math sees real pages.
+        let pages = detail?.catalogue?.totalPages ?? book.totalPages
+        let at = book.percent.map { $0 / 100 * Double(pages ?? 0) }
+        if let estimate = BMPace.estimate(
+            sessions: detail?.sessions ?? [],
+            totalPages: pages,
+            currentPage: at) {
+            Label(BMPace.label(estimate), systemImage: "chart.line.uptrend.xyaxis")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
