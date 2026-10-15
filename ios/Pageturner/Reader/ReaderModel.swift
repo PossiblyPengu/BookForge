@@ -139,6 +139,7 @@ final class ReaderModel: ObservableObject {
             toc = (try? await publication.tableOfContents().get()) ?? []
             // a comic's reading order is every page — not a contents worth listing
             if toc.isEmpty, !publication.conforms(to: .divina) { toc = publication.readingOrder }
+            learnPageCount(publication: publication)
             phase = .ready
             autoHideChrome()
             #if DEBUG
@@ -351,6 +352,28 @@ final class ReaderModel: ObservableObject {
         navigate {
             guard let target = await publication.locate(progression: min(max(progression, 0), 0.999)) else { return false }
             return await navigator.go(to: target, options: NavigatorGoOptions(animated: false))
+        }
+    }
+
+    /// Learn the file's real page count once, so pushes to BookMaster can carry
+    /// `total_pages` and a page-less ebook's percent stops being its only
+    /// position. PDFs and comics page honestly (one locator per page); an EPUB
+    /// answers only when it ships a page list — a reflowed position list is
+    /// pseudo-pages, not pages, and stays unpushed.
+    private func learnPageCount(publication: Publication) {
+        guard book.pages == nil else { return }
+        Task {
+            let count: Int?
+            if !publication.pageList.isEmpty {
+                count = publication.pageList.count
+            } else if ["pdf", "cbz"].contains(book.ext) {
+                count = try? await publication.positions().get().count
+            } else {
+                count = nil
+            }
+            guard let count, count > 0, book.pages == nil else { return }
+            book.pages = count
+            library.update(book)
         }
     }
 

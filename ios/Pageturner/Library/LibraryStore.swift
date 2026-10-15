@@ -99,6 +99,10 @@ struct Book: Identifiable, Codable, Hashable {
     var isbn: String?
     /// Open Library work id ("OL45804W") — what BookMaster keeps on its catalogue rows.
     var openLibraryId: String?
+    /// A real page count, learned on open — a PDF's pages, a page-listed
+    /// EPUB's print pages. Pushed to BookMaster as `total_pages` so the
+    /// percent can be said in pages there.
+    var pages: Int?
     /// Names of the shelves this book is on.
     var collections: [String] = []
     /// When the "pick up where BookMaster has you" offer was last declined for this book.
@@ -197,6 +201,7 @@ extension Book {
         year = try c.decodeIfPresent(String.self, forKey: .year)
         isbn = try c.decodeIfPresent(String.self, forKey: .isbn)
         openLibraryId = try c.decodeIfPresent(String.self, forKey: .openLibraryId)
+        pages = try c.decodeIfPresent(Int.self, forKey: .pages)
         collections = try c.decodeIfPresent([String].self, forKey: .collections) ?? []
         resumeDismissedAt = date(.resumeDismissedAt)
     }
@@ -205,7 +210,8 @@ extension Book {
     var bookMasterRef: BMBookRef {
         BMBookRef(title: title, author: sendableAuthor(author), isbn: isbn,
                   openLibraryId: openLibraryId, userBookId: bookmasterId,
-                  bookDescription: bookDescription, publishedYear: year.flatMap(Int.init))
+                  bookDescription: bookDescription, publishedYear: year.flatMap(Int.init),
+                  totalPages: pages)
     }
 }
 

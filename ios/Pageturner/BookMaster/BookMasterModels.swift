@@ -41,6 +41,10 @@ struct BMBookRef: Encodable {
     var userBookId: String?
     var bookDescription: String?
     var publishedYear: Int?
+    /// A real page count, when the file has one — BookMaster converts the
+    /// pushed percent into pages so a PDF or a page-listed EPUB can say
+    /// "page 138 of 320" rather than a bare 43%.
+    var totalPages: Int?
 
     enum CodingKeys: String, CodingKey {
         case title, author, isbn
@@ -48,6 +52,7 @@ struct BMBookRef: Encodable {
         case userBookId = "user_book_id"
         case bookDescription = "description"
         case publishedYear = "published_year"
+        case totalPages = "total_pages"
     }
 }
 

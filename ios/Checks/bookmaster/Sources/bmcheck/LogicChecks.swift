@@ -111,6 +111,16 @@ func runLogic() {
     check("accepting moves the book to BookMaster's place", jumped.progression == 0.62)
     check("accepting drops the saved locator and audio second", jumped.locatorJSON == nil && jumped.audioPosition == nil)
     check("accepting clears the decline", jumped.resumeDismissedAt == nil)
+
+    section("BookMaster page count")
+    var paged = book(progression: 0.1, remote: nil)
+    paged.pages = 300
+    let pagedRef = String(data: try! JSONEncoder().encode(paged.bookMasterRef), encoding: .utf8)!
+    check("a known page count rides the push as total_pages",
+          pagedRef.contains("\"total_pages\":300"), pagedRef)
+    let pagelessRef = String(data: try! JSONEncoder().encode(book(progression: 0.1, remote: nil).bookMasterRef), encoding: .utf8)!
+    check("no count means no field — the percent alone answers there",
+          !pagelessRef.contains("total_pages"))
     var clamped = book(progression: 0.1, remote: 60)
     ResumeOffer.accept(&clamped, fraction: 7)
     check("an out-of-range jump is clamped", clamped.progression == 1)
