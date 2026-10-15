@@ -39,6 +39,8 @@ final class BookMaster {
     var debugPartnerShelf: BMPartnerShelf?
     var debugWrapped: BMWrapped?
     var debugRecommendations: BMRecommendations?
+    var debugSeries: [BMSeries]?
+    var debugSeriesDetail: BMSeriesDetail?
 
     func debugLink(shelf: [BMShelfRow], together: BMTogether?, overview: BMOverview?) {
         user = BMUser(username: "debug", displayName: "Debug Reader")
@@ -300,6 +302,12 @@ final class BookMaster {
         return reply.books
     }
 
+    /// A wider lookup for the add-book flow — a free-text query or a bare
+    /// ISBN from the scanner, answered by the same route.
+    func searchExternal(_ query: String) async -> [BMSearchBook] {
+        await searchCatalogue(title: query, author: "")
+    }
+
     /// The shared thread on a book, gated the way BookMaster gates it: a note
     /// left further on than you are arrives sealed unless `reveal` is set.
     func fetchComments(ref: BMBookRef, reveal: Bool = false) async throws -> BMThread {
@@ -533,6 +541,151 @@ final class BookMaster {
     private func dropShelfRow(_ pin: String) {
         shelfRows.removeAll { $0.userBookId == pin }
         if let data = try? JSONEncoder().encode(shelfRows) { defaults.set(data, forKey: shelfKey) }
+    }
+
+    // MARK: - The wider bridge
+
+    /// Named runs the reader holds a book in, with how far each has gone.
+    func fetchSeries() async throws -> [BMSeries] {
+        #if DEBUG
+        if let debugSeries { return debugSeries }
+        #endif
+        let reply: BMSeriesReply = try await fetch("series")
+        return reply.series
+    }
+
+    /// One run with its books, each marked by the caller's row on it.
+    func fetchSeriesDetail(id: String) async throws -> BMSeriesDetail {
+        #if DEBUG
+        if let debugSeriesDetail { return debugSeriesDetail }
+        #endif
+        return try await fetch("series-detail", query: ["id": id])
+    }
+
+    /// A new named run — series belong to the catalogue, not a reader.
+    @discardableResult
+    func createSeries(name: String, author: String? = nil, totalBooks: Int? = nil) async throws -> String {
+        var json: [String: Any] = ["name": name]
+        if let author { json["author"] = author }
+        if let totalBooks { json["total_books"] = totalBooks }
+        struct Reply: Decodable { var id: String }
+        let reply: Reply = try await sendJSON("series", json: json)
+        return reply.id
+    }
+
+    /// File a shelved book into a run, or take it out — `remove: true` unwelcomes it.
+    func setSeriesBook(series: String, book: String, position: Int? = nil, remove: Bool = false) async throws {
+        var json: [String: Any] = ["series_id": series, "book_id": book]
+        if let position { json["position"] = position }
+        if remove { json["remove"] = true }
+        try await sendJSON("series-book", json: json)
+    }
+
+    /// The queue in its new order — add, drop and reshuffle are this one
+    /// write, exactly the web's PUT /up-next. Answers with the queue back.
+    @discardableResult
+    func setUpNext(_ ids: [String]) async throws -> [BMUpNextBook] {
+        let reply: BMUpNextReply = try await sendJSON("up-next", json: ["ids": ids])
+        // Mirror the order into the cached shelf so screens stay right
+        // before the next pull — and offline too.
+        let rank = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($0.element, $0.offset + 1) })
+        for i in shelfRows.indices { shelfRows[i].upNext = rank[shelfRows[i].userBookId] }
+        if let data = try? JSONEncoder().encode(shelfRows) { defaults.set(data, forKey: shelfKey) }
+        return reply.books
+    }
+
+    /// A goal made from the phone — the same insert the web's goal card sends.
+    @discardableResult
+    func setGoal(type: String, target: Int, year: Int? = nil,
+                 month: Int? = nil, label: String? = nil) async throws -> String {
+        var json: [String: Any] = ["type": type, "target": target]
+        if let year { json["year"] = year }
+        if let month { json["month"] = month }
+        if let label { json["label"] = label }
+        struct Reply: Decodable { var id: String }
+        let reply: Reply = try await sendJSON("goal", json: json)
+        return reply.id
+    }
+
+    /// Take a goal back — the caller's rows only, the bridge guards that.
+    func removeGoal(id: String) async throws {
+        try await sendJSON("goal", json: ["id": id, "remove": true])
+    }
+
+    /// The catalogue row's facts — only for a book on the reader's shelf.
+    /// `coverPick` says a new jacket URL should win even over pushed art.
+    func editBook(_ bookId: String, title: String, author: String,
+                  totalPages: Int? = nil, publishedYear: Int? = nil,
+                  isbn: String? = nil, genres: [String] = [],
+                  coverUrl: String? = nil, coverPick: Bool = false) async throws {
+        var json: [String: Any] = [
+            "book_id": bookId, "title": title, "author": author, "genres": genres,
+        ]
+        if let totalPages { json["total_pages"] = totalPages }
+        if let publishedYear { json["published_year"] = publishedYear }
+        if let isbn { json["isbn"] = isbn }
+        if let coverUrl { json["cover_url"] = coverUrl }
+        if coverPick { json["cover_pick"] = true }
+        try await sendJSON("edit-book", json: json)
+    }
+
+    /// The whole library as a file to share — "csv" for a spreadsheet,
+    /// anything else for the full JSON archive.
+    func exportData(format: String = "json") async throws -> Data {
+        guard let user else { throw BMError.notLinked }
+        let (data, status) = try await get(
+            "export", query: ["username": user.username, "format": format])
+        guard (200..<300).contains(status) else {
+            handleRefusal(status: status, data: data)
+            throw BMError.server(status, Self.errorMessage(data))
+        }
+        return data
+    }
+
+    /// The one profile field a phone may set — the public name. The stored
+    /// user updates too, so screens show it before the next pull.
+    func updateProfile(displayName: String) async throws {
+        try await sendJSON("profile", json: ["display_name": displayName])
+        user?.displayName = displayName
+        if let user, let data = try? JSONEncoder().encode(user) {
+            defaults.set(data, forKey: userKey)
+        }
+    }
+
+    /// A Goodreads export's rows, already parsed on the phone — `preview`
+    /// counts without writing, the real send shelves through the same
+    /// find-or-create rules the web import uses.
+    @discardableResult
+    func importRows(_ rows: [BMImportRow], preview: Bool = false) async throws -> BMImportReply {
+        let encoded = try rows.map {
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode($0))
+        }
+        let reply: BMImportReply = try await sendJSON(
+            "import", json: ["rows": encoded, "preview": preview])
+        announce(reply.newAchievements)
+        return reply
+    }
+
+    /// POST a JSON object with the reader's username folded in — the write
+    /// shape every non-push bridge route takes.
+    @discardableResult
+    private func sendJSON<T: Decodable>(_ path: String, json: [String: Any]) async throws -> T {
+        guard let user else { throw BMError.notLinked }
+        var merged = json
+        merged["username"] = user.username
+        let body = try JSONSerialization.data(withJSONObject: merged)
+        let (data, status) = try await post(path, body: body)
+        guard (200..<300).contains(status) else {
+            handleRefusal(status: status, data: data)
+            throw BMError.server(status, Self.errorMessage(data))
+        }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// `sendJSON` for writes whose only answer that matters is success.
+    private func sendJSON(_ path: String, json: [String: Any]) async throws {
+        struct OK: Decodable { var ok: Bool? }
+        let _: OK = try await sendJSON(path, json: json)
     }
 
     // MARK: Sending

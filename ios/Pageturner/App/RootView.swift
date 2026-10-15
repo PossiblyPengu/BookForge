@@ -39,7 +39,7 @@ struct RootView: View {
         content
             .onChange(of: notifier.openTogether, initial: true) { _, open in
                 guard open else { return }
-                router.tab = .bookmaster
+                router.tab = .together
                 notifier.openTogether = false
             }
             .onChange(of: intents.request, initial: true) { _, request in
@@ -239,12 +239,15 @@ struct RootView: View {
             Tab("Library", systemImage: "books.vertical", value: AppTab.library) {
                 LibraryView()
             }
-            Tab("BookMaster", systemImage: "bookmark.circle", value: AppTab.bookmaster) {
-                togetherTab
+            Tab("Books", systemImage: "bookmark.fill", value: AppTab.books) {
+                BookMasterBooksView()
+            }
+            Tab("Together", systemImage: "person.2.fill", value: AppTab.together) {
+                BookMasterTogetherView()
             }
             .badge(bmBadge ? notifier.pendingCount : 0)
-            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
-                SearchTab()
+            Tab("Stats", systemImage: "chart.bar.fill", value: AppTab.stats) {
+                BookMasterStatsView()
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
@@ -260,13 +263,16 @@ struct RootView: View {
             withMiniPlayer(LibraryView())
                 .tabItem { Label("Library", systemImage: "books.vertical") }
                 .tag(AppTab.library)
-            withMiniPlayer(togetherTab)
-                .tabItem { Label("BookMaster", systemImage: "bookmark.circle") }
+            withMiniPlayer(BookMasterBooksView())
+                .tabItem { Label("Books", systemImage: "bookmark.fill") }
+                .tag(AppTab.books)
+            withMiniPlayer(BookMasterTogetherView())
+                .tabItem { Label("Together", systemImage: "person.2.fill") }
                 .badge(bmBadge ? notifier.pendingCount : 0)
-                .tag(AppTab.bookmaster)
-            withMiniPlayer(SearchTab())
-                .tabItem { Label("Search", systemImage: "magnifyingglass") }
-                .tag(AppTab.search)
+                .tag(AppTab.together)
+            withMiniPlayer(BookMasterStatsView())
+                .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
+                .tag(AppTab.stats)
         }
     }
 
@@ -297,9 +303,5 @@ struct RootView: View {
         }
     }
 
-    /// Tracking: this phone's reading time always, BookMaster's side once it is linked.
-    private var togetherTab: some View {
-        BookMasterView()
-    }
 }
 

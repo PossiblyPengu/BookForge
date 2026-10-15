@@ -4,12 +4,42 @@ import SwiftUI
 /// far — and the suggestions in flight both ways. The Together page of
 /// BookMaster, whole.
 struct BookMasterTogetherView: View {
+    @Environment(AppRouter.self) private var router
     @State private var together: BMTogether?
     @State private var partnerShelf: BMPartnerShelf?
     @State private var error: String?
     @State private var loading = true
 
     var body: some View {
+        NavigationStack {
+            Group {
+                if BookMaster.shared.isLinked {
+                    linkedList
+                } else {
+                    ScrollView {
+                        BMLinkPrompt()
+                            .padding(16)
+                            .ptReadableWidth()
+                    }
+                    .background(Color(uiColor: .systemGroupedBackground))
+                }
+            }
+            .navigationTitle("Together")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { router.showSettings = true } label: { Image(systemName: "gearshape") }
+                        .accessibilityLabel("Settings")
+                }
+            }
+        }
+        // the stack, not the list: a pushed pane is still the Together tab
+        .onAppear { BookMaster.shared.place = "bookmaster" }
+        .onDisappear { BookMaster.shared.place = "library" }
+    }
+
+    /// The two readers, once linked — the page the web calls Together.
+    private var linkedList: some View {
         List {
             if let partner = together?.partner {
                 nowSection(partner)
@@ -38,10 +68,8 @@ struct BookMasterTogetherView: View {
                 }
             }
         }
-        .navigationTitle("Together")
-        .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
-        .task { await load() }
+        .task(id: BookMaster.shared.isLinked) { await load() }
     }
 
     /// Where they are right now.

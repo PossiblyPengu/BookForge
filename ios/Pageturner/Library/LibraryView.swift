@@ -15,6 +15,8 @@ struct LibraryView: View {
     @State private var selected: Set<UUID> = []
     @State private var finding: (done: Int, total: Int)?
     @State private var findResult: String?
+    /// The folded-in Search tab's field — empty means the shelf shows.
+    @State private var query = ""
 
     /// Comics and Markdown have no system type everywhere — match them by extension.
     private static let extraTypes = ["cbz", "md", "markdown"].compactMap { UTType(filenameExtension: $0) }
@@ -68,8 +70,13 @@ struct LibraryView: View {
         }
     }
 
+    /// A live query searches the whole library, like the folded-in tab did —
+    /// the shelf and status filters belong to browsing.
+    private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
+
     private var visible: [Book] {
-        var list = library.sortedBooks(order: order, query: "")
+        var list = library.sortedBooks(order: order, query: query)
+        guard !searching else { return list }
         switch activeShelfKey {
         case Self.allKey: break
         case Self.upNextKey: list = list.filter { $0.bmUpNext == true }
@@ -94,6 +101,8 @@ struct LibraryView: View {
                 }
             }
             .navigationTitle(selecting ? "\(selected.count) Selected" : "Library")
+            // the folded-in Search tab: browsing filters step aside for it
+            .searchable(text: $query, prompt: "Books and audiobooks")
             .toolbar { toolbar }
             .safeAreaInset(edge: .bottom) {
                 if selecting { selectionBar }
@@ -129,35 +138,42 @@ struct LibraryView: View {
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                Picker("Show", selection: $filter) {
-                    ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                if !searching {
+                    Picker("Show", selection: $filter) {
+                        ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
 
-                if !selecting { shelfChips }
+                    if !selecting { shelfChips }
+                }
 
                 if visible.isEmpty {
-                    let shelved = activeShelfKey != Self.allKey
-                    let filtered = status != .any || filter != .all || shelved
-                    ContentUnavailableView {
-                        Label(filter == .audiobooks ? "No Audiobooks" : "No Books",
-                              systemImage: filter == .audiobooks ? "headphones" : "book.closed")
-                    } description: {
-                        if filtered {
-                            Text("The current shelf and filters are hiding everything.")
-                        } else {
-                            Text("Nothing matches yet.")
-                        }
-                    } actions: {
-                        if filtered {
-                            Button("Show All Books") { status = .any; filter = .all; shelfKey = Self.allKey }
-                        } else {
-                            Button { router.showImporter = true } label: {
-                                Label("Add Books", systemImage: "plus")
+                    if searching {
+                        ContentUnavailableView.search(text: query)
+                            .padding(.top, 40)
+                    } else {
+                        let shelved = activeShelfKey != Self.allKey
+                        let filtered = status != .any || filter != .all || shelved
+                        ContentUnavailableView {
+                            Label(filter == .audiobooks ? "No Audiobooks" : "No Books",
+                                  systemImage: filter == .audiobooks ? "headphones" : "book.closed")
+                        } description: {
+                            if filtered {
+                                Text("The current shelf and filters are hiding everything.")
+                            } else {
+                                Text("Nothing matches yet.")
+                            }
+                        } actions: {
+                            if filtered {
+                                Button("Show All Books") { status = .any; filter = .all; shelfKey = Self.allKey }
+                            } else {
+                                Button { router.showImporter = true } label: {
+                                    Label("Add Books", systemImage: "plus")
+                                }
                             }
                         }
+                        .padding(.top, 40)
                     }
-                    .padding(.top, 40)
                 } else {
                     BookGrid(books: visible, selection: selecting ? $selected : nil)
                 }

@@ -108,6 +108,21 @@ enum DebugScenario {
          "partnerPicks":[{"open_library_id":"OL1","title":"The Left Hand of Darkness","author":"Ursula K. Le Guin",
                           "rating":5,"genres":["Sci-Fi"],"published_year":1969,"total_pages":304}]}
         """)
+        bm.debugSeries = decode("""
+        [{"id":"s1","name":"Dune Chronicles","author":"Frank Herbert","total_books":6,
+          "total_in_series":6,"books_read":1,"books_owned":2},
+         {"id":"s2","name":"Realm of the Elderlings","author":"Robin Hobb","total_books":16,
+          "total_in_series":9,"books_read":0,"books_owned":3}]
+        """)
+        bm.debugSeriesDetail = decode("""
+        {"series":{"id":"s1","name":"Dune Chronicles","author":"Frank Herbert","total_books":6},
+         "books":[{"id":"b9","title":"Dune","author":"Frank Herbert","position":1,"published_year":1965,
+                   "status":"read","user_book_id":"u9","rating":5},
+                  {"id":"b10","title":"Dune Messiah","author":"Frank Herbert","position":2,"published_year":1969,
+                   "status":"want_to_read","user_book_id":"u10"},
+                  {"id":"b11","title":"Children of Dune","author":"Frank Herbert","position":3,
+                   "published_year":1976}]}
+        """)
         bm.debugDetail = decode("""
         {"catalogue":{"id":"b1","title":"Moby-Dick","author":"Herman Melville","total_pages":600,
                       "published_year":1851,"description":"The whale, again.","genres":"[\\"Classic\\"]"},
@@ -140,12 +155,13 @@ enum DebugScenario {
         let text = library.books.first { $0.title == "Moby-Dick" } ?? library.books.first { !$0.isAudio }
         let audio = library.books.first { $0.isAudio }
         switch screen {
-        case "library": selectTab(.library)
+        case "library", "search": selectTab(.library)
         case "reading": selectTab(.reading)
-        case "stats", "together", "shelf", "bmbook",
-             "bmprogress", "bmtogether", "bmquotes", "bmdiscover", "bmsearch", "bmwrapped":
-            selectTab(.bookmaster)
-        case "search": selectTab(.search)
+        case "stats", "bmprogress", "bmwrapped": selectTab(.stats)
+        case "together", "bmtogether": selectTab(.together)
+        // the Books tab hosts the shelf and pushes the rest itself
+        case "shelf", "bmbook", "bmquotes", "bmdiscover", "bmsearch", "bmseries":
+            selectTab(.books)
         case "settings": router.showSettings = true
         case "detail": router.detail = text
         case "edit": router.editing = text

@@ -118,6 +118,16 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   Nothing of the web site is involved, so it works whether or not the PWA is deployed. (`pageturner://link?code=`
   and `docs/js/native-link.js` are the older route and still work; the app handles both.) Why not
   `ASWebAuthenticationSession`: its callback came from a page that was never deployed, so linking never completed.
+- BookMaster lives in three tabs, not one: **Books** (`BookMasterBooksView` — shelf grid, filters,
+  sort, bulk ops, up-next reorder via `setUpNext`, TBR pick, pushed destinations incl. `BMSeriesView`),
+  **Together** (`BookMasterTogetherView`) and **Stats** (`BookMasterStatsView` — overview+stats,
+  goals via `BMGoalSheet`, heatmap, achievements, profile/export/`BMImportSheet`). Each carries its own
+  `NavigationStack` and reports `place = "bookmaster"` while on screen. Shared chrome is `BMShared.swift`
+  (`bmCard`, `BMLinkPrompt`, `BMCover`, `BMMetric`, `BMFormat`). Detail additions: `BMPace` (the web's
+  PaceWidget math, pure), `BMLogSheet` + `BMReadingTimer` (manual logging, persisted stopwatch),
+  `BMEditSheet` (catalogue edit), `BMScanView` (barcode → catalogue search). `GoodreadsCSV` parses an
+  export on-device (scalars not Characters — a CRLF is one grapheme but two terminators); only the rows
+  travel to `/pageturner/import`. New bridge writes go through `sendJSON` (username merged server-side).
 - Notifications are **local** (`Notifications/`): a sideloaded app has no push entitlement, so iOS's
   background refresh (best effort, its schedule) asks BookMaster for new suggestions and posts them.
 - Siri/Shortcuts (`Intents/`) and Spotlight (`Library/SpotlightIndexer.swift`) hand requests to the shell

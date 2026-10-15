@@ -288,8 +288,30 @@ struct BMGoal: Decodable, Identifiable {
     var target: Double?
     var current: Double
     var progress: Double
+    /// The row's own fields, for the editor: which year/month it counts and
+    /// the name a reader gave it.
+    var year: Int?
+    var month: Int?
+    var label: String?
 
     var stableId: String { id ?? type }
+
+    /// The three kinds BookMaster knows — the bridge's GOAL_TYPES, mirrored.
+    enum Kind: String, CaseIterable, Identifiable {
+        case yearlyBooks = "yearly_books"
+        case yearlyPages = "yearly_pages"
+        case monthlyBooks = "monthly_books"
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .yearlyBooks: return "Books this year"
+            case .yearlyPages: return "Pages this year"
+            case .monthlyBooks: return "Books this month"
+            }
+        }
+    }
 }
 
 struct BMEarned: Decodable, Identifiable, Hashable {
@@ -761,4 +783,123 @@ struct BMRecommendations: Decodable {
     var subjects: [String]
     var partner: BMPartnerInfo?
     var partnerPicks: [BMPartnerPick]
+}
+
+// MARK: - Series
+
+/// A named run the bridge lists, with how far the reader has got inside it.
+struct BMSeries: Decodable, Identifiable, Hashable {
+    var id: String
+    var name: String
+    var author: String?
+    /// How long the run is meant to be, when the catalogue knows.
+    var totalBooks: Int?
+    /// Filed books, read books and owned books — the rollup's counts.
+    var totalInSeries: Int?
+    var booksRead: Int?
+    var booksOwned: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, author
+        case totalBooks = "total_books"
+        case totalInSeries = "total_in_series"
+        case booksRead = "books_read"
+        case booksOwned = "books_owned"
+    }
+}
+
+/// One book filed in a run — the catalogue row plus the caller's mark on it.
+struct BMSeriesBook: Decodable, Identifiable, Hashable {
+    var id: String
+    var title: String?
+    var author: String?
+    var coverUrl: String?
+    var totalPages: Int?
+    var publishedYear: Int?
+    var position: Int?
+    /// The caller's shelf state on it — nil when the book is not theirs.
+    var status: String?
+    var userBookId: String?
+    var currentPage: Double?
+    var rating: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, author, position, status, rating
+        case coverUrl = "cover_url"
+        case totalPages = "total_pages"
+        case publishedYear = "published_year"
+        case userBookId = "user_book_id"
+        case currentPage = "current_page"
+    }
+}
+
+struct BMSeriesDetail: Decodable {
+    var series: BMSeries?
+    var books: [BMSeriesBook]
+}
+
+struct BMSeriesReply: Decodable { var series: [BMSeries] }
+
+// MARK: - Up next
+
+/// One row of the queue — a shelf pin plus just enough to draw it.
+struct BMUpNextBook: Decodable, Identifiable, Hashable {
+    var id: String
+    var status: String?
+    var upNext: Int?
+    var format: String?
+    var title: String?
+    var author: String?
+    var coverUrl: String?
+    var totalPages: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, status, format, title, author
+        case upNext = "up_next"
+        case coverUrl = "cover_url"
+        case totalPages = "total_pages"
+    }
+}
+
+struct BMUpNextReply: Decodable { var books: [BMUpNextBook] }
+
+// MARK: - Goodreads import
+
+/// One parsed CSV row — the phone turns the export into these, and the file
+/// itself never leaves the device.
+struct BMImportRow: Encodable {
+    var title: String
+    var author: String?
+    var goodreadsId: String?
+    var isbn: String?
+    var totalPages: Int?
+    var publishedYear: Int?
+    var status: String
+    var rating: Int?
+    var review: String?
+    var startDate: String?
+    var finishDate: String?
+    var readCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case title, author, isbn, status, rating, review
+        case goodreadsId = "goodreads_id"
+        case totalPages = "total_pages"
+        case publishedYear = "published_year"
+        case startDate = "start_date"
+        case finishDate = "finish_date"
+        case readCount = "read_count"
+    }
+}
+
+/// What `import` answers — a dry run's counts or the real write's tally.
+struct BMImportReply: Decodable {
+    var preview: Bool?
+    var total: Int?
+    var alreadyHave: Int?
+    var willAdd: Int?
+    var byStatus: [String: Int]?
+    var imported: Int?
+    var duplicates: Int?
+    var newAchievements: [BMAchievement]?
 }

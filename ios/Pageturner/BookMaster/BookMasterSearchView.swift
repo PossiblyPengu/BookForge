@@ -14,6 +14,7 @@ struct BookMasterSearchView: View {
     @State private var info: String?
     @State private var error: String?
     @State private var busy = false
+    @State private var scanning = false
 
     var body: some View {
         List {
@@ -34,7 +35,20 @@ struct BookMasterSearchView: View {
         }
         .navigationTitle("Find a book")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: "Title or author")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { scanning = true } label: { Image(systemName: "barcode.viewfinder") }
+                    .accessibilityLabel("Scan a barcode")
+            }
+        }
+        .sheet(isPresented: $scanning) {
+            NavigationStack {
+                BMScanView { code in
+                    query = code
+                }
+            }
+        }
+        .searchable(text: $query, prompt: "Title, author or ISBN")
         .onSubmit(of: .search) { Task { await search() } }
         .onChange(of: query) { _, q in
             if q.isEmpty { results = [] }

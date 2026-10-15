@@ -2,7 +2,9 @@ import Foundation
 import Observation
 
 enum AppTab: Hashable {
-    case reading, library, bookmaster, search
+    /// `books` is the BookMaster shelf, `together` the other reader, `stats`
+    /// the numbers — BookMaster's one dashboard grew into three tabs.
+    case reading, library, books, together, stats
 }
 
 /// BookMaster has a book further on than this device — asked before it opens.

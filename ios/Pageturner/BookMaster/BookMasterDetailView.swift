@@ -23,6 +23,10 @@ struct BookMasterDetailView: View {
     @State private var info: String?
     @State private var importing = false
     @State private var confirmRemove = false
+    @State private var logging = false
+    @State private var editing = false
+    @State private var loggedMinutes: Int? = nil
+    @State private var timerNow = Date()
 
     /// The library's copy of this book, when there is one — for the Read button.
     private var local: Book? {
@@ -86,6 +90,19 @@ struct BookMasterDetailView: View {
         ) { result in
             guard case let .success(urls) = result else { return }
             Task { await bringIn(urls) }
+        }
+        .sheet(isPresented: $logging) {
+            if let book = detail?.book {
+                BMLogSheet(row: book, initialMinutes: loggedMinutes) {
+                    loggedMinutes = nil
+                    Task { await load() }
+                }
+            }
+        }
+        .sheet(isPresented: $editing) {
+            if let bookId = detail?.catalogue?.id {
+                BMEditSheet(bookId: bookId, detail: detail) { Task { await load() } }
+            }
         }
     }
 
@@ -157,6 +174,20 @@ struct BookMasterDetailView: View {
             if let percent = book.percent {
                 LabeledContent("Position", value: "\(Int(percent.rounded()))%")
             }
+            {
+                // The shelf row carries percent, not pages — convert it back
+                // with the catalogue count so the pace math sees real pages.
+                let pages = detail?.catalogue?.totalPages ?? book.totalPages
+                let at = book.percent.map { $0 / 100 * Double(pages ?? 0) }
+                if let estimate = BMPace.estimate(
+                    sessions: detail?.sessions ?? [],
+                    totalPages: pages,
+                    currentPage: at) {
+                    Label(BMPace.label(estimate), systemImage: "chart.line.uptrend.xyaxis")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }()
             HStack {
                 Text("Rating")
                 Spacer()
@@ -172,8 +203,57 @@ struct BookMasterDetailView: View {
                 }
             }
             Toggle("Up next", isOn: upNextBinding).disabled(busy)
+            Button { logging = true } label: {
+                Label("Log a session", systemImage: "plus.circle")
+            }
+            timerRow(book)
+            if detail?.catalogue?.id != nil {
+                Button { editing = true } label: {
+                    Label("Edit book", systemImage: "pencil")
+                }
+            }
             Button("Remove from Shelf", role: .destructive) { confirmRemove = true }
         }
+    }
+
+    /// The reading timer, as this book sees it: idle → "Time me"; running here
+    /// → a live clock with stop (which logs) and cancel; running elsewhere → a
+    /// quiet note, since one clock times one book.
+    @ViewBuilder
+    private func timerRow(_ book: BMShelfRow) -> some View {
+        let timer = BMReadingTimer.shared
+        if let run = timer.run, run.pin == book.userBookId {
+            HStack {
+                Label(clock(timerNow.timeIntervalSince(run.startedAt)), systemImage: "timer")
+                    .font(.subheadline.weight(.medium).monospacedDigit())
+                    .foregroundStyle(Color.ptAccent)
+                Spacer()
+                Button("Stop & log") {
+                    loggedMinutes = timer.stop()
+                    logging = true
+                }
+                .font(.subheadline)
+                Button("Cancel") { timer.cancel() }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { timerNow = $0 }
+        } else {
+            Button { timer.start(pin: book.userBookId, title: book.title) } label: {
+                Label("Time me", systemImage: "timer")
+            }
+            .disabled(timer.run != nil)
+        }
+        if let run = timer.run, run.pin != book.userBookId {
+            Text("“\(run.title)” is on the clock — stop it there first.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func clock(_ t: TimeInterval) -> String {
+        let m = Int(t) / 60, s = Int(t) % 60
+        return String(format: "%d:%02d", m, s)
     }
 
     /// The status control writes through the bridge and the cached row follows.

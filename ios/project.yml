@@ -61,6 +61,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # the camera reads a cover's barcode to find the book on BookMaster
+        NSCameraUsageDescription: Pageturner uses the camera to scan a book's barcode when adding it to BookMaster.
         # BookMaster's pair flow comes home as pageturner://link?code=…
         CFBundleURLTypes:
           - CFBundleURLName: io.github.possiblypengu.pageturner
