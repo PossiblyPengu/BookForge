@@ -251,6 +251,9 @@ final class CompositeTTSEngine: TTSEngine {
         _ utterance: TTSUtterance,
         onSpeakRange: @escaping (Range<String.Index>) -> Void
     ) async -> Result<Void, TTSError> {
+        // a play task parked between sentences outlives the cancel pause/stop sent it — without
+        // this it would still start the engine below: a sentence nobody can stop any more
+        guard !Task.isCancelled else { return .success(()) }
         if case let .left(voice) = utterance.voiceOrLanguage, NeuralVoice.key(fromID: voice.identifier) != nil {
             return await neural.speak(utterance, onSpeakRange: onSpeakRange)
         }

@@ -65,6 +65,8 @@ struct ReaderView: View {
             }
         }
         .statusBarHidden(!model.showChrome)
+        // the book fills the tab while it is read — the bar returns with the rest of the chrome
+        .tabBarChrome(model.showChrome)
         // a bookmark or highlight added is felt, not just seen
         .sensoryFeedback(trigger: model.book.bookmarks.count) { old, new in new > old ? .impact(weight: .light) : .selection }
         .sensoryFeedback(trigger: model.book.highlights.count) { old, new in new > old ? .success : nil }
@@ -562,6 +564,19 @@ struct ReaderView: View {
                 }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+private extension View {
+    /// Hide the app's tab bar while the reader's own chrome is down — iOS 18 renamed
+    /// the modifier but kept the meaning.
+    @ViewBuilder
+    func tabBarChrome(_ visible: Bool) -> some View {
+        if #available(iOS 18, *) {
+            toolbarVisibility(visible ? .visible : .hidden, for: .tabBar)
+        } else {
+            toolbar(visible ? .visible : .hidden, for: .tabBar)
+        }
     }
 }
 

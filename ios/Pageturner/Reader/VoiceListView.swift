@@ -64,6 +64,9 @@ struct VoiceListView: View {
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                 Task { await load() }
             }
+            // auditioning voices goes with a quiet book: narration holds (not stops) while
+            // this screen is up — the samples and the speaking voice never overlap
+            .onAppear { AudioFocus.shared.pauseAll() }
             .onDisappear { preview.stop() }
             .onChange(of: source) { _, _ in
                 preview.stop()

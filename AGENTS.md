@@ -126,6 +126,11 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   voice for a language", the speed scale) and checked on Linux. Device voices: `SystemVoices.swift`; the shared list
   and the Settings/Reading-sheet rows: `VoiceListView.swift`; **always use `SpeechPreview.shared`** — an
   `AVSpeechSynthesizer` freed while iOS is still calling back into it crashes inside TextToSpeech.
+  `VoiceListView` pauses every `AudioFocus` owner on appear so a sample never overlaps narration, and
+  `ReadAloud.heldForFocus` keeps a claimed pause from being undone: Readium's `pause`/`stop` cancel the
+  play task, but a task parked *between* sentences still runs `play` and reports `.playing` — the flag
+  squashes that ghost and `CompositeTTSEngine` refuses `speak` on an already-cancelled task, so the
+  engine never says the sentence.
   Neural voices (Piper on sherpa-onnx, the official SwiftPM package `k2-fsa/sherpa-onnx`):
   `NeuralVoiceCatalog.swift` (the bundled `NeuralVoices.json`, made by `scripts/make-neural-catalog.py`, pinned to a
   commit of rhasspy/piper-voices so URLs and MD5s stay true), `NeuralVoiceFormat.swift` (turns a Piper download

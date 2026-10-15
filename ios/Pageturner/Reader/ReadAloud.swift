@@ -51,6 +51,11 @@ final class ReadAloud: NSObject, ObservableObject {
     private let tuning: SpeechTuning
     private let neural: NeuralTTSEngine
     private let startup = AudioStartup()
+    /// Something else owns the stage (a voice sample, the audiobook, the voice sheet):
+    /// narration stays paused until the reader asks for it. A play task parked between
+    /// sentences outlives Readium's cancel and reports .playing once more — this flag
+    /// squashes that ghost instead of letting the voice come back over the new owner.
+    private var heldForFocus = false
     /// The library record's values — the publication's own metadata can name
     /// a different edition than the title the user edited.
     private let displayTitle: String
@@ -243,14 +248,18 @@ final class ReadAloud: NSObject, ObservableObject {
         playPause()
     }
 
-    /// An audiobook started: hold the narration where it is.
+    /// Another sound claimed the stage (or the voice sheet opened): hold the narration
+    /// where it is. Pausing unconditionally also kills a play task parked between
+    /// sentences — exactly the "between the lines" moment a cancelled one would speak through.
     private func pauseForOtherAudio() {
         startup.cancel()
-        if case .playing = synthesizer.state { synthesizer.pause() }
+        heldForFocus = true
+        synthesizer.pause()
     }
 
     /// Start from the first sentence on screen.
     func start() {
+        heldForFocus = false
         registerAudio()
         AudioFocus.shared.claim("readaloud")
         isActive = true
@@ -263,14 +272,25 @@ final class ReadAloud: NSObject, ObservableObject {
     }
 
     func playPause() {
+        heldForFocus = false
         if case .stopped = synthesizer.state { start(); return }
         // about to speak again (it was paused): take focus from anything else
         if case .playing = synthesizer.state {} else { AudioFocus.shared.claim("readaloud") }
         synthesizer.pauseOrResume()
     }
 
-    func next() { synthesizer.next() }
-    func previous() { synthesizer.previous() }
+    /// Skipping while paused speaks — take the stage back first.
+    func next() {
+        heldForFocus = false
+        AudioFocus.shared.claim("readaloud")
+        synthesizer.next()
+    }
+
+    func previous() {
+        heldForFocus = false
+        AudioFocus.shared.claim("readaloud")
+        synthesizer.previous()
+    }
 
     deinit {
         if let lowPowerObserver { NotificationCenter.default.removeObserver(lowPowerObserver) }
@@ -278,6 +298,9 @@ final class ReadAloud: NSObject, ObservableObject {
 
     func stop() {
         startup.cancel()
+        // keep holding: a task parked between sentences can still report .playing
+        // after this — it must not bring a stopped session's controls back to life
+        heldForFocus = true
         synthesizer.stop()
         // the synthesizer tells us it has stopped in a moment — by then this may be gone, and the
         // marks would stay on the page
@@ -526,6 +549,13 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
             spoken = Spoken()
             pendingFollow = nil
         case let .playing(utterance, range: word):
+            // a play task parked between sentences outlived a pause/stop's cancel and
+            // reported playing once more — the engine refused to speak it (the composite
+            // guards a cancelled speak), so hold the pause instead of reviving the controls
+            if heldForFocus {
+                synthesizer.pause()
+                return
+            }
             pauseFlash?.cancel()
             isActive = true
             isPlaying = true
