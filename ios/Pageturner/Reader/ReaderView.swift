@@ -129,6 +129,7 @@ struct ReaderView: View {
                 // read aloud with the highlights and voice the launch asks for, to see them on the page
                 case "readaloud":
                     DebugScenario.configureReadAloud(&model.settings)
+                    model.applySettings()   // pushes a debug scroll-mode switch into the navigator
                     model.toggleReadAloud()
                 // a jump far ahead: the Back chip should appear
                 case "jump": model.go(toProgression: 0.8)

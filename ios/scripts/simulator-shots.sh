@@ -148,6 +148,8 @@ xcrun simctl spawn "$UDID" log show --style compact --last 2m \
   --predicate 'process == "Pageturner" AND eventMessage CONTAINS "PTReadAloud"' > "$OUT/readaloud-neural.txt" 2>/dev/null || true
 shot 65-readaloud-neural-word 30 $RA -PTDebugVoice neural -PTDebugHighlights word
 shot 66-readaloud-autohide 20 -PTDebugScreen reader -PTDebugReaderSheet readaloud -PTDebugHighlights sentence,line,word
+# the scrolling layout's follow: the spoken line should sit mid-screen, not at the chapter's end
+shot 67-readaloud-scroll 20 $RA -PTDebugReaderScroll 1 -PTDebugHighlights sentence,line,word
 
 # crash reports from the host (the simulator writes them there)
 mkdir -p "$OUT/crashes"

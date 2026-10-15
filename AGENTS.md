@@ -20,7 +20,7 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
 - `.github/workflows/ios-sim.yml` is the nearest thing to looking at the app: a **Debug** build in the
   iOS Simulator, launched once per screen (`ios/scripts/simulator-shots.sh`) and photographed; the
   `simulator-screens` artifact holds PNGs, the app's log and any crash report. The launch arguments
-  (`-PTDebugScreen`, `-PTDebugSeed`, `-PTDebugReaderSheet` (incl. `readaloud` with `-PTDebugHighlights sentence,line,word` and `-PTDebugVoice neural`), `-PTDebugSettingsPush`, `-PTDebugVoiceSource`,
+  (`-PTDebugScreen`, `-PTDebugSeed`, `-PTDebugReaderSheet` (incl. `readaloud` with `-PTDebugHighlights sentence,line,word` and `-PTDebugVoice neural`), `-PTDebugReaderScroll` (scroll-mode layout for `reader`), `-PTDebugSettingsPush`, `-PTDebugVoiceSource`,
   `-PTDebugNeuralProbe <voice key>`, `-PTDebugSpeechProbe`) are read by `Debug/DebugScenario.swift`,
   which is `#if DEBUG` only — none of it is in the IPA. Download with
   `gh api repos/<owner>/<repo>/actions/artifacts/<id>/zip`.
@@ -174,5 +174,8 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   the audio's speech part, and `NeuralPlayer` reports how far the audio has played (~30×/s). The constants were fitted against
   ~190 sentences by three Piper voices with an ASR's word timestamps as the reference (about 105 ms mean error; the web app's
   proportional-by-character estimate scores 136 ms). The ASR lags the sound by ~0.33 s — measured with isolated words.
+  Scroll-mode follow centres on the painted mark — in Readium's decorator DOM a group's `> div` is a *static* wrapper
+  parked at the end of the document (centring on it throws the page to the chapter's last screen); only the positioned
+  mark children carry `data-writing-mode`, which is what the script selects.
 - Not built, on purpose: a Home Screen widget (app extension + App Group, which free-Apple-ID signing
   doesn't reliably provide) and CarPlay (entitlement).

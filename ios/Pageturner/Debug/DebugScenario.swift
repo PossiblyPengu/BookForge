@@ -10,6 +10,7 @@ import UIKit
 ///     -PTDebugSeed 1            fill an empty library with sample books, a listen and some history
 ///     -PTDebugScreen library    which screen to put up (see `run`)
 ///     -PTDebugReaderSheet …     with `reader`: contents | settings | search | voices | readaloud
+///     -PTDebugReaderScroll 1    with `reader`: lay the book out as one scrolling page
 ///     -PTDebugHighlights …      with readaloud: which of sentence,line,word to light (comma separated)
 ///     -PTDebugVoice neural      with readaloud: speak with the downloaded Piper voice (en_US-lessac-low)
 ///     -PTDebugSettingsPush …    with `settings`: voices (open the voice list)
@@ -35,6 +36,9 @@ enum DebugScenario {
         }
         if defaults.string(forKey: "PTDebugVoice") == "neural" {
             settings.voiceIdentifier = "piper:en_US-lessac-low"
+        }
+        if defaults.bool(forKey: "PTDebugReaderScroll") {
+            settings.scroll = true
         }
     }
 
