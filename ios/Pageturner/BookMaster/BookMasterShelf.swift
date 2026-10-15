@@ -22,6 +22,10 @@ struct BMShelfRow: Codable, Hashable, Identifiable {
     /// The cover BookMaster actually serves for the row, already absolute —
     /// including jackets this app pushed up (`/api/covers/…`).
     var coverUrl: String?
+    /// When it was finished, and when the row last moved — the "recently
+    /// finished" list a member card draws.
+    var finishDate: String?
+    var updatedAt: String?
 
     var id: String { userBookId }
     var isAudio: Bool { format == "audio" }

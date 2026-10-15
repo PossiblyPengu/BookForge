@@ -189,12 +189,38 @@ struct BMReading: Decodable, Hashable {
     var author: String?
     var format: String?
     var percent: Double?
+    var updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title, author, format, percent
+        case updatedAt = "updated_at"
+    }
+}
+
+/// One app's heartbeat for a reader, the way the suite keeps it.
+struct BMAppBeat: Decodable, Hashable {
+    var online: Bool
+    var place: String?
+    var lastSeenAt: Double
+
+    enum CodingKeys: String, CodingKey {
+        case online, place
+        case lastSeenAt = "last_seen_at"
+    }
 }
 
 struct BMPartner: Decodable {
     var name: String
     var online: Bool
+    /// Where they are across the suite — keyed "bookmaster" / "quest-log" /
+    /// "kindred" / "pageturner". Absent on an older bridge.
+    var apps: [String: BMAppBeat]?
     var reading: BMReading?
+}
+
+/// The caller's own suite card — which other apps they are in right now.
+struct BMYou: Decodable, Hashable {
+    var apps: [String: BMAppBeat]?
 }
 
 struct BMNudge: Decodable, Identifiable, Hashable {
@@ -203,6 +229,15 @@ struct BMNudge: Decodable, Identifiable, Hashable {
     var fromName: String
     var title: String
     var author: String?
+    var coverUrl: String?
+    var openLibraryId: String?
+    var isbn: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, note, fromName, title, author, isbn
+        case coverUrl = "cover_url"
+        case openLibraryId = "openLibraryId"
+    }
 }
 
 /// A line another suite app wants this one to show.
@@ -223,17 +258,20 @@ struct BMSentNudge: Decodable, Identifiable, Hashable {
 
 struct BMTogether: Decodable {
     var partner: BMPartner?
+    /// The caller's own suite presence, for their side of the comparison.
+    var you: BMYou?
     var nudges: [BMNudge]
     /// Suggestions of yours still out with the other reader.
     var sent: [BMSentNudge]
     var notices: [BMNotice]
 
     enum CodingKeys: String, CodingKey {
-        case partner, nudges, sent, notices
+        case partner, you, nudges, sent, notices
     }
 
-    init(partner: BMPartner?, nudges: [BMNudge], sent: [BMSentNudge], notices: [BMNotice]) {
+    init(partner: BMPartner?, you: BMYou? = nil, nudges: [BMNudge], sent: [BMSentNudge], notices: [BMNotice]) {
         self.partner = partner
+        self.you = you
         self.nudges = nudges
         self.sent = sent
         self.notices = notices
@@ -242,6 +280,7 @@ struct BMTogether: Decodable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         partner = try c.decodeIfPresent(BMPartner.self, forKey: .partner)
+        you = try c.decodeIfPresent(BMYou.self, forKey: .you)
         nudges = try c.decodeIfPresent([BMNudge].self, forKey: .nudges) ?? []
         sent = try c.decodeIfPresent([BMSentNudge].self, forKey: .sent) ?? []
         notices = try c.decodeIfPresent([BMNotice].self, forKey: .notices) ?? []
@@ -324,6 +363,11 @@ struct BMOverview: Decodable {
     var stats: BMStats
     var goals: [BMGoal]
     var recentAchievements: [BMEarned]
+    /// The caller's own year, for a comparison card — the same numbers the
+    /// partner card reads from partner-shelf.
+    var year: Int?
+    var booksThisYear: Int?
+    var pagesThisYear: Double?
 }
 
 // MARK: - Catalogue search
@@ -597,6 +641,8 @@ struct BMReadingRow: Decodable, Identifiable, Hashable {
     var author: String?
     var coverUrl: String?
     var totalPages: Int?
+    /// When the row last moved, for "2h ago" beside a book on the go.
+    var updatedAt: String?
 
     enum CodingKeys: String, CodingKey {
         case id, status, format, title, author
@@ -604,6 +650,7 @@ struct BMReadingRow: Decodable, Identifiable, Hashable {
         case pushedPercent = "percent"
         case coverUrl = "cover_url"
         case totalPages = "total_pages"
+        case updatedAt = "updated_at"
     }
 
     /// The rule the bridge's `withPercent` spells: real pages when the book
@@ -702,6 +749,9 @@ struct BMPartnerBook: Decodable, Identifiable, Hashable {
     var openLibraryId: String?
     var isbn: String?
     var percent: Double?
+    var finishDate: String?
+    var updatedAt: String?
+    var readCount: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, status, format, rating, title, author, percent, isbn
@@ -711,6 +761,9 @@ struct BMPartnerBook: Decodable, Identifiable, Hashable {
         case totalPages = "total_pages"
         case publishedYear = "published_year"
         case openLibraryId = "open_library_id"
+        case finishDate = "finish_date"
+        case updatedAt = "updated_at"
+        case readCount = "read_count"
     }
 }
 

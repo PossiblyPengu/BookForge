@@ -1,29 +1,33 @@
 import SwiftUI
 
-/// The other reader: where they are, what they have finished, their year so
-/// far — and the suggestions in flight both ways. The Together page of
-/// BookMaster, whole.
+/// The other reader: what you are both reading, how the year compares, where
+/// they are across the suite, and the suggestions in flight both ways. The
+/// Together page of BookMaster, whole.
 struct BookMasterTogetherView: View {
     @Environment(AppRouter.self) private var router
+    @EnvironmentObject private var library: LibraryStore
     @State private var together: BMTogether?
     @State private var partnerShelf: BMPartnerShelf?
+    @State private var stats: BMStatBlock?
+    @State private var overview: BMOverview?
     @State private var error: String?
     @State private var loading = true
 
     var body: some View {
         NavigationStack {
-            Group {
-                if BookMaster.shared.isLinked {
-                    linkedList
-                } else {
-                    ScrollView {
+            ScrollView {
+                LazyVStack(spacing: 20) {
+                    if BookMaster.shared.isLinked {
+                        linkedBody
+                    } else {
                         BMLinkPrompt()
-                            .padding(16)
-                            .ptReadableWidth()
                     }
-                    .background(Color(uiColor: .systemGroupedBackground))
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .ptReadableWidth()
             }
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Together")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -32,101 +36,511 @@ struct BookMasterTogetherView: View {
                         .accessibilityLabel("Settings")
                 }
             }
+            .refreshable { await load() }
+            .task(id: BookMaster.shared.isLinked) { await load() }
         }
         // the stack, not the list: a pushed pane is still the Together tab
         .onAppear { BookMaster.shared.place = "bookmaster" }
         .onDisappear { BookMaster.shared.place = "library" }
     }
 
-    /// The two readers, once linked — the page the web calls Together.
-    private var linkedList: some View {
-        List {
-            if let partner = together?.partner {
-                nowSection(partner)
-            }
-            if let shelf = partnerShelf {
-                if let stats = shelf.stats { comparisonSection(shelf) }
-                shelfSection(shelf)
-            }
-            if let together {
-                if !together.nudges.isEmpty { waitingSection(together.nudges) }
-                if !together.sent.isEmpty { sentSection(together.sent) }
-                if !together.notices.isEmpty {
-                    Section("From the other apps") {
-                        ForEach(together.notices) { notice in Text(notice.text) }
-                    }
-                }
-            }
-            if loading, together == nil {
-                ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear)
-            }
-            if let error { Section { Text(error).foregroundStyle(.secondary) } }
-            if together?.partner == nil, !loading {
-                Section {
-                    Text("No one else on this BookMaster yet.")
-                        .foregroundStyle(.secondary)
-                }
-            }
+    // MARK: The page
+
+    @ViewBuilder
+    private var linkedBody: some View {
+        if let together, !together.nudges.isEmpty {
+            nudgeCard(together.nudges)
         }
-        .refreshable { await load() }
-        .task(id: BookMaster.shared.isLinked) { await load() }
+        if partnerShelf?.partner != nil, overview != nil {
+            comparisonCard
+        }
+        // the web's side-by-side pair, stacked for a phone
+        memberCard(
+            name: "You",
+            online: true,
+            level: stats?.level,
+            streak: stats?.currentStreak,
+            apps: together?.you?.apps,
+            readingRows: mineReadingBooks,
+            finishedRows: mineFinishedBooks)
+        if let partner = together?.partner {
+            memberCard(
+                name: partnerShelf?.partner?.name ?? partner.name,
+                online: partner.online,
+                level: partnerShelf?.partner?.level,
+                streak: partnerShelf?.stats?.currentStreak,
+                apps: partner.apps,
+                readingRows: partnerReadingBooks,
+                finishedRows: partnerFinishedBooks)
+            if let shelf = partnerShelf, shelf.partner != nil, !shelf.books.isEmpty {
+                shelfCard(shelf)
+            }
+        } else if !loading {
+            aloneCard
+        }
+        if let together, !together.sent.isEmpty {
+            sentCard(together.sent)
+        }
+        if let together, !together.notices.isEmpty {
+            noticeCard(together.notices)
+        }
+        if loading, together == nil {
+            ProgressView().frame(maxWidth: .infinity).padding(.vertical, 30)
+        }
+        if let error {
+            Label(error, systemImage: "wifi.exclamationmark")
+                .font(.footnote).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .bmCard()
+        }
     }
 
-    /// Where they are right now.
-    private func nowSection(_ partner: BMPartner) -> some View {
-        Section {
+    // MARK: Derived rows
+
+    /// What a member card draws — either side's row shape flattened to one.
+    private struct MemberBook: Identifiable {
+        var id: String
+        var title: String
+        var author: String?
+        var coverUrl: URL? = nil
+        var percent: Double? = nil
+        var touched: String? = nil
+        var rating: Int? = nil
+        var finished: String? = nil
+    }
+
+    /// What you have on the go — the stats route's own list of it.
+    private var mineReadingBooks: [MemberBook] {
+        (stats?.currentlyReading ?? []).map {
+            MemberBook(id: $0.id, title: $0.title, author: $0.author,
+                       coverUrl: $0.coverUrl.flatMap { URL(string: $0) },
+                       percent: $0.percent, touched: $0.updatedAt)
+        }
+    }
+
+    /// Your last few finishes, off the shelf the Books tab already pulled.
+    private var mineFinishedBooks: [MemberBook] {
+        BookMaster.shared.shelfRows
+            .filter { $0.status == "read" }
+            .sorted { ($0.finishDate ?? "") > ($1.finishDate ?? "") }
+            .prefix(5)
+            .map {
+                MemberBook(id: $0.id, title: $0.title, author: $0.author,
+                           rating: $0.rating, finished: $0.finishDate)
+            }
+    }
+
+    /// Their books on the go — the shelf lists them all; the together reply's
+    /// single freshest one stands in when the shelf fetch itself missed.
+    private var partnerReadingBooks: [MemberBook] {
+        let rows = (partnerShelf?.books ?? [])
+            .filter { $0.status == "reading" }
+            .sorted { ($0.updatedAt ?? "") > ($1.updatedAt ?? "") }
+        if !rows.isEmpty {
+            return rows.map {
+                MemberBook(id: $0.id, title: $0.title ?? "Untitled", author: $0.author,
+                           coverUrl: $0.coverUrl.flatMap { URL(string: $0) }
+                               ?? bmCoverURL(isbn: $0.isbn, openLibraryId: $0.openLibraryId),
+                           percent: $0.percent, touched: $0.updatedAt)
+            }
+        }
+        return together?.partner?.reading.map { r in
+            [MemberBook(id: "partner-reading", title: r.title, author: r.author,
+                        percent: r.percent, touched: r.updatedAt)]
+        } ?? []
+    }
+
+    private var partnerFinishedBooks: [MemberBook] {
+        (partnerShelf?.books ?? [])
+            .filter { $0.status == "read" }
+            .sorted { ($0.finishDate ?? "") > ($1.finishDate ?? "") }
+            .prefix(5)
+            .map {
+                MemberBook(id: $0.id, title: $0.title ?? "Untitled", author: $0.author,
+                           rating: $0.rating, finished: $0.finishDate)
+            }
+    }
+
+    // MARK: Suggested for you
+
+    private func nudgeCard(_ nudges: [BMNudge]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Circle()
-                    .fill(partner.online ? Color.green : Color.secondary.opacity(0.4))
-                    .frame(width: 10, height: 10)
-                Text(partner.name).font(.headline)
+                Label("Suggested for you", systemImage: "sparkles").font(.headline)
                 Spacer()
-                Text(partner.online ? "Here now" : "Away")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("\(nudges.count)")
+                    .font(.caption.weight(.semibold)).monospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Color.ptAccent, in: Capsule())
             }
-            if let reading = partner.reading {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(reading.title)
-                    HStack {
-                        if let author = reading.author { Text(author) }
-                        if let percent = reading.percent { Text("· \(Int(percent.rounded()))%") }
+            ForEach(nudges) { nudge in
+                HStack(alignment: .top, spacing: 12) {
+                    nudgeCover(nudge)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(nudge.title).font(.subheadline.weight(.medium)).lineLimit(2)
+                        if let author = nudge.author {
+                            Text(author).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        (Text(nudge.fromName).foregroundStyle(Color.ptAccent)
+                            + Text(nudge.note.map { ": “\($0)”" } ?? " thought you would like this")
+                                .foregroundStyle(.secondary))
+                            .font(.footnote)
+                        HStack(spacing: 10) {
+                            Button("Add to want to read") { Task { await answer(nudge, accept: true) } }
+                                .buttonStyle(.borderedProminent)
+                            Button("Dismiss") { Task { await answer(nudge, accept: false) } }
+                                .buttonStyle(.bordered)
+                        }
+                        .controlSize(.small)
+                        .padding(.top, 4)
                     }
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
                 }
+            }
+        }
+        .bmCard()
+    }
+
+    /// The jacket the suggestion named: the bridge's stored cover, then Open Library's.
+    private func nudgeCover(_ nudge: BMNudge) -> some View {
+        let url = nudge.coverUrl.flatMap { URL(string: $0) }
+            ?? bmCoverURL(isbn: nudge.isbn, openLibraryId: nudge.openLibraryId)
+        return AsyncImage(url: url) { phase in
+            if let image = phase.image {
+                image.resizable().scaledToFill()
             } else {
-                Text("Not reading anything right now").foregroundStyle(.secondary)
+                Color.secondary.opacity(0.15).overlay(
+                    Image(systemName: "book.closed").foregroundStyle(.secondary))
             }
+        }
+        .frame(width: 44, height: 66)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+    }
+
+    // MARK: The year, side by side
+
+    /// "{year} so far" — the web's comparison table, a row per measure with
+    /// whoever leads it in the accent colour.
+    private var comparisonCard: some View {
+        let year = partnerShelf?.year ?? overview?.year
+        let mine: [(String, Double)] = [
+            ("Books this year", Double(overview?.booksThisYear ?? 0)),
+            ("Pages this year", overview?.pagesThisYear ?? 0),
+            ("Current streak", stats?.currentStreak ?? 0),
+            ("Longest streak", stats?.longestStreak ?? 0),
+            ("Books all time", stats?.booksFinished ?? 0),
+            ("Level", Double(stats?.level ?? 1)),
+        ]
+        let theirs: [Double] = [
+            Double(partnerShelf?.booksThisYear ?? 0),
+            partnerShelf?.pagesThisYear ?? 0,
+            partnerShelf?.stats?.currentStreak ?? 0,
+            partnerShelf?.stats?.longestStreak ?? 0,
+            partnerShelf?.stats?.booksFinished ?? 0,
+            Double(partnerShelf?.partner?.level ?? 1),
+        ]
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label(year.map { "\($0) so far" } ?? "The year so far", systemImage: "trophy")
+                    .font(.headline).foregroundStyle(Color.ptAccent)
+                Spacer()
+            }
+            HStack {
+                Spacer()
+                Text("You").font(.caption.weight(.semibold)).foregroundStyle(Color.ptAccent)
+                    .frame(width: 64, alignment: .trailing)
+                Text(partnerShelf?.partner?.name ?? "Them")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(width: 64, alignment: .trailing)
+            }
+            ForEach(Array(zip(mine, theirs).enumerated()), id: \.offset) { entry in
+                let ((label, m), t) = entry.element
+                HStack {
+                    Text(label).font(.subheadline).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(Self.fmt(m)).font(.subheadline.weight(.semibold)).monospacedDigit()
+                        .foregroundStyle(m > t ? Color.ptAccent : .primary)
+                        .frame(width: 64, alignment: .trailing)
+                    Text(Self.fmt(t)).font(.subheadline.weight(.semibold)).monospacedDigit()
+                        .foregroundStyle(t > m ? Color.ptAccent : .primary)
+                        .frame(width: 64, alignment: .trailing)
+                }
+            }
+        }
+        .bmCard()
+    }
+
+    /// Streaks wear "d"; the rest are plain counts.
+    private static func fmt(_ v: Double) -> String {
+        v == v.rounded() && abs(v) < 1e15 ? "\(Int(v))" : String(format: "%.1f", v)
+    }
+
+    // MARK: A reader's card
+
+    /// One member card: name and level, the suite line, what is on the go and
+    /// what just finished — the web's MemberShelf, native.
+    private func memberCard(
+        name: String,
+        online: Bool,
+        level: Int?,
+        streak: Double?,
+        apps: [String: BMAppBeat]?,
+        readingRows: [MemberBook],
+        finishedRows: [MemberBook]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(online ? Color.green : Color.secondary.opacity(0.4))
+                            .frame(width: 10, height: 10)
+                        Text(name).font(.headline)
+                    }
+                    if let level {
+                        Text("Level \(level) · \(bmLevelTitle(level))")
+                            .font(.caption).foregroundStyle(Color.ptAccent)
+                    }
+                    if let line = BMSuite.whereaboutsLine(apps) {
+                        Label(line, systemImage: online ? "iphone" : "moon.zzz")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if let streak, streak > 0 {
+                    Label("\(Int(streak))d", systemImage: "flame.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(.orange.opacity(0.12), in: Capsule())
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("READING NOW")
+                    .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                if readingRows.isEmpty {
+                    Text("Nothing on the go.").font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    ForEach(readingRows) { book in
+                        HStack(spacing: 10) {
+                            memberCover(book)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(book.title).font(.subheadline.weight(.medium)).lineLimit(1)
+                                if let author = book.author {
+                                    Text(author).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                if let percent = book.percent {
+                                    HStack(spacing: 6) {
+                                        ProgressView(value: min(max(percent / 100, 0), 1))
+                                            .tint(.ptAccent)
+                                        Text("\(Int(percent.rounded()))%")
+                                            .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                                    }
+                                }
+                            }
+                            Spacer(minLength: 0)
+                            if let ago = BMSuite.timeAgo(book.touched) {
+                                Text(ago).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("RECENTLY FINISHED")
+                    .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                if finishedRows.isEmpty {
+                    Text("Nothing finished yet.").font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    ForEach(finishedRows) { book in
+                        HStack(spacing: 8) {
+                            Image(systemName: "book.closed")
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Text(book.title).font(.subheadline).lineLimit(1)
+                            Spacer(minLength: 0)
+                            if let rating = book.rating, rating > 0 {
+                                Text(String(repeating: "★", count: min(rating, 5)))
+                                    .font(.caption2).foregroundStyle(Color.ptAccent)
+                            }
+                            if let date = book.finished {
+                                Text(BMSuite.timeAgo(date) ?? date)
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .bmCard()
+    }
+
+    private func memberCover(_ book: MemberBook) -> some View {
+        AsyncImage(url: book.coverUrl) { phase in
+            if let image = phase.image {
+                image.resizable().scaledToFill()
+            } else {
+                Color.secondary.opacity(0.15).overlay(
+                    Image(systemName: "book.closed").font(.caption2).foregroundStyle(.secondary))
+            }
+        }
+        .frame(width: 36, height: 54)
+        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+    }
+
+    /// A two-reader shelf with one seat filled.
+    private var aloneCard: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "person.2").font(.title2).foregroundStyle(.secondary)
+            Text("Reading for two").font(.headline)
+            Text("When the second account signs up, their shelf appears here alongside yours.")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .bmCard()
+    }
+
+    // MARK: Their shelf
+
+    /// What they read and how they rated it, never their review — the first
+    /// few rows, with the whole shelf a tap away.
+    private func shelfCard(_ shelf: BMPartnerShelf) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("\(shelf.partner?.name ?? "Their")’s shelf").font(.headline)
+                Spacer()
+                Text("\(shelf.books.count)").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(shelf.books.prefix(6)) { book in
+                HStack(spacing: 10) {
+                    shelfThumb(book)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(book.title ?? "Untitled").font(.subheadline.weight(.medium)).lineLimit(2)
+                        HStack(spacing: 6) {
+                            if let status = book.status { Text(BMShelf.label(forStatus: status)) }
+                            if let percent = book.percent, book.status == "reading" {
+                                Text("· \(Int(percent.rounded()))%")
+                            }
+                            if let rating = book.rating, rating > 0 {
+                                Text(String(repeating: "★", count: min(rating, 5)))
+                            }
+                        }
+                        .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if shelf.books.count > 6 {
+                NavigationLink {
+                    BMPartnerShelfList(shelf: shelf)
+                } label: {
+                    Label("All \(shelf.books.count) books", systemImage: "books.vertical")
+                        .font(.subheadline.weight(.medium))
+                }
+            }
+        }
+        .bmCard()
+    }
+
+    private func shelfThumb(_ book: BMPartnerBook) -> some View {
+        let url = book.coverUrl.flatMap { URL(string: $0) }
+            ?? bmCoverURL(isbn: book.isbn, openLibraryId: book.openLibraryId)
+        return AsyncImage(url: url) { phase in
+            if let image = phase.image {
+                image.resizable().scaledToFill()
+            } else {
+                Color.secondary.opacity(0.15).overlay(
+                    Image(systemName: book.format == "audio" ? "headphones" : "book.closed")
+                        .foregroundStyle(.secondary))
+            }
+        }
+        .frame(width: 40, height: 60)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+    }
+
+    /// Suggestions of yours still out with them.
+    private func sentCard(_ sent: [BMSentNudge]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Waiting on them").font(.headline)
+            ForEach(sent) { nudge in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(nudge.title).font(.subheadline.weight(.medium))
+                    Text("To \(nudge.toName) · \(nudge.status)")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if let note = nudge.note, !note.isEmpty { Text("“\(note)”").font(.callout) }
+                }
+            }
+        }
+        .bmCard()
+    }
+
+    /// What the rest of the suite wants this reader to see.
+    private func noticeCard(_ notices: [BMNotice]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("From the other apps").font(.headline)
+            ForEach(notices) { notice in Text(notice.text).font(.subheadline) }
+        }
+        .bmCard()
+    }
+
+    // MARK: Fetching
+
+    private func load() async {
+        guard BookMaster.shared.isLinked else {
+            together = nil
+            partnerShelf = nil
+            stats = nil
+            overview = nil
+            loading = false
+            return
+        }
+        async let t = try? await BookMaster.shared.fetchTogether()
+        async let p = try? await BookMaster.shared.fetchPartnerShelf()
+        async let s = try? await BookMaster.shared.fetchStats()
+        async let o = try? await BookMaster.shared.fetchOverview()
+        let (together, partnerShelf, stats, overview) = await (t, p, s, o)
+        guard !Task.isCancelled else { return }
+        if let together {
+            self.together = together
+            Notifier.shared.noteSeen(together)
+        }
+        if let partnerShelf { self.partnerShelf = partnerShelf }
+        if let stats { self.stats = stats }
+        if let overview { self.overview = overview }
+        error = (together == nil && self.together == nil)
+            ? "BookMaster can’t be reached right now." : nil
+        loading = false
+        // the "You" card's finished list rides on the shelf the Books tab owns —
+        // fetch it once if nobody has yet
+        if BookMaster.shared.shelfRows.isEmpty {
+            await BookMaster.shared.pullShelf(into: library)
         }
     }
 
-    /// How their year is going against the same numbers.
-    private func comparisonSection(_ shelf: BMPartnerShelf) -> some View {
-        Section("Their year") {
-            if let books = shelf.booksThisYear {
-                LabeledContent("Books finished", value: "\(books)")
-            }
-            if let pages = shelf.pagesThisYear {
-                LabeledContent("Pages read", value: "\(Int(pages))")
-            }
-            if let streak = shelf.stats.flatMap(\.currentStreak) {
-                LabeledContent("Current streak", value: "\(Int(streak)) days")
-            }
-            if let minutes = shelf.stats.flatMap(\.minutesRead) {
-                LabeledContent("Time read", value: minutes >= 60
-                    ? "\(Int(minutes) / 60)h \(Int(minutes) % 60)m"
-                    : "\(Int(minutes))m")
-            }
+    private func answer(_ nudge: BMNudge, accept: Bool) async {
+        do {
+            try await BookMaster.shared.answerNudge(id: nudge.id, accept: accept)
+            together?.nudges.removeAll { $0.id == nudge.id }
+            if let together { Notifier.shared.noteSeen(together) }
+        } catch {
+            self.error = error.localizedDescription
         }
     }
+}
 
-    /// Their shelf — what they read and how they rated it, never their review.
-    private func shelfSection(_ shelf: BMPartnerShelf) -> some View {
-        Section("\(shelf.partner?.name ?? "Their") shelf") {
+/// Their whole shelf — the rows the card only previews.
+private struct BMPartnerShelfList: View {
+    let shelf: BMPartnerShelf
+
+    var body: some View {
+        List {
             ForEach(shelf.books) { book in
                 HStack(spacing: 12) {
-                    AsyncImage(url: bmCoverURL(isbn: book.isbn, openLibraryId: book.openLibraryId)) { phase in
+                    AsyncImage(url: book.coverUrl.flatMap { URL(string: $0) }
+                        ?? bmCoverURL(isbn: book.isbn, openLibraryId: book.openLibraryId)) { phase in
                         if let image = phase.image {
                             image.resizable().scaledToFill()
                         } else {
@@ -148,82 +562,14 @@ struct BookMasterTogetherView: View {
                             if let rating = book.rating, rating > 0 {
                                 Text(String(repeating: "★", count: min(rating, 5)))
                             }
+                            if let author = book.author { Text("· \(author)") }
                         }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
             }
         }
-    }
-
-    /// Suggestions for you, with the answer buttons.
-    private func waitingSection(_ nudges: [BMNudge]) -> some View {
-        Section("Suggested for you") {
-            ForEach(nudges) { nudge in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(nudge.title).font(.headline)
-                    Text("From \(nudge.fromName)\(nudge.author.map { " · \($0)" } ?? "")")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    if let note = nudge.note, !note.isEmpty { Text("“\(note)”").font(.callout) }
-                    HStack {
-                        Button("Add to want to read") { Task { await answer(nudge, accept: true) } }
-                            .buttonStyle(.borderedProminent)
-                        Button("Dismiss") { Task { await answer(nudge, accept: false) } }
-                            .buttonStyle(.bordered)
-                    }
-                    .controlSize(.small)
-                }
-                .padding(.vertical, 2)
-            }
-        }
-    }
-
-    /// Suggestions of yours still out with them.
-    private func sentSection(_ sent: [BMSentNudge]) -> some View {
-        Section("Waiting on them") {
-            ForEach(sent) { nudge in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(nudge.title).font(.headline)
-                    Text("To \(nudge.toName) · \(nudge.status)")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    if let note = nudge.note, !note.isEmpty { Text("“\(note)”").font(.callout) }
-                }
-                .padding(.vertical, 2)
-            }
-        }
-    }
-
-    private func load() async {
-        guard BookMaster.shared.isLinked else {
-            together = nil
-            partnerShelf = nil
-            loading = false
-            return
-        }
-        async let t = try? await BookMaster.shared.fetchTogether()
-        async let p = try? await BookMaster.shared.fetchPartnerShelf()
-        let (together, partnerShelf) = await (t, p)
-        guard !Task.isCancelled else { return }
-        if let together {
-            self.together = together
-            Notifier.shared.noteSeen(together)
-        }
-        if let partnerShelf { self.partnerShelf = partnerShelf }
-        error = (together == nil && self.together == nil)
-            ? "BookMaster can’t be reached right now." : nil
-        loading = false
-    }
-
-    private func answer(_ nudge: BMNudge, accept: Bool) async {
-        do {
-            try await BookMaster.shared.answerNudge(id: nudge.id, accept: accept)
-            together?.nudges.removeAll { $0.id == nudge.id }
-            if let together { Notifier.shared.noteSeen(together) }
-        } catch {
-            self.error = error.localizedDescription
-        }
+        .navigationTitle("\(shelf.partner?.name ?? "Their")’s shelf")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -130,6 +130,7 @@ func runData() async {
     runNeuralChecks()
     runSpokenWordsChecks()
     runShelfChecks()
+    runSuiteChecks()
     runGoodreadsChecks()
     runPaceChecks()
     runQolChecks()
