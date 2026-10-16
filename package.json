@@ -1,7 +1,7 @@
 {
   "name": "pageturner",
-  "version": "2.11.0",
-  "build": 89,
+  "version": "2.12.0",
+  "build": 90,
   "description": "Pageturner — offline-first PWA ebook reader and audiobook player with read-aloud TTS",
   "directories": {
     "doc": "docs"
