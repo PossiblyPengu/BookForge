@@ -454,10 +454,12 @@ struct ReaderView: View {
             .sheet(item: $exportFile) { item in
                 ShareSheet(items: [item.url])
                     .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
                     .preferredColorScheme(scheme)
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private func highlightRow(_ hl: Highlight) -> some View {
@@ -542,6 +544,7 @@ struct ReaderView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     /// Who reads aloud — reachable from the read-aloud bar, so a voice can be tried mid-page.
@@ -555,6 +558,7 @@ struct ReaderView: View {
                 }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private var settingsSheet: some View {
@@ -569,6 +573,7 @@ struct ReaderView: View {
                 }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 

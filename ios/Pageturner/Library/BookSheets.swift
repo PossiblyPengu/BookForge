@@ -162,6 +162,7 @@ struct BookDetailSheet: View {
             .sheet(isPresented: $showNotes) { BookNotesView(book: book) }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 
@@ -225,7 +226,7 @@ struct BookEditSheet: View {
                     }
                     if let candidates {
                         if candidates.isEmpty {
-                            Text("No matches found.")
+                            Text("No matches found — check the title and author, and the connection.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
@@ -267,6 +268,7 @@ struct BookEditSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private func lookup() {

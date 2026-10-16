@@ -160,6 +160,7 @@ final class NeuralVoiceStore {
                 // asked for
             } catch {
                 self?.failures[voice.key] = error.localizedDescription
+                Log.error("neural", "install \(voice.key) failed: \(error.localizedDescription)")
             }
             self?.progress[voice.key] = nil
             self?.tasks[voice.key] = nil

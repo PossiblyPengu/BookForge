@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var showFolderPicker = false
     @State private var showBackupImporter = false
     @State private var confirmResetStats = false
+    @State private var backupBusy = false
     /// Where the screen under this sheet said it was — handed back on the way out.
     @State private var prevPlace = "library"
     @AppStorage(SpotlightIndexer.enabledKey) private var spotlight = true
@@ -105,11 +106,20 @@ struct SettingsView: View {
 
             Section("Backup") {
                 Button { exportBackup() } label: {
-                    Label("Export Library Backup", systemImage: "square.and.arrow.up")
+                    Label {
+                        HStack {
+                            Text("Export Library Backup")
+                            if backupBusy { Spacer(); ProgressView() }
+                        }
+                    } icon: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
                 }
+                .disabled(backupBusy)
                 Button { showBackupImporter = true } label: {
                     Label("Restore Backup…", systemImage: "square.and.arrow.down")
                 }
+                .disabled(backupBusy)
             }
 
             Section {
@@ -162,25 +172,31 @@ struct SettingsView: View {
 
     private func exportBackup() {
         message = nil
+        backupBusy = true
         Task {
+            defer { backupBusy = false }
             do {
                 let url = try await BackupStore(library: library).exportBackup()
                 shareItem = ShareItem(url: url)
             } catch {
                 message = error.localizedDescription
+                Log.error("backup", "export failed: \(error.localizedDescription)")
             }
         }
     }
 
     private func restoreBackup(_ url: URL) {
         message = nil
+        backupBusy = true
         Task {
+            defer { backupBusy = false }
             do {
                 let r = try await BackupStore(library: library).importBackup(url)
                 message = "Restored \(r.restored) book\(r.restored == 1 ? "" : "s")"
                     + (r.skipped > 0 ? " · skipped \(r.skipped)" : "")
             } catch {
                 message = error.localizedDescription
+                Log.error("backup", "restore failed: \(error.localizedDescription)")
             }
         }
     }

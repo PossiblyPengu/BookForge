@@ -203,6 +203,7 @@ struct BMSeriesDetailView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private var candidates: [BMShelfRow] {

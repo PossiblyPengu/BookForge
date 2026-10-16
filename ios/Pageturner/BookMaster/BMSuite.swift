@@ -53,18 +53,20 @@ enum BMSuite {
 
     /// The one place to say they are: an app they are in right now (the most
     /// recently heard from, if two), else the one they were last seen in —
-    /// the web's `whereabouts`, beat for beat.
+    /// the web's `whereabouts`, beat for beat. The walk is ordered so two apps
+    /// heard from at the same moment pick the same winner every time.
     static func whereabouts(_ apps: [String: BMAppBeat]) -> (app: String, online: Bool, place: String?, lastSeenAt: Double)? {
         var best: (app: String, online: Bool, place: String?, lastSeenAt: Double)?
-        for (app, beat) in apps {
+        for (app, beat) in apps.sorted(by: { $0.key < $1.key }) {
             guard names[app] != nil else { continue }
             let place = beat.place.flatMap { places[app]?[$0] }
             let candidate = (app: app, online: beat.online, place: place, lastSeenAt: beat.lastSeenAt)
-            if best == nil
-                || (candidate.online && !best!.online)
-                || (candidate.online == best!.online && candidate.lastSeenAt > best!.lastSeenAt) {
-                best = candidate
+            if let current = best {
+                let wins = (candidate.online && !current.online)
+                    || (candidate.online == current.online && candidate.lastSeenAt > current.lastSeenAt)
+                guard wins else { continue }
             }
+            best = candidate
         }
         return best
     }

@@ -721,6 +721,7 @@ final class ReaderModel: ObservableObject {
             settings.voiceIdentifier = nil
             settings.save()
             notice = "That voice can't play — switched to the automatic voice."
+            Log.error("readaloud", "chosen voice failed — fell back to automatic")
         }
         self.readAloud = readAloud
         let voice = settings.voiceIdentifier ?? "auto"

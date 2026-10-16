@@ -627,6 +627,7 @@ extension ReadAloud: PublicationSpeechSynthesizerDelegate {
                 return
             }
             onError?("Read-aloud couldn't speak — the selected voice may not support this book's language.")
+            Log.error("readaloud", "three utterances failed in a row even after the voice fallback — stopped")
             stop()
             return
         }

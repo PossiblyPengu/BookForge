@@ -90,6 +90,7 @@ struct ShelvesSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     /// All on it → take them off; otherwise (none or some) → put them all on.

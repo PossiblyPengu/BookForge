@@ -156,8 +156,12 @@ enum MetadataLookup {
               let jpeg = image.jpegData(compressionQuality: 0.85)
         else { return }
         await MainActor.run {
-            try? jpeg.write(to: library.coverURL(for: book))
-            library.coverChanged()
+            do {
+                try jpeg.write(to: library.coverURL(for: book))
+                library.coverChanged()
+            } catch {
+                Log.error("metadata", "cover write failed: \(error.localizedDescription)")
+            }
         }
     }
 

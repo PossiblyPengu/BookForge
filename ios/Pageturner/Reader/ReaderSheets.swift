@@ -28,6 +28,7 @@ struct FootnoteSheet: View {
             }
         }
         .presentationDetents([.height(280), .large])
+        .presentationDragIndicator(.visible)
     }
 }
 
@@ -116,6 +117,7 @@ struct HighlightEditorSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
         // Done, or a swipe away: either way what was chosen is kept (a deleted
         // highlight is gone by now, so this finds nothing to save)
         .onDisappear { onSave(color, note) }

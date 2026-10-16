@@ -84,6 +84,8 @@ struct BMLogSheet: View {
                 if let startedAt, timing { elapsed = Date().timeIntervalSince(startedAt) }
             }
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     /// One labelled numeric field — pages or percent, whichever the book takes.

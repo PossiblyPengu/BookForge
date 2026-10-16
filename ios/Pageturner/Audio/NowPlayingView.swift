@@ -57,6 +57,7 @@ struct NowPlayingView: View {
         .sheet(isPresented: $showChapters) {
             ChapterListSheet(player: player)
                 .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .alert("Pageturner", isPresented: Binding(
             get: { player.notice != nil },

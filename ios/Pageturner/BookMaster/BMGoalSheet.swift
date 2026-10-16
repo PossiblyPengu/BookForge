@@ -52,6 +52,8 @@ struct BMGoalSheet: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private func save() async {

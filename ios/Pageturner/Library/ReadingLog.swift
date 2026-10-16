@@ -50,6 +50,10 @@ final class ReadingLog: ObservableObject {
         sessions.removeAll { $0.end < cutoff }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .secondsSince1970
-        if let data = try? encoder.encode(sessions) { try? data.write(to: url, options: .atomic) }
+        do {
+            try encoder.encode(sessions).write(to: url, options: .atomic)
+        } catch {
+            Log.error("reading-log", "save failed: \(error.localizedDescription)")
+        }
     }
 }
