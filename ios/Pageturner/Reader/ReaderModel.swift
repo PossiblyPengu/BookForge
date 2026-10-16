@@ -2,6 +2,7 @@ import Foundation
 import ReadiumNavigator
 import ReadiumShared
 import SwiftUI
+import WebKit
 
 /// A footnote or endnote the reader tapped — shown in a sheet instead of jumping to it.
 struct Footnote: Identifiable {
@@ -765,6 +766,31 @@ final class ReaderModel: ObservableObject {
             book.progression = locator.locations.totalProgression
         }
         library.update(book)
+    }
+
+    /// Locking the screen can leave the page's webview holding a stale
+    /// compositing surface — the app wakes fine but the page stays blank
+    /// until something forces the remote layer to re-present. A killed web
+    /// process is already healed by the navigator itself; this covers the
+    /// surviving-but-stale case. Harmless when nothing went stale.
+    func refreshAwake() {
+        guard let view = navigatorController?.view else { return }
+        Self.repaintWebViews(in: view)
+    }
+
+    /// Ask every webview under `view` to re-commit its remote layer: the same
+    /// offset again (a commit round-trip), a display pass, and a half-point
+    /// geometry nudge. All invisible — the frame is restored within the tick.
+    private static func repaintWebViews(in view: UIView) {
+        if let webView = view as? WKWebView {
+            webView.scrollView.setContentOffset(webView.scrollView.contentOffset, animated: false)
+            webView.setNeedsDisplay()
+            let frame = webView.frame
+            webView.frame.size.width += 0.5
+            webView.frame = frame
+        }
+        view.setNeedsLayout()
+        view.subviews.forEach(repaintWebViews)
     }
 
     /// A new sitting begins now, from wherever the book is open.

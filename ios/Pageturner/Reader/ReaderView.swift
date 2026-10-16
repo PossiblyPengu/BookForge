@@ -102,7 +102,7 @@ struct ReaderView: View {
                 switch phase {
                 case .inactive: model.flushSave()
                 case .background: model.flushSave(); model.endSession(); keepAwake(false)
-                case .active: model.beginSession(); keepAwake(true)
+                case .active: model.beginSession(); model.refreshAwake(); keepAwake(true)
                 default: break
                 }
             }
