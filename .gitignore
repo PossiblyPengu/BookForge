@@ -9,3 +9,4 @@
 /ios/.build/
 /ios/xcodebuild.log
 /ios/DerivedData/
+/ios/dist/
