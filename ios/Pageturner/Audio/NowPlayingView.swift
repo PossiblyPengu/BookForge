@@ -175,16 +175,18 @@ struct NowPlayingView: View {
             HStack {
                 Text(format(shownPosition)).monospacedDigit()
                 Spacer()
-                if let chapter = shownChapter, player.chapters.count > 1 {
-                    Text("\(format(max(chapter.end - shownPosition, 0))) left in chapter")
-                        .monospacedDigit()
-                    Spacer()
-                }
                 Text("-" + format(max(player.duration - shownPosition, 0))).monospacedDigit()
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            if let chapter = shownChapter, player.chapters.count > 1 {
+                // its own line: at large text sizes it used to share a row with
+                // the remaining time and wrap onto it
+                Text("\(format(max(chapter.end - shownPosition, 0))) left in chapter")
+                    .monospacedDigit()
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
         }
+        .font(.caption)
+        .foregroundStyle(.secondary)
         .padding(.horizontal, 32)
     }
 

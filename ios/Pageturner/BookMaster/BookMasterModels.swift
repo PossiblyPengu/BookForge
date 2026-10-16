@@ -423,6 +423,14 @@ enum BMShelfStatus: String, CaseIterable, Identifiable {
         case .abandoned: return "Abandoned"
         }
     }
+
+    /// Cramped controls only: a segmented picker truncates "Want to read".
+    var shortLabel: String {
+        switch self {
+        case .wantToRead: return "To read"
+        default: return label
+        }
+    }
 }
 
 /// The catalogue card `GET /book` carries for a row: the facts a detail page

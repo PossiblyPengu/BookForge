@@ -165,7 +165,7 @@ struct BookMasterDetailView: View {
         Section("On your shelf") {
             Picker("Status", selection: statusBinding) {
                 ForEach(BMShelfStatus.allCases) { s in
-                    Text(s.label).tag(s)
+                    Text(s.shortLabel).tag(s)
                 }
             }
             .pickerStyle(.segmented)

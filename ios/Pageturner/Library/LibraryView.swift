@@ -205,6 +205,8 @@ struct LibraryView: View {
                     }
                 }
             }
+            // a clipped chip at large text reads as scrollable with a soft edge
+            .ptSoftScrollEdges()
         }
     }
 
