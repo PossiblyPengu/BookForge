@@ -187,6 +187,7 @@ struct BookMasterBooksView: View {
                     }
                 }
                 .contentMargins(.horizontal, 1, for: .scrollContent)
+                .ptSoftScrollEdges()
             }
             .bmCard()
         }
@@ -248,13 +249,17 @@ struct BookMasterBooksView: View {
         HStack(spacing: 2) {
             Button { move(row, by: -1) } label: {
                 Image(systemName: "chevron.up").font(.caption.weight(.bold))
-                    .frame(width: 30, height: 30)
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
             }
+            .accessibilityLabel("Move up in queue")
             .disabled(row.id == queue.first?.id)
             Button { move(row, by: 1) } label: {
                 Image(systemName: "chevron.down").font(.caption.weight(.bold))
-                    .frame(width: 30, height: 30)
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
             }
+            .accessibilityLabel("Move down in queue")
             .disabled(row.id == queue.last?.id)
         }
         .buttonStyle(.plain)

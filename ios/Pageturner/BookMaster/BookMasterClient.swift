@@ -82,6 +82,7 @@ final class BookMaster {
     private let session: URLSession
     private let queueFileURL: URL?
     private let userKey = "bm-user"
+    private let refusalKey = "bm-refusals"
     private var queue: [QueueEntry] = []
     private enum PushOutcome { case accepted(Data), refused }
     private var flushTask: Task<[UUID: PushOutcome], Never>?
@@ -145,6 +146,7 @@ final class BookMaster {
         shelfRows = []
         defaults.removeObject(forKey: shelfKey)
         defaults.removeObject(forKey: "bm-covers-sent")
+        defaults.removeObject(forKey: refusalKey)
         lastPush.removeAll()
     }
 
@@ -793,9 +795,15 @@ final class BookMaster {
     }
 
     /// A 404 "Unknown reader" is a dead link — stop failing on every page turn.
+    /// One refusal can be a blip (a mid-deploy proxy hop, a flag window), so
+    /// the link is only severed after three in a row; any success resets it.
     private func handleRefusal(status: Int, data: Data) {
         guard status == 404, Self.errorMessage(data) == "Unknown reader" else { return }
-        Log.event("bookmaster", "link refused (404 Unknown reader) — unlinked")
+        let strikes = defaults.integer(forKey: refusalKey) + 1
+        defaults.set(strikes, forKey: refusalKey)
+        Log.event("bookmaster", "link refused (404 Unknown reader) — strike \(strikes)")
+        guard strikes >= 3 else { return }
+        Log.event("bookmaster", "link dead after \(strikes) refusals — unlinked")
         setUser(nil)
         resetAccountCaches()
         queue.removeAll()
@@ -859,7 +867,9 @@ final class BookMaster {
         request.timeoutInterval = 20
         if let key = user?.deviceKey { request.setValue(key, forHTTPHeaderField: "x-pt-key") }
         let (data, response) = try await session.data(for: request)
-        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if (200..<300).contains(code) { clearRefusals() }
+        return (data, code)
     }
 
     private func post(_ path: String, body: Data) async throws -> (Data, Int) {
@@ -870,6 +880,15 @@ final class BookMaster {
         request.timeoutInterval = 20
         if let key = user?.deviceKey { request.setValue(key, forHTTPHeaderField: "x-pt-key") }
         let (data, response) = try await session.data(for: request)
-        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if (200..<300).contains(code) { clearRefusals() }
+        return (data, code)
+    }
+
+    /// One landed call proves the link is alive — drop the dead-link count.
+    private func clearRefusals() {
+        if defaults.integer(forKey: refusalKey) != 0 {
+            defaults.removeObject(forKey: refusalKey)
+        }
     }
 }

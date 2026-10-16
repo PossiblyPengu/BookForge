@@ -298,7 +298,9 @@ final class LibraryStore: ObservableObject {
     func coverURL(for book: Book) -> URL { coversDir.appendingPathComponent(book.id.uuidString + ".jpg") }
 
     func cover(for book: Book) -> UIImage? {
-        UIImage(contentsOfFile: coverURL(for: book).path)
+        let path = coverURL(for: book).path
+        guard fm.fileExists(atPath: path) else { return nil }
+        return UIImage(contentsOfFile: path)
     }
 
     /// Cell-sized covers, decoded once and remembered: the grid asks on every
@@ -310,7 +312,8 @@ final class LibraryStore: ObservableObject {
     func coverThumbnail(for book: Book, maxPixels: Int) -> UIImage? {
         let key = "\(book.id.uuidString)-\(maxPixels)" as NSString
         if let hit = coverThumbs.object(forKey: key) { return hit }
-        guard let source = CGImageSourceCreateWithURL(coverURL(for: book) as CFURL, nil),
+        guard fm.fileExists(atPath: coverURL(for: book).path),
+              let source = CGImageSourceCreateWithURL(coverURL(for: book) as CFURL, nil),
               let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                   kCGImageSourceThumbnailMaxPixelSize: maxPixels,
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
