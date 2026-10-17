@@ -134,6 +134,7 @@ func runData() async {
     runGoodreadsChecks()
     runPaceChecks()
     runQolChecks()
+    runOPDSChecks()
     runPlayheadChecks()
     runTextBook()
 }

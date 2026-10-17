@@ -61,6 +61,10 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # online catalogues: a Calibre server on the home network speaks plain http
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Pageturner connects to a book catalogue on your network when you add one.
         # the camera reads a cover's barcode to find the book on BookMaster
         NSCameraUsageDescription: Pageturner uses the camera to scan a book's barcode when adding it to BookMaster.
         # BookMaster's pair flow comes home as pageturner://link?code=…

@@ -19,6 +19,7 @@ struct LibraryView: View {
     /// The folded-in Search tab's field — empty means the shelf shows.
     @State private var query = ""
     @State private var showDuplicates = false
+    @State private var showCatalogs = false
     /// "Later" on the backup reminder, until the view is next built.
     @State private var backupSnoozed = false
 
@@ -132,6 +133,7 @@ struct LibraryView: View {
             }
             .overlay { if let finding { findingCard(finding) } }
             .sheet(isPresented: $showDuplicates) { DuplicatesSheet() }
+            .sheet(isPresented: $showCatalogs) { NavigationStack { OPDSCatalogsView() } }
             .alert("Find Details", isPresented: Binding(
                 get: { findResult != nil },
                 set: { if !$0 { findResult = nil } }
@@ -285,6 +287,9 @@ struct LibraryView: View {
                 }
                 .ptButtonStyle(prominent: true)
             }
+            Button { showCatalogs = true } label: {
+                Text("Browse online catalogs")
+            }
             Button { router.showSettings = true } label: {
                 Text("Watch a folder in Settings")
             }
@@ -323,6 +328,11 @@ struct LibraryView: View {
                     Section("Show") {
                         Picker("Status", selection: $status) {
                             ForEach(Status.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                    }
+                    Section("Get books") {
+                        Button { showCatalogs = true } label: {
+                            Label("Online Catalogs…", systemImage: "network")
                         }
                     }
                     Section("Tidy") {

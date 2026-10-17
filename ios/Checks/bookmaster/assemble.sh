@@ -38,6 +38,7 @@ cp "$SRC/Library/ReadingStats.swift" "$OUT/ReadingStats.swift"
 cp "$SRC/Notifications/NotificationPlan.swift" "$OUT/NotificationPlan.swift"
 cp "$SRC/Settings/AppPrefs.swift" "$OUT/AppPrefs.swift"
 cp "$SRC/Library/AudioGrouping.swift" "$OUT/AudioGrouping.swift"
+cp "$SRC/Library/OPDSFeed.swift" "$OUT/OPDSFeed.swift"
 python3 - "$SRC" "$OUT" <<'PY'
 import sys
 src, out = sys.argv[1], sys.argv[2]
