@@ -45,7 +45,7 @@ struct ReaderSettings: Codable, Equatable {
     }
 
     enum FontChoice: String, Codable, CaseIterable, Identifiable {
-        case book, iowan, georgia, charter, palatino, sans
+        case book, iowan, georgia, charter, palatino, sans, dyslexic
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -55,6 +55,7 @@ struct ReaderSettings: Codable, Equatable {
             case .charter: return "Charter"
             case .palatino: return "Palatino"
             case .sans: return "Sans"
+            case .dyslexic: return "OpenDyslexic"
             }
         }
         /// nil → the publisher's typeface
@@ -66,6 +67,7 @@ struct ReaderSettings: Codable, Equatable {
             case .charter: return FontFamily(rawValue: "Charter")
             case .palatino: return FontFamily(rawValue: "Palatino")
             case .sans: return .sansSerif
+            case .dyslexic: return .openDyslexic
             }
         }
     }
@@ -149,6 +151,8 @@ struct ReaderSettings: Codable, Equatable {
     var tapZone: TapZone = .normal
     /// A small tap in the fingers when the page turns.
     var turnHaptic = false
+    /// The first part of each word in bold.
+    var bionic = false
 
     /// Read-aloud speed multiplier (1 = the voice's normal pace).
     var speechRate: Double = 1.0
@@ -185,6 +189,7 @@ struct ReaderSettings: Codable, Equatable {
         rulerY = try c.decodeIfPresent(Double.self, forKey: .rulerY) ?? rulerY
         tapZone = try c.decodeIfPresent(TapZone.self, forKey: .tapZone) ?? tapZone
         turnHaptic = try c.decodeIfPresent(Bool.self, forKey: .turnHaptic) ?? turnHaptic
+        bionic = try c.decodeIfPresent(Bool.self, forKey: .bionic) ?? bionic
     }
 
     var epubPreferences: EPUBPreferences {

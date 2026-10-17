@@ -199,6 +199,54 @@ final class AudioPlayer: ObservableObject {
         if abs(target - position) > 2 { seek(to: target, resume: isPlaying) }
     }
 
+    // MARK: - Voice boost and trimmed silence
+
+    private let voiceTap = VoiceTap()
+    private var trimTimer: Timer?
+
+    /// Put the processing tap on `item` when either switch is on (and take it off when both are off).
+    private func applyVoiceTap(to item: AVPlayerItem) {
+        let boost = AppPrefs.audioVoiceBoost, trim = AppPrefs.audioTrimSilence
+        voiceTap.state.dsp.boost = boost
+        voiceTap.state.dsp.trim = trim
+        guard boost || trim else {
+            item.audioMix = nil
+            stopTrimTimer()
+            return
+        }
+        Task { [weak self, weak item] in
+            guard let item else { return }
+            let tracks = (try? await item.asset.loadTracks(withMediaType: .audio)) ?? []
+            guard let track = tracks.first, let self, !self.closed, item === self.player?.currentItem else { return }
+            item.audioMix = self.voiceTap.makeMix(for: track)
+        }
+        if trim { startTrimTimer() } else { stopTrimTimer() }
+    }
+
+    /// The switches changed: apply them to what is playing now.
+    func refreshVoiceTap() {
+        guard let item = player?.currentItem else { return }
+        applyVoiceTap(to: item)
+        if !AppPrefs.audioTrimSilence, isPlaying { player?.rate = rate }
+    }
+
+    /// While quiet, the player runs faster than the chosen speed; speech brings it back.
+    private func startTrimTimer() {
+        guard trimTimer == nil else { return }
+        trimTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isPlaying, let player = self.player else { return }
+                let wanted = self.voiceTap.state.inSilence ? min(self.rate * 2.5, 4) : self.rate
+                if abs(player.rate - wanted) > 0.01 { player.rate = wanted }
+            }
+        }
+    }
+
+    private func stopTrimTimer() {
+        trimTimer?.invalidate()
+        trimTimer = nil
+    }
+
     // MARK: - Marks
 
     private func reloadClips() {
@@ -261,6 +309,7 @@ final class AudioPlayer: ObservableObject {
                 }
             }
         if let player { player.replaceCurrentItem(with: item) } else { player = AVPlayer(playerItem: item) }
+        applyVoiceTap(to: item)
         position = trackOffsets[index]
         observeEnd(of: item)
         updateNowPlaying()
@@ -548,6 +597,7 @@ final class AudioPlayer: ObservableObject {
 
     /// Persist and release — call from the view's onDisappear.
     func close() {
+        stopTrimTimer()
         savePosition()
         pause()
         releaseSessionTask?.cancel()

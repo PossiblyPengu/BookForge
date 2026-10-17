@@ -15,6 +15,8 @@ struct NowPlayingView: View {
     @State private var tint: Color = .ptAccent
     @State private var showChapters = false
     @State private var showClips = false
+    @AppStorage("audio-voice-boost") private var voiceBoost = false
+    @AppStorage("audio-trim-silence") private var trimSilence = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -69,6 +71,8 @@ struct NowPlayingView: View {
         .task(id: player.coverImage == nil) {
             if let color = player.coverImage?.averageColor { tint = Color(color) }
         }
+        .onChange(of: voiceBoost) { _, _ in player.refreshVoiceTap() }
+        .onChange(of: trimSilence) { _, _ in player.refreshVoiceTap() }
         .sheet(isPresented: $showClips) {
             ClipListSheet(player: player)
                 .presentationDetents([.medium, .large])
@@ -278,6 +282,11 @@ struct NowPlayingView: View {
         PTGlassGroup(spacing: 12) {
             HStack(spacing: 12) {
                 Menu {
+                    Section("Sound") {
+                        Toggle("Voice boost", isOn: $voiceBoost)
+                        Toggle("Trim silence", isOn: $trimSilence)
+                    }
+                    Section("Speed") {
                     ForEach([0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { rate in
                         Button { player.rate = Float(rate) } label: {
                             if abs(Double(player.rate) - rate) < 0.01 {
@@ -286,6 +295,7 @@ struct NowPlayingView: View {
                                 Text(speedLabel(rate))
                             }
                         }
+                    }
                     }
                 } label: {
                     chip(speedLabel(Double(player.rate)), symbol: "speedometer")

@@ -52,6 +52,7 @@ struct ReaderSettingsView: View {
                     }
                 }
                 Toggle("Justify text", isOn: $settings.justify)
+                Toggle("Bold the start of each word", isOn: $settings.bionic)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Letter spacing").font(.subheadline)
                     Slider(value: $settings.letterSpacing, in: 0 ... 0.3, step: 0.025)

@@ -60,6 +60,10 @@ enum AppPrefs {
         return added >= 3 || (added >= 1 && now.timeIntervalSince1970 - last > 30 * 86_400)
     }
 
+    /// Audiobook sound: even out loud and quiet speech, and speed through gaps.
+    static var audioVoiceBoost: Bool { defaults.object(forKey: "audio-voice-boost") as? Bool ?? false }
+    static var audioTrimSilence: Bool { defaults.object(forKey: "audio-trim-silence") as? Bool ?? false }
+
     /// Whether read-aloud passes over a line that is only a page number.
     static var speechSkipsPageNumbers: Bool { enabled("speech-skip-page-numbers") }
 

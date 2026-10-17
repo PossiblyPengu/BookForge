@@ -56,6 +56,8 @@ final class ReaderModel: ObservableObject {
     private var navigator: (any VisualNavigator)?
     private(set) var navigatorController: UIViewController?
     private var directionalAdapter: DirectionalNavigationAdapter?
+    /// Whether the page in front has been told the bionic switch's current state.
+    private var bionicApplied = false
     /// Whether it is after dark right now — kept fresh by `refreshNight`, so a theme that follows the
     /// clock changes while the book is open.
     @Published private(set) var nightNow = ReaderSettings.isNight(Date())
@@ -681,6 +683,11 @@ final class ReaderModel: ObservableObject {
             .submitPreferences(activeSettings.epubPreferences)
         (navigator as? PDFNavigatorViewController)?
             .submitPreferences(activeSettings.pdfPreferences)
+        if settings.bionic != bionicApplied {
+            bionicApplied = settings.bionic
+            let command = BionicReading.command(on: settings.bionic)
+            Task { _ = await (navigator as? EPUBNavigatorViewController)?.evaluateJavaScript(command) }
+        }
         directionalAdapter?.pointerPolicy.horizontalEdgeThresholdPercent = settings.tapZone.percent
         directionalAdapter?.pointerPolicy.minimumHorizontalEdgeSize = settings.tapZone.minimumEdge
         directionalAdapter?.animatedTransition = settings.pageTurn == .slide
@@ -951,6 +958,13 @@ final class ReaderModel: ObservableObject {
 // MARK: - Navigator delegates
 
 extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
+    /// Every chapter's web view gets the bionic-reading script, started on or off as the reader has it.
+    func navigator(_ navigator: EPUBNavigatorViewController, setupUserScripts userContentController: WKUserContentController) {
+        userContentController.addUserScript(WKUserScript(
+            source: BionicReading.script(startOn: settings.bionic),
+            injectionTime: .atDocumentEnd, forMainFrameOnly: false))
+    }
+
     func navigator(_ navigator: Navigator, didJumpTo locator: Locator) {
         guard !curling else { return }   // the curl's own silent move
         recordJump(to: locator)

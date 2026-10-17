@@ -84,3 +84,62 @@ func runOPDSChecks() {
           !["It was 42 years ago.", "Chapter 3", "12345", "XII", "42 Wallaby Way"].contains(where: SpeechText.isPageNumber))
     check("spoken() drops a lone page number and keeps real text", SpeechText.spoken(" 42 ") == "" && SpeechText.spoken("Forty-two.") == "Forty-two.")
 }
+
+/// A block of a steady tone at `amplitude`, mono.
+private func tone(_ amplitude: Float, frames: Int) -> [Float] {
+    (0 ..< frames).map { amplitude * sinf(Float($0) * 0.05) }
+}
+
+func runVoiceDSPChecks() {
+    section("Voice boost and trim silence")
+    var dsp = VoiceDSP()
+    dsp.boost = true
+    dsp.trim = true
+    dsp.sampleRate = 44_100
+
+    var quiet = tone(0.03, frames: 1024)
+    func level(_ x: [Float]) -> Float { (x.reduce(0) { $0 + $1 * $1 } / Float(x.count)).squareRoot() }
+    let before = level(quiet)
+    for _ in 0 ..< 20 {
+        quiet = tone(0.03, frames: 1024)
+        quiet.withUnsafeMutableBufferPointer { dsp.process([$0], frames: 1024) }
+    }
+    check("a quiet voice is lifted", level(quiet) > before * 1.5, "\(before) -> \(level(quiet))")
+
+    var loud = tone(0.95, frames: 1024)
+    loud.withUnsafeMutableBufferPointer { dsp.process([$0], frames: 1024) }
+    check("a loud one never goes past full scale", loud.allSatisfy { abs($0) <= 1.0 })
+
+    var hiss = tone(0.001, frames: 1024)
+    var hissed = VoiceDSP()
+    hissed.boost = true
+    for _ in 0 ..< 20 { hiss = tone(0.001, frames: 1024); hiss.withUnsafeMutableBufferPointer { hissed.process([$0], frames: 1024) } }
+    check("room tone is not boosted", level(hiss) < 0.0011, "\(level(hiss))")
+
+    var trimming = VoiceDSP()
+    trimming.trim = true
+    var silent = [Float](repeating: 0, count: 4096)
+    silent.withUnsafeMutableBufferPointer { trimming.process([$0], frames: 4096) }
+    check("a short quiet stretch is not yet silence", !trimming.inSilence)
+    for _ in 0 ..< 4 { silent.withUnsafeMutableBufferPointer { trimming.process([$0], frames: 4096) } }
+    check("a quarter second of quiet is silence", trimming.inSilence)
+    var voice = tone(0.2, frames: 4096)
+    voice.withUnsafeMutableBufferPointer { trimming.process([$0], frames: 4096) }
+    check("and speech ends it", !trimming.inSilence)
+
+    var off = VoiceDSP()
+    var untouched = tone(0.03, frames: 512)
+    let copy = untouched
+    untouched.withUnsafeMutableBufferPointer { off.process([$0], frames: 512) }
+    check("with both off the audio is left alone", untouched == copy)
+
+    // interleaved stereo: one run, two channels per frame
+    var stereo = [Float](repeating: 0.03, count: 2048)
+    var pair = VoiceDSP()
+    pair.boost = true
+    for _ in 0 ..< 20 {
+        stereo = [Float](repeating: 0.03, count: 2048)
+        stereo.withUnsafeMutableBufferPointer { pair.process([$0], frames: 1024) }
+    }
+    check("interleaved audio is handled", stereo[0] > 0.03 && stereo[0] == stereo[1])
+}

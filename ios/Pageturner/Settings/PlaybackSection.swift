@@ -7,6 +7,8 @@ struct PlaybackSection: View {
     @AppStorage("audio-skip-back") private var back = 15.0
     @AppStorage("audio-skip-fwd") private var fwd = 30.0
     @AppStorage("audioPlaybackRate") private var rate = 1.0
+    @AppStorage("audio-voice-boost") private var voiceBoost = false
+    @AppStorage("audio-trim-silence") private var trimSilence = false
 
     /// Every choice needs a `gobackward.N`/`goforward.N` symbol: those exist for
     /// 10, 15, 30, 45, 60, 75 and 90.
@@ -25,14 +27,18 @@ struct PlaybackSection: View {
             Picker("Speed", selection: $rate) {
                 ForEach(Self.rates, id: \.self) { Text(Self.speed($0)).tag($0) }
             }
+            Toggle("Voice boost", isOn: $voiceBoost)
+            Toggle("Trim silence", isOn: $trimSilence)
         } header: {
             Text("Playback")
         } footer: {
-            Text("The same skips answer the lock screen and your headset.")
+            Text("The same skips answer the lock screen and your headset. Voice boost evens out quiet and loud speech; trim silence speeds through pauses.")
         }
         .onChange(of: rate) { _, r in
             PlaybackCoordinator.shared.player?.rate = Float(r)
         }
+        .onChange(of: voiceBoost) { _, _ in PlaybackCoordinator.shared.player?.refreshVoiceTap() }
+        .onChange(of: trimSilence) { _, _ in PlaybackCoordinator.shared.player?.refreshVoiceTap() }
     }
 
     /// "1x", "1.25x" — the player's own phrasing.

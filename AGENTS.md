@@ -177,5 +177,17 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
   Scroll-mode follow centres on the painted mark — in Readium's decorator DOM a group's `> div` is a *static* wrapper
   parked at the end of the document (centring on it throws the page to the chapter's last screen); only the positioned
   mark children carry `data-writing-mode`, which is what the script selects.
+- Page curl (`Reader/PageCurl*.swift`, `ReaderContainerViewController`): the container's pan must beat Readium's paging
+  scroll views, which are deeper in the hierarchy and win by default — `shouldBeRequiredToFailBy` makes them wait for
+  it. The leaf's edge is the page's own edge at the finger's height; the finger's travel moves it, wherever on the
+  page the drag began. It stands aside while text is selected.
+- Audiobook sound (`Audio/VoiceDSP.swift`, `VoiceTap.swift`): voice boost and trimmed silence are an
+  `MTAudioProcessingTap` on the playing item. `VoiceDSP` is pure (Linux-checked); trimming works by the player running
+  faster than the chosen speed while the tap reports quiet, never by cutting audio.
+- Bionic reading (`Reader/BionicReading.swift`): a user script in each chapter's web view
+  (`navigator(_:setupUserScripts:)`), reversible, checked in headless Chromium. OpenDyslexic is Readium's own bundled font.
+- Online catalogues (`Library/OPDSFeed.swift` parses, Linux-checked; `OPDSBrowser.swift` browses and downloads through the
+  normal importer; passwords in the Keychain). Plain http is allowed only on the local network (Info.plist).
+- `OpenAt` (`Library/HighlightsHub.swift`) carries a one-shot "open at this place" from the hub to the reader.
 - Not built, on purpose: a Home Screen widget (app extension + App Group, which free-Apple-ID signing
   doesn't reliably provide) and CarPlay (entitlement).

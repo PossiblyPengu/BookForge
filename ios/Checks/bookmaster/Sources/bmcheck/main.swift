@@ -135,6 +135,7 @@ func runData() async {
     runPaceChecks()
     runQolChecks()
     runOPDSChecks()
+    runVoiceDSPChecks()
     runPlayheadChecks()
     runTextBook()
 }
