@@ -701,13 +701,8 @@ struct BMStatBlock: Decodable {
     var authorsRead: Double?
     var recentActivity: [BMActivityDay]
     var currentlyReading: [BMReadingRow]
-    /// What each app added to the level, when the bridge says ("bookmaster", "kindred", "quest-log").
-    var suiteParts: [String: Double]?
-
-    private struct SuiteBlock: Decodable { var parts: [String: Double]? }
 
     enum CodingKeys: String, CodingKey {
-        case suite
         case xp, level, xpForNext, xpProgress, totalBooksAdded, booksFinished
         case totalPages, currentStreak, longestStreak, genresRead, sessionsLogged
         case quotesSaved, booksReread, nudgesSent, nudgesTaken, commentsPosted
@@ -718,7 +713,6 @@ struct BMStatBlock: Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         xp = try c.decodeIfPresent(Double.self, forKey: .xp) ?? 0
         level = try c.decodeIfPresent(Int.self, forKey: .level) ?? 1
-        suiteParts = (try? c.decodeIfPresent(SuiteBlock.self, forKey: .suite))?.parts
         xpForNext = try c.decodeIfPresent(Double.self, forKey: .xpForNext)
         xpProgress = try c.decodeIfPresent(Double.self, forKey: .xpProgress)
         totalBooksAdded = try c.decodeIfPresent(Double.self, forKey: .totalBooksAdded)
