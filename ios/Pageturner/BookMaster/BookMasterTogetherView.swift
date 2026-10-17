@@ -79,7 +79,8 @@ struct BookMasterTogetherView: View {
             if let shelf = partnerShelf, shelf.partner != nil, !shelf.books.isEmpty {
                 shelfCard(shelf)
             }
-        } else if !loading {
+        } else if !loading, together != nil {
+            // only a reply that said "no partner" is the solo state; a failed load is not
             aloneCard
         }
         if let together, !together.sent.isEmpty {

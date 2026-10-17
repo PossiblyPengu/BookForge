@@ -10,6 +10,7 @@ struct BookMasterSection: View {
     @State private var working = false
     @State private var error: String?
     @State private var showLink = false
+    @State private var confirmUnlink = false
     private let bookMaster = BookMaster.shared
     private let notifier = Notifier.shared
 
@@ -50,11 +51,17 @@ struct BookMasterSection: View {
                             .foregroundStyle(.secondary)
                     }
                     Toggle("Badge the BookMaster tab when suggestions wait", isOn: $showBadge)
-                    Button("Unlink BookMaster", role: .destructive) {
-                        bookMaster.unlink()
-                        library.clearBookMasterFields()
-                        notifier.reset()
-                    }
+                    Button("Unlink BookMaster", role: .destructive) { confirmUnlink = true }
+                        .alert("Unlink BookMaster?", isPresented: $confirmUnlink) {
+                            Button("Unlink", role: .destructive) {
+                                bookMaster.unlink()
+                                library.clearBookMasterFields()
+                                notifier.reset()
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("The link is forgotten and queued pushes with it. Nothing on BookMaster is deleted.")
+                        }
                 }
             } else {
                 Section("BookMaster") {

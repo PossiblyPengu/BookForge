@@ -187,12 +187,14 @@ extension BMShelf {
 extension BookMaster {
     /// Decorate the library with what the shelf knows. Pageturner's own
     /// position stays the local truth — a remote percent is shown, never imposed.
-    func pullShelf(into library: LibraryStore) async {
-        guard let user else { return }
+    /// False when the shelf could not be fetched (offline, or a refusal) and the last copy stands.
+    @discardableResult
+    func pullShelf(into library: LibraryStore) async -> Bool {
+        guard let user else { return false }
         guard let (data, status) = try? await get("library", query: ["username": user.username]),
               (200..<300).contains(status),
               let reply = try? JSONDecoder().decode(BMShelfReply.self, from: data)
-        else { return }
+        else { return false }
         keepShelf(reply.books)
         var changes: [(UUID, (inout Book) -> Void)] = []
         var covers: [(Book, URL)] = []
@@ -238,5 +240,6 @@ extension BookMaster {
         for (book, url) in covers where !Task.isCancelled {
             await MetadataLookup.applyCover(from: url, to: book, library: library)
         }
+        return true
     }
 }

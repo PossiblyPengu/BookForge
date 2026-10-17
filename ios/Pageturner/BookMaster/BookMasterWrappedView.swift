@@ -18,7 +18,6 @@ struct BookMasterWrappedView: View {
                         Text(String(year)).foregroundStyle(.secondary)
                     }
                 }
-                .onChange(of: year) { _, _ in Task { await load() } }
             }
             if let wrapped {
                 Section("\(wrapped.year) in numbers") {
@@ -44,7 +43,8 @@ struct BookMasterWrappedView: View {
         .navigationTitle("The year so far")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
-        .task { await load() }
+        // a new year cancels the request for the old one, so a late reply cannot land under the wrong label
+        .task(id: year) { await load() }
     }
 
     /// The superlatives — longest, quickest, longest sitting, first and last.
@@ -94,10 +94,14 @@ struct BookMasterWrappedView: View {
             return
         }
         do {
-            wrapped = try await BookMaster.shared.fetchWrapped(year: year)
+            let fetched = try await BookMaster.shared.fetchWrapped(year: year)
+            guard !Task.isCancelled else { return }
+            wrapped = fetched
             error = nil
         } catch {
-            if wrapped == nil { self.error = error.localizedDescription }
+            guard !Task.isCancelled else { return }
+            // numbers for another year must not stay up under this year's label
+            if wrapped == nil || wrapped?.year != year { wrapped = nil; self.error = error.localizedDescription }
         }
         loading = false
     }

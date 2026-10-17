@@ -19,6 +19,9 @@ struct BookMasterBooksView: View {
     @State private var pushing: Push?
     @State private var error: String?
     @State private var confirmRemove = false
+    /// A bulk change or a reorder is in flight: a second one would race it.
+    @State private var bulkBusy = false
+    @State private var reordering = false
 
     /// A destination the tab pushes — also the -PTDebugScreen names.
     enum Push: String, Identifiable {
@@ -128,7 +131,11 @@ struct BookMasterBooksView: View {
             .safeAreaInset(edge: .bottom) {
                 if selecting { selectionBar }
             }
-            .refreshable { await BookMaster.shared.pullShelf(into: library) }
+            .refreshable {
+                if !(await BookMaster.shared.pullShelf(into: library)) {
+                    error = "Couldn’t refresh the shelf — showing the last copy."
+                }
+            }
             // match rows to files when either side changes
             .task(id: library.books.map { "\($0.id)\($0.title)\($0.author)\($0.bookmasterId ?? "")" }.hashValue
                         ^ BookMaster.shared.shelfRows.hashValue) { matchBooks() }
@@ -136,6 +143,8 @@ struct BookMasterBooksView: View {
         // the stack, not the list: a pushed pane is still the Books tab
         .onAppear { BookMaster.shared.place = "bookmaster" }
         .onDisappear { BookMaster.shared.place = "library" }
+        .onChange(of: filter) { _, _ in selected.formIntersection(Set(visible.map(\.userBookId))) }
+        .onChange(of: query) { _, _ in selected.formIntersection(Set(visible.map(\.userBookId))) }
         .confirmationDialog("Remove \(selected.count) \(selected.count == 1 ? "book" : "books") from your shelf?",
                             isPresented: $confirmRemove, titleVisibility: .visible) {
             Button("Remove", role: .destructive) { bulkUnshelve() }
@@ -283,9 +292,11 @@ struct BookMasterBooksView: View {
         var ids = queue.map(\.userBookId)
         guard let i = ids.firstIndex(of: row.userBookId) else { return }
         let j = i + delta
-        guard j >= 0, j < ids.count else { return }
+        guard j >= 0, j < ids.count, !reordering else { return }
         ids.swapAt(i, j)
+        reordering = true
         Task {
+            defer { reordering = false }
             do { _ = try await BookMaster.shared.setUpNext(ids) }
             catch { self.error = error.localizedDescription }
         }
@@ -489,7 +500,7 @@ struct BookMasterBooksView: View {
         .padding(.vertical, 6)
         .ptGlassCapsule()
         .padding(.bottom, 6)
-        .disabled(selected.isEmpty)
+        .disabled(selected.isEmpty || bulkBusy)
     }
 
     private func barButton(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
@@ -518,8 +529,13 @@ struct BookMasterBooksView: View {
 
     /// One request per pick, in turn. When some fail, only those stay selected so the batch can be retried.
     private func runBulk(_ op: @escaping (String) async throws -> Void) {
-        let pins = Array(selected)
+        // only what can be seen: a filter or search may have hidden rows that were ticked earlier
+        let shown = Set(visible.map(\.userBookId))
+        let pins = Array(selected.intersection(shown))
+        guard !pins.isEmpty, !bulkBusy else { return }
+        bulkBusy = true
         Task {
+            defer { bulkBusy = false }
             var failed: [String] = []
             var reason = ""
             for pin in pins {
