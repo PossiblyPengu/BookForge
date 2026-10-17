@@ -14,6 +14,7 @@ struct NowPlayingView: View {
     @AppStorage("audio-skip-fwd") private var skipFwd = 30.0
     @State private var tint: Color = .ptAccent
     @State private var showChapters = false
+    @State private var showClips = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -67,6 +68,11 @@ struct NowPlayingView: View {
         #endif
         .task(id: player.coverImage == nil) {
             if let color = player.coverImage?.averageColor { tint = Color(color) }
+        }
+        .sheet(isPresented: $showClips) {
+            ClipListSheet(player: player)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showChapters) {
             ChapterListSheet(player: player)
@@ -311,6 +317,21 @@ struct NowPlayingView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Chapters")
                 }
+
+                Menu {
+                    Button { player.addClip() } label: {
+                        Label("Mark This Place", systemImage: "bookmark")
+                    }
+                    if !player.clips.isEmpty {
+                        Button { showClips = true } label: {
+                            Label("Show Marks (\(player.clips.count))", systemImage: "list.bullet")
+                        }
+                    }
+                } label: {
+                    chip(player.clips.isEmpty ? "Mark" : "Marks", symbol: "bookmark")
+                }
+                .accessibilityLabel("Marks")
+                .sensoryFeedback(.success, trigger: player.clips.count) { old, new in new > old }
             }
         }
     }
@@ -402,5 +423,83 @@ private struct ChapterListSheet: View {
         return h > 0
             ? String(format: "%d:%02d:%02d", h, m, r)
             : String(format: "%d:%02d", m, r)
+    }
+}
+
+
+/// The places marked in an audiobook: tap to go there, add a note, swipe to remove.
+private struct ClipListSheet: View {
+    @ObservedObject var player: AudioPlayer
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(player.clips) { clip in
+                    ClipRow(clip: clip,
+                            onGo: { player.goToClip(clip); dismiss() },
+                            onNote: { player.setClipNote(clip.id, note: $0) })
+                }
+                .onDelete { offsets in
+                    for index in offsets { player.removeClip(player.clips[index].id) }
+                }
+            }
+            .listStyle(.plain)
+            .overlay {
+                if player.clips.isEmpty {
+                    ContentUnavailableView(
+                        "No Marks", systemImage: "bookmark",
+                        description: Text("Use Mark in the player to keep your place with a note."))
+                }
+            }
+            .navigationTitle("Marks")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+}
+
+private struct ClipRow: View {
+    let clip: AudioClip
+    let onGo: () -> Void
+    let onNote: (String) -> Void
+    @State private var note: String
+
+    init(clip: AudioClip, onGo: @escaping () -> Void, onNote: @escaping (String) -> Void) {
+        self.clip = clip
+        self.onGo = onGo
+        self.onNote = onNote
+        _note = State(initialValue: clip.note)
+    }
+
+    private var time: String {
+        let s = Int(clip.time.rounded(.down))
+        let h = s / 3600, m = (s % 3600) / 60, r = s % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, r) : String(format: "%d:%02d", m, r)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: onGo) {
+                HStack {
+                    Text(time).font(.body.monospacedDigit().weight(.semibold)).foregroundStyle(Color.ptAccent)
+                    if let chapter = clip.chapter {
+                        Text(chapter).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                    Image(systemName: "play.circle").foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Go to \(time)")
+            TextField("Add a note", text: $note, axis: .vertical)
+                .font(.callout)
+                .lineLimit(1...4)
+                .onSubmit { onNote(note) }
+                // and when the row goes away (the sheet closing), so a note is never lost
+                .onDisappear { if note != clip.note { onNote(note) } }
+        }
+        .padding(.vertical, 2)
     }
 }

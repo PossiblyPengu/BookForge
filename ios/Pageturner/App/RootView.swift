@@ -68,6 +68,12 @@ struct RootView: View {
             router.tab = .library
             guard let book = library.books.first(where: { $0.id == id }) else { return }
             router.open(book, library: library)
+        case let .finish(id):
+            router.tab = .library
+            library.markFinished(id)
+        case let .restart(id):
+            router.tab = .library
+            library.restart(id)
         case .continueReading:
             // with nothing in progress the request still lands where one starts
             router.tab = .reading

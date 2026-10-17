@@ -23,6 +23,11 @@ final class AudioPlayer: ObservableObject {
         didSet {
             if isPlaying { player?.rate = rate }
             UserDefaults.standard.set(Double(rate), forKey: "audioPlaybackRate")
+            // and kept with this book: the next one starts at its own speed
+            if abs((book.audioRate ?? 0) - Double(rate)) > 0.001 {
+                library.mutate(book.id) { $0.audioRate = Double(rate) }
+                book.audioRate = Double(rate)
+            }
             updateNowPlaying()   // the lock screen's clock runs at this speed
             reaimSleepTimer()    // at 2× the boundary arrives twice as soon
         }
@@ -35,6 +40,8 @@ final class AudioPlayer: ObservableObject {
     @Published private(set) var isLoading = true
 
     private var book: Book
+    /// Places marked in this book, in the order they fall in it.
+    @Published private(set) var clips: [AudioClip] = []
     private let library: LibraryStore
     private let urls: [URL]
     private var player: AVPlayer?
@@ -72,7 +79,10 @@ final class AudioPlayer: ObservableObject {
         self.library = library
         urls = library.fileURLs(for: book)
         let saved = UserDefaults.standard.double(forKey: "audioPlaybackRate")
-        rate = saved > 0 ? Float(saved) : 1.0
+        // this book's own speed if it has one, else the last one used
+        let own = book.audioRate ?? 0
+        rate = own > 0 ? Float(own) : (saved > 0 ? Float(saved) : 1.0)
+        clips = book.audioClips
         libraryChanges = library.$books.sink { [weak self] books in
             guard let self, !self.closed, let latest = books.first(where: { $0.id == self.book.id }) else { return }
             self.adopt(latest)
@@ -181,11 +191,42 @@ final class AudioPlayer: ObservableObject {
     /// from the old place and write that back over it.
     func adopt(_ latest: Book) {
         book = latest
+        clips = latest.audioClips
         guard opened, duration > 0,
               checkpoint.adopt(position: latest.audioPosition, progression: latest.progression, playhead: position) else { return }
         let target = latest.audioPosition ?? (latest.progression.map { $0 * duration }) ?? 0
         sessionStart = nil
         if abs(target - position) > 2 { seek(to: target, resume: isPlaying) }
+    }
+
+    // MARK: - Marks
+
+    private func reloadClips() {
+        if let latest = library.books.first(where: { $0.id == book.id }) { book = latest }
+        clips = book.audioClips.sorted { $0.time < $1.time }
+    }
+
+    /// Mark the place being played, with a note if there is one.
+    func addClip(note: String = "") {
+        let clip = AudioClip(time: position, chapter: currentChapter?.title, note: note)
+        library.mutate(book.id) { $0.audioClips.append(clip) }
+        reloadClips()
+    }
+
+    func setClipNote(_ id: UUID, note: String) {
+        library.mutate(book.id) { stored in
+            if let i = stored.audioClips.firstIndex(where: { $0.id == id }) { stored.audioClips[i].note = note }
+        }
+        reloadClips()
+    }
+
+    func removeClip(_ id: UUID) {
+        library.mutate(book.id) { $0.audioClips.removeAll { $0.id == id } }
+        reloadClips()
+    }
+
+    func goToClip(_ clip: AudioClip) {
+        seek(to: clip.time, resume: isPlaying)
     }
 
     /// What the lock screen, headset and Control Center buttons do while this owns them.

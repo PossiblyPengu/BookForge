@@ -88,6 +88,21 @@ struct ContinueReadingIntent: AppIntent {
     }
 }
 
+struct FinishBookIntent: AppIntent {
+    static let title: LocalizedStringResource = "Mark a Book Finished"
+    static let description = IntentDescription("Marks a book in your Pageturner library as finished. BookMaster is told if it is linked.")
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Book")
+    var book: BookEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        IntentRouter.shared.request = .finish(book.id)
+        return .result(dialog: "Marked \(book.title) as finished")
+    }
+}
+
 struct PageturnerShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
@@ -99,6 +114,11 @@ struct PageturnerShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Continue Reading",
             systemImageName: "book.fill")
+        AppShortcut(
+            intent: FinishBookIntent(),
+            phrases: ["Mark \(\.$book) as finished in \(.applicationName)"],
+            shortTitle: "Mark Finished",
+            systemImageName: "checkmark.circle")
         AppShortcut(
             intent: OpenBookIntent(),
             phrases: ["Open \(\.$book) in \(.applicationName)"],

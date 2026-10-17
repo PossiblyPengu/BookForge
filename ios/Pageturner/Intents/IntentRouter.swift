@@ -12,6 +12,9 @@ final class IntentRouter {
     enum Request: Equatable {
         case open(UUID)
         case continueReading
+        /// Mark a book finished (BookMaster is told), or start it over.
+        case finish(UUID)
+        case restart(UUID)
     }
 
     var request: Request?

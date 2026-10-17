@@ -7,6 +7,7 @@ struct BookMasterWrappedView: View {
     @State private var year: Int = Calendar.current.component(.year, from: Date())
     @State private var error: String?
     @State private var loading = true
+    @State private var sharing: SharedImage?
 
     var body: some View {
         List {
@@ -42,6 +43,19 @@ struct BookMasterWrappedView: View {
         }
         .navigationTitle("The year so far")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let wrapped, wrapped.booksRead > 0 || wrapped.sessionsCount > 0 {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        if let image = WrappedCard.image(wrapped) { sharing = SharedImage(image: image) }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Share \(String(wrapped.year)) as an image")
+                }
+            }
+        }
+        .sheet(item: $sharing) { ShareSheet(items: [$0.image]) }
         .refreshable { await load() }
         // a new year cancels the request for the old one, so a late reply cannot land under the wrong label
         .task(id: year) { await load() }
