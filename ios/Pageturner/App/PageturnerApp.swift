@@ -11,6 +11,8 @@ struct PageturnerApp: App {
         Log.install()
         // taps on a suggestion notification come back through here
         UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
+        // iOS wants a background task's handler registered before launch ends
+        AutoBackup.register()
     }
 
     var body: some Scene {
@@ -50,6 +52,7 @@ struct PageturnerApp: App {
                         Log.markBackground()
                         Task { await BookMaster.shared.beat(leaving: true) }
                         Notifier.shared.scheduleRefresh()
+                        AutoBackup.shared.scheduleBackground()
                     default: break
                     }
                 }
@@ -80,6 +83,8 @@ struct PageturnerApp: App {
                     await BookMaster.shared.pushCovers(from: library)
                     await Notifier.shared.refresh(notify: false)
                     SpotlightIndexer.shared.libraryChanged(library)
+                    // last: a backup of a big library takes a while, and nothing above waits on it
+                    await AutoBackup.shared.runIfDue(library: library)
                 }
         }
         // iOS's own background refresh (a scene modifier): look for new

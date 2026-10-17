@@ -189,6 +189,12 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
 - Online catalogues (`Library/OPDSFeed.swift` parses, Linux-checked; `OPDSBrowser.swift` browses and downloads through the
   normal importer; passwords in the Keychain). Plain http is allowed only on the local network (Info.plist).
 - `OpenAt` (`Library/HighlightsHub.swift`) carries a one-shot "open at this place" from the hub to the reader.
+- Scheduled backup (`Library/AutoBackup.swift`, planning in `AutoBackupPlan.swift`, Linux-checked): the same zip as the manual
+  export, named by day into a Files folder kept as a bookmark, oldest copies pruned. Made on opening the app when due, and by a
+  `BGProcessingTask` (needs `processing` + the identifier in Info.plist; handler registered in `PageturnerApp.init`) — iOS picks
+  the time, so the foreground run is the reliable one. It checks free space first: a backup is every book file.
+- Page-turn sound (`Reader/PageTurnSound.swift`, `Resources/Sounds/pageturn.wav`, synthesised noise): a *system* sound so it
+  follows the ringer switch and never touches the audio session an audiobook is using.
 - Trends (`ReadingTrends` in `Library/ReadingStats.swift`, Linux-checked): weekly totals and the finish-date forecast, which
   spreads what a book gained over the days since its first sitting in the last three weeks (days off count against the pace).
 - Saved words (`SavedWord` in the Book model region, `Library/SavedWordsView.swift`): "Save Word" in the selection menu keeps

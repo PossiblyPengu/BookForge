@@ -39,6 +39,7 @@ cp "$SRC/Notifications/NotificationPlan.swift" "$OUT/NotificationPlan.swift"
 cp "$SRC/Settings/AppPrefs.swift" "$OUT/AppPrefs.swift"
 cp "$SRC/Library/AudioGrouping.swift" "$OUT/AudioGrouping.swift"
 cp "$SRC/Library/OPDSFeed.swift" "$OUT/OPDSFeed.swift"
+cp "$SRC/Library/AutoBackupPlan.swift" "$OUT/AutoBackupPlan.swift"
 cp "$SRC/Audio/VoiceDSP.swift" "$OUT/VoiceDSP.swift"
 python3 - "$SRC" "$OUT" <<'PY'
 import sys

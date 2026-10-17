@@ -151,6 +151,8 @@ struct ReaderSettings: Codable, Equatable {
     var tapZone: TapZone = .normal
     /// A small tap in the fingers when the page turns.
     var turnHaptic = false
+    /// The rustle of a page when it turns.
+    var turnSound = false
     /// The first part of each word in bold.
     var bionic = false
 
@@ -189,6 +191,7 @@ struct ReaderSettings: Codable, Equatable {
         rulerY = try c.decodeIfPresent(Double.self, forKey: .rulerY) ?? rulerY
         tapZone = try c.decodeIfPresent(TapZone.self, forKey: .tapZone) ?? tapZone
         turnHaptic = try c.decodeIfPresent(Bool.self, forKey: .turnHaptic) ?? turnHaptic
+        turnSound = try c.decodeIfPresent(Bool.self, forKey: .turnSound) ?? turnSound
         bionic = try c.decodeIfPresent(Bool.self, forKey: .bionic) ?? bionic
     }
 

@@ -123,6 +123,7 @@ func runData() async {
     await runSleepChecks()
     runStatsChecks()
     runTrendChecks()
+    runAutoBackupChecks()
     runLinkURLChecks()
     runVoiceChecks()
     runSpeechTextChecks()

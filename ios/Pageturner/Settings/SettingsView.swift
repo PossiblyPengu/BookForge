@@ -110,6 +110,8 @@ struct SettingsView: View {
                 Text("Spotlight lists your titles, authors and covers using iOS’s own on-device index. Reading stats — sittings, streaks and the pace “time left” guesses from — are kept on this phone; switching tracking off keeps what is there and stops new ones, and resetting clears them either way. BookMaster’s own numbers aren’t touched.")
             }
 
+            AutoBackupSection()
+
             Section("Backup") {
                 Button { exportBackup() } label: {
                     Label {

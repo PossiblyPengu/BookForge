@@ -33,6 +33,8 @@ targets:
       # (a folder reference: copied into the app as it is)
       - path: Resources/espeak-ng-data
         type: folder
+      # the rustle of a page turning (Reader/PageTurnSound.swift)
+      - path: Resources/Sounds
     dependencies:
       - package: Readium
         product: ReadiumShared
@@ -73,12 +75,15 @@ targets:
             CFBundleURLSchemes:
               - pageturner
         # read-aloud keeps playing with the screen locked; "fetch" lets iOS wake
-        # the app now and then to look for new BookMaster suggestions
+        # the app now and then to look for new BookMaster suggestions; "processing"
+        # lets the scheduled library backup run overnight while charging
         UIBackgroundModes:
           - audio
           - fetch
+          - processing
         BGTaskSchedulerPermittedIdentifiers:
           - io.github.possiblypengu.pageturner.refresh
+          - io.github.possiblypengu.pageturner.backup
         # the Books folder is visible in the Files app
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true

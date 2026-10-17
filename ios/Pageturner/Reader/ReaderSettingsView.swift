@@ -99,6 +99,7 @@ struct ReaderSettingsView: View {
                     ForEach(ReaderSettings.TapZone.allCases) { Text($0.label).tag($0) }
                 }
                 Toggle("Tap in the fingers on a turn", isOn: $settings.turnHaptic)
+                Toggle("Rustle of the page on a turn", isOn: $settings.turnSound)
                 Toggle("Keep the screen on", isOn: $settings.keepAwake)
             }
 

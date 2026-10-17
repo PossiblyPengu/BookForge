@@ -282,6 +282,7 @@ final class ReaderModel: ObservableObject {
     private func pageIsTurning(frozenAt: Double? = nil) {
         defer { tapOnLeft = false }
         if settings.turnHaptic { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+        if settings.turnSound { PageTurnSound.shared.play() }
         guard settings.pageTurn != .slide, !(navigator?.presentation.scroll ?? false),
               let container = navigatorController as? ReaderContainerViewController
         else { return }
@@ -330,6 +331,7 @@ final class ReaderModel: ObservableObject {
     /// The leaf landed: release the hold and let the arrived page count.
     private func curlCommitted() {
         if settings.turnHaptic { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+        if settings.turnSound { PageTurnSound.shared.play() }
         curling = false
         curlBefore = nil
         curlMoved = false
