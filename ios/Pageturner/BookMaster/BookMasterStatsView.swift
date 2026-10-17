@@ -203,8 +203,23 @@ struct BookMasterStatsView: View {
                 }
             }
             ProgressView(value: min(1, max(0, stats.xpProgress ?? 0))).tint(.ptAccent)
+            if let line = Self.suiteLine(stats.suiteParts) {
+                Text(line).font(.caption).foregroundStyle(.secondary)
+            }
         }
         .bmCard()
+    }
+
+    /// "BookMaster 800 · Kindred 300 · Quest Log 134 XP" — where the one level across the apps comes from;
+    /// nothing when only one app has given any.
+    static func suiteLine(_ parts: [String: Double]?) -> String? {
+        guard let parts else { return nil }
+        let names = [("bookmaster", "BookMaster"), ("kindred", "Kindred"), ("quest-log", "Quest Log")]
+        let given = names.compactMap { key, name -> String? in
+            guard let xp = parts[key], xp > 0 else { return nil }
+            return "\(name) \(Int(xp))"
+        }
+        return given.count > 1 ? given.joined(separator: " · ") + " XP" : nil
     }
 
     // MARK: Goals
