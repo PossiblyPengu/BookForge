@@ -37,6 +37,12 @@ struct ReadingNowView: View {
         return ReadingPace.label(minutesLeft: left)
     }
 
+    /// "Done around Mar 2 at this pace", from the last three weeks of sittings with this book.
+    private func finishForecast(_ book: Book) -> String? {
+        guard let forecast = ReadingTrends.forecast(log.sessions, bookID: book.id, progress: book.progression ?? 0) else { return nil }
+        return ReadingTrends.label(forecast)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -48,6 +54,12 @@ struct ReadingNowView: View {
                         }
                         if let left = timeLeft(book) {
                             Label(left, systemImage: "clock")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                        }
+                        if let finish = finishForecast(book) {
+                            Label(finish, systemImage: "calendar")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 4)

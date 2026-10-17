@@ -100,3 +100,102 @@ struct ReadingStats: Equatable {
         return total >= 60 ? String(format: "%dh %02dm", total / 60, total % 60) : "\(total)m"
     }
 }
+
+/// Weekly totals, averages and a finish-date forecast from the same sittings. Pure, like `ReadingStats`: a
+/// `Calendar` and "now" come in so the week and day boundaries can be checked.
+enum ReadingTrends {
+    struct Week: Equatable, Identifiable {
+        /// First day of the week, at the start of the day.
+        var start: Date
+        var minutes: Double
+        var id: Date { start }
+    }
+
+    struct Summary: Equatable {
+        /// Oldest first, the current week last.
+        var weeks: [Week] = []
+        var thisWeekMinutes = 0.0
+        var lastWeekMinutes = 0.0
+        /// Days with any reading in the last 30, and the minutes on an average one of them.
+        var activeDays = 0
+        var averageActiveDayMinutes = 0.0
+        /// The day with the most time in the last 30 days.
+        var bestDay: ReadingStats.Day?
+
+        /// This week against last, as a fraction (0.25 is a quarter more). Nil when last week had nothing to compare.
+        var changeFromLastWeek: Double? {
+            lastWeekMinutes > 0 ? (thisWeekMinutes - lastWeekMinutes) / lastWeekMinutes : nil
+        }
+    }
+
+    static func summary(
+        _ sessions: [ReadingSession], now: Date = Date(), calendar: Calendar = .current, weeks: Int = 8
+    ) -> Summary {
+        let today = calendar.startOfDay(for: now)
+        var perDay: [Date: Double] = [:]
+        for session in sessions where session.minutes > 0 && session.minutes.isFinite {
+            perDay[calendar.startOfDay(for: session.end), default: 0] += session.minutes
+        }
+
+        let thisWeekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+        var summary = Summary()
+        for back in (0 ..< max(weeks, 0)).reversed() {
+            let start = calendar.date(byAdding: .weekOfYear, value: -back, to: thisWeekStart) ?? thisWeekStart
+            let end = calendar.date(byAdding: .day, value: 7, to: start) ?? start
+            let minutes = perDay.filter { $0.key >= start && $0.key < end }.reduce(0.0) { $0 + $1.value }
+            summary.weeks.append(Week(start: start, minutes: minutes))
+        }
+        summary.thisWeekMinutes = summary.weeks.last?.minutes ?? 0
+        summary.lastWeekMinutes = summary.weeks.count >= 2 ? summary.weeks[summary.weeks.count - 2].minutes : 0
+
+        let last30 = (0 ..< 30).compactMap { back -> ReadingStats.Day? in
+            guard let date = calendar.date(byAdding: .day, value: -back, to: today) else { return nil }
+            return ReadingStats.Day(date: date, minutes: perDay[date] ?? 0)
+        }
+        let active = last30.filter { $0.minutes >= ReadingStats.streakMinutes }
+        summary.activeDays = active.count
+        summary.averageActiveDayMinutes = active.isEmpty ? 0 : active.reduce(0.0) { $0 + $1.minutes } / Double(active.count)
+        summary.bestDay = active.max { $0.minutes != $1.minutes ? $0.minutes < $1.minutes : $0.date > $1.date }
+        return summary
+    }
+
+    struct Forecast: Equatable {
+        var daysLeft: Int
+        var finish: Date
+    }
+
+    /// When a book will be done at the pace of the last three weeks: how much of it was read, spread over the days
+    /// since the first of those sittings (a few days off count against the pace, the way they would for the reader).
+    /// Nil with fewer than two sittings, no progress, or a finish further than a year away.
+    static func forecast(
+        _ sessions: [ReadingSession], bookID: UUID, progress: Double, now: Date = Date(), calendar: Calendar = .current
+    ) -> Forecast? {
+        guard progress.isFinite, progress >= 0, progress < 0.995 else { return nil }
+        let today = calendar.startOfDay(for: now)
+        guard let since = calendar.date(byAdding: .day, value: -21, to: today) else { return nil }
+        let recent = sessions.filter {
+            $0.bookID == bookID && $0.end >= since && $0.end <= now.addingTimeInterval(86_400)
+        }
+        guard recent.count >= 2 else { return nil }
+
+        // going back to re-read something is not progress
+        let gained = recent.reduce(0.0) { $0 + max(0, $1.progressEnd - $1.progressStart) }
+        guard gained >= 0.005 else { return nil }
+        guard let first = recent.map({ calendar.startOfDay(for: $0.end) }).min() else { return nil }
+        let span = max(1, (calendar.dateComponents([.day], from: first, to: today).day ?? 0) + 1)
+
+        let perDay = gained / Double(span)
+        let days = Int(((1 - progress) / perDay).rounded(.up))
+        guard days >= 1, days <= 365, let finish = calendar.date(byAdding: .day, value: days, to: today) else { return nil }
+        return Forecast(daysLeft: days, finish: finish)
+    }
+
+    /// "Done around Oct 22 at this pace", or "Done by tomorrow…", "Done in about 3 days…".
+    static func label(_ forecast: Forecast) -> String {
+        switch forecast.daysLeft {
+        case 1: return "Done by tomorrow at this pace"
+        case 2 ... 6: return "Done in about \(forecast.daysLeft) days at this pace"
+        default: return "Done around \(forecast.finish.formatted(.dateTime.month(.abbreviated).day())) at this pace"
+        }
+    }
+}

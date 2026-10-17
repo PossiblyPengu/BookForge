@@ -10,6 +10,7 @@ struct LocalStatsSection: View {
 
     var body: some View {
         let stats = log.stats
+        let trends = ReadingTrends.summary(log.sessions)
         Group {
             Section {
                 if log.sessions.isEmpty {
@@ -28,6 +29,17 @@ struct LocalStatsSection: View {
                 }
             } header: {
                 Text(compact ? "Lately, on this phone" : "On this device")
+            }
+
+            if !log.sessions.isEmpty {
+                Section("Trends") {
+                    LabeledContent("This week", value: Self.week(trends))
+                    if trends.activeDays > 0 {
+                        LabeledContent("Days you read, last 30", value: "\(trends.activeDays)")
+                        LabeledContent("On those days", value: "\(ReadingStats.duration(minutes: trends.averageActiveDayMinutes)) on average")
+                    }
+                    weekChart(trends.weeks)
+                }
             }
 
             if !stats.perBook.isEmpty {
@@ -66,6 +78,32 @@ struct LocalStatsSection: View {
         .frame(height: 120)
         .padding(.vertical, 4)
         .accessibilityLabel("Minutes read per day, last \(days.count) days")
+    }
+
+    private func weekChart(_ weeks: [ReadingTrends.Week]) -> some View {
+        Chart(weeks) { week in
+            BarMark(
+                x: .value("Week", week.start, unit: .weekOfYear),
+                y: .value("Minutes", week.minutes))
+                .foregroundStyle(Color.ptAccent)
+                .cornerRadius(3)
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .weekOfYear, count: 2)) { _ in
+                AxisValueLabel(format: .dateTime.month(.abbreviated).day(), centered: true)
+            }
+        }
+        .frame(height: 110)
+        .padding(.vertical, 4)
+        .accessibilityLabel("Minutes read per week, last \(weeks.count) weeks")
+    }
+
+    /// "2h 05m" — and, when last week had something to compare, how it stands: "2h 05m (up 25%)".
+    private static func week(_ trends: ReadingTrends.Summary) -> String {
+        let time = ReadingStats.duration(minutes: trends.thisWeekMinutes)
+        guard let change = trends.changeFromLastWeek, abs(change) >= 0.05 else { return time }
+        let percent = Int((abs(change) * 100).rounded())
+        return "\(time) (\(change > 0 ? "up" : "down") \(percent)%)"
     }
 
     private static func days(_ n: Int) -> String { n == 1 ? "1 day" : "\(n) days" }

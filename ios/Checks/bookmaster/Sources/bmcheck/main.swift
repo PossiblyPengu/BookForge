@@ -122,6 +122,7 @@ func runData() async {
     runCurlChecks()
     await runSleepChecks()
     runStatsChecks()
+    runTrendChecks()
     runLinkURLChecks()
     runVoiceChecks()
     runSpeechTextChecks()
