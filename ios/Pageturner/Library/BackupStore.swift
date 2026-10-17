@@ -257,6 +257,15 @@ final class BackupStore {
         else if let k = rec["fileKey"] as? String { keys = [k] }
         guard !keys.isEmpty else { throw BackupError.missingPayload }
 
+        // web records carry no stable id — the same book restored twice is
+        // still the same book (title+author is how the catalogue knows it).
+        // Checked before any file is copied, or a repeat restore orphans them.
+        let recTitle = rec["title"] as? String ?? "Imported book"
+        let recAuthor = rec["author"] as? String ?? ""
+        guard !library.books.contains(where: {
+            $0.title == recTitle && $0.author == recAuthor && $0.fileNames.count == keys.count
+        }) else { throw BackupError.alreadyHaveIt }
+
         let id = UUID()
         var fileNames: [String] = []
         var files: [(source: URL, destination: URL)] = []
@@ -273,17 +282,12 @@ final class BackupStore {
 
         var book = Book(
             id: id,
-            title: rec["title"] as? String ?? "Imported book",
-            author: rec["author"] as? String ?? "",
+            title: recTitle,
+            author: recAuthor,
             fileName: fileNames[0],
             fileNames: fileNames,
             addedAt: Date()
         )
-        // web records carry no stable id — the same book restored twice is
-        // still the same book (title+author is how the catalogue knows it)
-        guard !library.books.contains(where: {
-            $0.title == book.title && $0.author == book.author && $0.fileNames.count == book.fileNames.count
-        }) else { throw BackupError.alreadyHaveIt }
         // web stores progress as {fraction, positionSec}; accept a bare
         // number too in case an older export wrote one
         if let p = rec["progress"] as? [String: Any] {

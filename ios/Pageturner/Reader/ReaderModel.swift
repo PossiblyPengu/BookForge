@@ -37,6 +37,8 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var currentChapterID: String?
     @Published private(set) var searchInFlight = false
     @Published private(set) var searchResults: [Locator] = []
+    /// The query the current results answer — "No matches" is only true once a search for what is typed has finished.
+    @Published private(set) var searchedQuery = ""
     /// Where a "Back" button would return to after a jump.
     @Published private(set) var history = JumpHistory()
     @Published var footnote: Footnote?
@@ -55,6 +57,8 @@ final class ReaderModel: ObservableObject {
     private var currentLocator: Locator?
     /// Where and when this sitting began, for the BookMaster session push.
     private var sessionStart: (at: Date, progression: Double)?
+    /// The last page turn or return to the book — a book left open on a table stops counting five minutes after it.
+    private var lastActivityAt = Date()
     /// How much of the book was actually read this sitting — page turns, not jumps.
     private var reading = ReadingSpan()
     private var searchTask: Task<Void, Never>?
@@ -68,6 +72,8 @@ final class ReaderModel: ObservableObject {
     private var returning = false
     private var chromeHideTask: Task<Void, Never>?
     static let highlightGroup = "user-highlights"
+    static let searchHitGroup = "search-hit"
+    private var searchHitGeneration = 0
 
     init(book: Book, library: LibraryStore) {
         self.book = book
@@ -75,6 +81,8 @@ final class ReaderModel: ObservableObject {
     }
 
     func open() async {
+        // the Reading tab restarts this task on every return — open once
+        guard publication == nil, phase == .loading else { return }
         do {
             let publication = try await Readium.shared.open(url: library.fileURL(for: book))
             self.publication = publication
@@ -139,7 +147,14 @@ final class ReaderModel: ObservableObject {
             isSearchable = publication.isSearchable
             toc = (try? await publication.tableOfContents().get()) ?? []
             // a comic's reading order is every page — not a contents worth listing
-            if toc.isEmpty, !publication.conforms(to: .divina) { toc = publication.readingOrder }
+            if toc.isEmpty, !publication.conforms(to: .divina) {
+                // untitled spine items would list as a column of identical rows
+                toc = publication.readingOrder.enumerated().map { i, link in
+                    var link = link
+                    if link.title?.isEmpty != false { link.title = "Section \(i + 1)" }
+                    return link
+                }
+            }
             learnPageCount(publication: publication)
             phase = .ready
             autoHideChrome()
@@ -147,6 +162,8 @@ final class ReaderModel: ObservableObject {
             Task { await debugTurn() }
             #endif
         } catch {
+            // a task cancelled by a tab switch is not a failed book — the next appearance retries
+            if Task.isCancelled, publication == nil { return }
             Log.error("reader", "open failed for \(book.title): \(error.localizedDescription)")
             phase = .failed(error.localizedDescription)
         }
@@ -341,6 +358,23 @@ final class ReaderModel: ObservableObject {
         navigate { await navigator.go(to: link) }
     }
 
+    /// A search hit: jump there and mark the match for a few seconds, so it can be found on a full page.
+    func goToSearchHit(_ locator: Locator) {
+        go(to: locator)
+        guard let decorable = navigator as? DecorableNavigator else { return }
+        searchHitGeneration += 1
+        let generation = searchHitGeneration
+        decorable.apply(
+            decorations: [Decoration(id: "search-hit", locator: locator.anchorable, style: .highlight(tint: .systemYellow))],
+            in: Self.searchHitGroup
+        )
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            guard let self, generation == self.searchHitGeneration else { return }
+            (self.navigator as? DecorableNavigator)?.apply(decorations: [], in: Self.searchHitGroup)
+        }
+    }
+
     func go(to locator: Locator) {
         guard let navigator else { return }
         // a locator made from the book's text (a search hit) can carry a cssSelector the page
@@ -456,16 +490,30 @@ final class ReaderModel: ObservableObject {
     private func bookmark(matching locator: Locator) -> Bookmark? {
         book.bookmarks.first { bm in
             guard let bl = try? Locator(jsonString: bm.locatorJSON) else { return false }
-            return bl == locator
+            return sameSpot(bl, locator)
         }
+    }
+
+    /// Full Locator equality never holds across a font change or in scroll mode, so a
+    /// bookmark is "here" when it is in the same resource at the same page or nearly the same point.
+    private func sameSpot(_ a: Locator, _ b: Locator) -> Bool {
+        guard a.href.isEquivalentTo(b.href) else { return false }
+        if let pa = a.locations.position, let pb = b.locations.position { return pa == pb }
+        if let ta = a.locations.totalProgression, let tb = b.locations.totalProgression {
+            return abs(ta - tb) < 0.003
+        }
+        return a == b
     }
 
     func toggleBookmark() {
         guard let locator = currentLocator,
               let json = try? locator.jsonString()
         else { return }
-        if let existing = bookmark(matching: locator) {
-            book.bookmarks.removeAll { $0.id == existing.id }
+        if bookmark(matching: locator) != nil {
+            book.bookmarks.removeAll { bm in
+                guard let bl = try? Locator(jsonString: bm.locatorJSON) else { return false }
+                return sameSpot(bl, locator)
+            }
         } else {
             let title = locator.title
                 ?? chapterTitle(for: locator)
@@ -545,6 +593,7 @@ final class ReaderModel: ObservableObject {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard let publication, !q.isEmpty else {
             searchResults = []
+            searchedQuery = ""
             searchInFlight = false
             return
         }
@@ -563,6 +612,7 @@ final class ReaderModel: ObservableObject {
                 }
                 guard generation == searchGeneration, !Task.isCancelled else { return }
                 searchResults = found
+                searchedQuery = q
             case .failure:
                 guard generation == searchGeneration, !Task.isCancelled else { return }
                 searchResults = []
@@ -654,14 +704,12 @@ final class ReaderModel: ObservableObject {
     }
 
     /// Send a highlight to BookMaster as a quote.
-    func quoteHighlight(_ highlight: Highlight) {
+    /// Returns the result's message, for the editor sheet to show inline (an alert can't present over a sheet).
+    func quoteHighlight(_ highlight: Highlight) async -> String? {
         let text = highlight.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        let ref = book.bookMasterRef
-        Task {
-            let ok = await BookMaster.shared.postQuote(ref: ref, content: text, percent: highlight.progression)
-            notice = ok.message
-        }
+        guard !text.isEmpty else { return nil }
+        let ok = await BookMaster.shared.postQuote(ref: book.bookMasterRef, content: text, percent: highlight.progression)
+        return ok.message
     }
 
     /// The book's highlights and notes as Markdown.
@@ -798,6 +846,7 @@ final class ReaderModel: ObservableObject {
     func beginSession() {
         if sessionStart == nil, let p = book.progression {
             sessionStart = (Date(), p)
+            lastActivityAt = Date()
             reading.restart(at: p)
         }
     }
@@ -814,7 +863,8 @@ final class ReaderModel: ObservableObject {
         let span = min(reading.span, 1)
         let reported = reading.reportable(end)
         reading.restart(at: nil)
-        let minutes = Date().timeIntervalSince(start.at) / 60
+        let endedAt = max(min(Date(), lastActivityAt.addingTimeInterval(300)), start.at)
+        let minutes = endedAt.timeIntervalSince(start.at) / 60
         let moved = span * 100 >= 0.5
         // the local log keeps any real sitting — time spent, even where it hardly moved the page
         if moved || minutes >= 2 {
@@ -863,6 +913,7 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
         guard !curling else { return }   // the curl replays it on commit
         previousLocator = currentLocator
         currentLocator = locator
+        lastActivityAt = Date()
         // reading on from where a jump landed lets the way back go
         if history.back != nil { history.readOn(to: locator.locations.totalProgression ?? book.progression ?? 0) }
         book.locatorJSON = try? locator.jsonString()

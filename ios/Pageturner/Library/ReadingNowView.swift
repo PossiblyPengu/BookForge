@@ -109,6 +109,8 @@ struct ContinueCard: View {
                 ProgressView(value: min(max(book.progression ?? 0, 0), 1))
                     .tint(.ptAccent)
                     .ptAnimation(.smooth(duration: 0.6), value: book.progression)
+                    .accessibilityLabel("Progress")
+                    .accessibilityValue("\(Int((min(max(book.progression ?? 0, 0), 1) * 100).rounded())) percent")
                     .padding(.top, 2)
                 Button(action: action) {
                     Label(book.isAudio ? "Play" : "Read", systemImage: book.isAudio ? "play.fill" : "book.fill")
@@ -122,6 +124,8 @@ struct ContinueCard: View {
         }
         .padding(14)
         .background(Color.ptAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .onTapGesture(perform: action)
         .accessibilityElement(children: .contain)
     }
 }

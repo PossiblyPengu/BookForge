@@ -176,14 +176,18 @@ enum MetadataLookup {
             BMShelf.titlesAgree(book.title, $0.title) && BMShelf.authorsAgree(book.author, $0.authors)
         }) else { return false }
 
-        var updated = book
-        if updated.author.isEmpty, !match.authors.isEmpty { updated.author = match.authors }
-        if updated.year == nil, !match.year.isEmpty { updated.year = match.year }
-        if updated.bookDescription == nil, !match.summary.isEmpty { updated.bookDescription = match.summary }
-        if updated.isbn == nil { updated.isbn = match.isbn }
-        if updated.openLibraryId == nil { updated.openLibraryId = match.openLibraryId }
-        var changed = updated != book
-        if changed { library.update(updated) }
+        // the search took a while: change only these fields on the book as it is
+        // now, so a position saved meanwhile is not rolled back
+        var changed = false
+        library.mutate(id) { current in
+            let before = current
+            if current.author.isEmpty, !match.authors.isEmpty { current.author = match.authors }
+            if current.year == nil, !match.year.isEmpty { current.year = match.year }
+            if current.bookDescription == nil, !match.summary.isEmpty { current.bookDescription = match.summary }
+            if current.isbn == nil { current.isbn = match.isbn }
+            if current.openLibraryId == nil { current.openLibraryId = match.openLibraryId }
+            changed = current != before
+        }
         if let pin = match.bookmasterId, book.bookmasterId == nil {
             library.updateBookMaster(id) { $0.bookmasterId = pin }
             changed = true

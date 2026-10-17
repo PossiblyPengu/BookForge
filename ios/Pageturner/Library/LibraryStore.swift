@@ -276,10 +276,26 @@ final class LibraryStore: ObservableObject {
         catalogueURL = support.appendingPathComponent("library.json")
         try? fm.createDirectory(at: booksDir, withIntermediateDirectories: true)
         try? fm.createDirectory(at: coversDir, withIntermediateDirectories: true)
-        if let data = try? Data(contentsOf: catalogueURL),
-           let list = try? JSONDecoder().decode([Book].self, from: data)
-        {
-            books = list
+        if let data = try? Data(contentsOf: catalogueURL) {
+            // element-wise: one bad record must not empty the library (and the
+            // next save then overwrite the catalogue with nothing)
+            struct Lossy: Decodable {
+                let book: Book?
+                init(from decoder: Decoder) throws { book = try? Book(from: decoder) }
+            }
+            if let list = try? JSONDecoder().decode([Lossy].self, from: data) {
+                let good = list.compactMap(\.book)
+                if good.count != list.count {
+                    let backup = support.appendingPathComponent("library.corrupt-\(Int(Date().timeIntervalSince1970)).json")
+                    try? data.write(to: backup, options: .atomic)
+                    Log.error("library", "\(list.count - good.count) of \(list.count) books could not be read; original kept as \(backup.lastPathComponent)")
+                }
+                books = good
+            } else {
+                let backup = support.appendingPathComponent("library.corrupt-\(Int(Date().timeIntervalSince1970)).json")
+                try? data.write(to: backup, options: .atomic)
+                Log.error("library", "library.json could not be read; original kept as \(backup.lastPathComponent)")
+            }
         }
     }
 
@@ -352,30 +368,51 @@ final class LibraryStore: ObservableObject {
     /// "Open in" and share-sheet deliveries arrive one URL at a time, back to
     /// back — hold the batch for a beat so a multi-part book lands as one.
     private var pendingURLs: [URL] = []
-    private var pendingImport: Task<Void, Never>?
+    /// Only the wait is ever cancelled; a batch that has started always finishes,
+    /// and the next one starts after it.
+    private var debounce: Task<Void, Never>?
+    private var running: Task<Void, Never>?
+    private var activeBatches = 0
+    /// Picked folders stay open for the whole batch: their children only keep
+    /// access while the folder's own scope is held.
+    private var scopedRoots: [URL] = []
 
     func importFiles(_ urls: [URL]) async {
         pendingURLs.append(contentsOf: urls)
-        pendingImport?.cancel()
-        pendingImport = Task {
-            try? await Task.sleep(for: .milliseconds(800))
-            guard !Task.isCancelled else { return }
+        importing = true
+        debounce?.cancel()
+        let sleeper = Task { try? await Task.sleep(for: .milliseconds(800)) }
+        debounce = sleeper
+        await sleeper.value
+        guard !sleeper.isCancelled else { return }
+
+        let previous = running
+        activeBatches += 1
+        let work = Task {
+            await previous?.value
+            defer {
+                activeBatches -= 1
+                importing = activeBatches > 0 || !pendingURLs.isEmpty
+            }
             let batch = pendingURLs
             pendingURLs = []
-            importing = true
-            defer { importing = false }
+            guard !batch.isEmpty else { return }
             var failures: [String] = []
             await importBatch(batch, failures: &failures, inArchive: false)
+            for root in scopedRoots { root.stopAccessingSecurityScopedResource() }
+            scopedRoots = []
             if !failures.isEmpty {
                 lastError = failures.joined(separator: "\n")
                 for failure in failures { Log.error("import", failure) }
             }
         }
-        await pendingImport?.value
+        running = work
+        await work.value
     }
 
     /// A picked folder means its contents — folders and all. Files inside it
-    /// keep their folders, so the audio grouping below still applies.
+    /// keep their folders, so the audio grouping below still applies. The
+    /// folder's security scope stays open (`scopedRoots`) until the batch ends.
     private func expanded(_ urls: [URL]) -> [URL] {
         var out: [URL] = []
         for url in urls {
@@ -387,7 +424,9 @@ final class LibraryStore: ObservableObject {
             {
                 for case let file as URL in walker { out.append(file) }
             }
-            if scoped { url.stopAccessingSecurityScopedResource() }
+            if scoped {
+                if isDir { scopedRoots.append(url) } else { url.stopAccessingSecurityScopedResource() }
+            }
             if !isDir { out.append(url) }
         }
         return out
@@ -473,7 +512,7 @@ final class LibraryStore: ObservableObject {
         let scoped = source.startAccessingSecurityScopedResource()
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
 
-        let data = try Data(contentsOf: source)
+        let data = try await Task.detached(priority: .userInitiated) { try Data(contentsOf: source) }.value
         let fallback = source.deletingPathExtension().lastPathComponent
         // a long book takes a moment — keep it off the main actor
         let converted = await Task.detached(priority: .userInitiated) {
@@ -506,7 +545,11 @@ final class LibraryStore: ObservableObject {
                 defer { if scoped { source.stopAccessingSecurityScopedResource() } }
                 let ext = source.pathExtension.lowercased()
                 let fileName = ext.isEmpty ? id.uuidString : "\(id.uuidString)-\(fileNames.count).\(ext)"
-                try fm.copyItem(at: source, to: booksDir.appendingPathComponent(fileName))
+                let destination = booksDir.appendingPathComponent(fileName)
+                // a long audiobook is hundreds of MB — keep the copy off the main actor
+                try await Task.detached(priority: .userInitiated) {
+                    try FileManager.default.copyItem(at: source, to: destination)
+                }.value
                 fileNames.append(fileName)
             }
         } catch {
@@ -579,7 +622,10 @@ final class LibraryStore: ObservableObject {
         let id = UUID()
         let ext = source.pathExtension.lowercased()
         let fileName = ext.isEmpty ? id.uuidString : "\(id.uuidString).\(ext)"
-        try fm.copyItem(at: source, to: booksDir.appendingPathComponent(fileName))
+        let destination = booksDir.appendingPathComponent(fileName)
+        try await Task.detached(priority: .userInitiated) {
+            try FileManager.default.copyItem(at: source, to: destination)
+        }.value
         try await register(id: id, fileName: fileName, fallbackTitle: source.deletingPathExtension().lastPathComponent)
     }
 
@@ -706,6 +752,10 @@ final class LibraryStore: ObservableObject {
               !shelves.contains(where: { $0 != old && $0.caseInsensitiveCompare(new) == .orderedSame })
         else { return }
         shelves[i] = new
+        // keep the library on the shelf it was showing
+        if UserDefaults.standard.string(forKey: "libraryShelf") == old {
+            UserDefaults.standard.set(new, forKey: "libraryShelf")
+        }
         for j in books.indices {
             books[j].collections = books[j].collections.map { $0 == old ? new : $0 }
         }
@@ -850,14 +900,16 @@ final class LibraryStore: ObservableObject {
         case .added:
             return list.sorted { $0.addedAt > $1.addedAt }
         case .title:
-            return list.sorted { $0.sortTitle.localizedStandardCompare($1.sortTitle) == .orderedAscending }
+            let keyed = list.map { (book: $0, title: $0.sortTitle) }
+            return keyed.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }.map(\.book)
         case .author:
             // books with no author last, then by last name, then by title
-            return list.sorted { a, b in
-                if a.author.isEmpty != b.author.isEmpty { return !a.author.isEmpty }
-                let c = a.sortAuthor.localizedStandardCompare(b.sortAuthor)
-                return c == .orderedSame ? a.sortTitle.localizedStandardCompare(b.sortTitle) == .orderedAscending : c == .orderedAscending
-            }
+            let keyed = list.map { (book: $0, author: $0.sortAuthor, title: $0.sortTitle) }
+            return keyed.sorted { a, b in
+                if a.book.author.isEmpty != b.book.author.isEmpty { return !a.book.author.isEmpty }
+                let c = a.author.localizedStandardCompare(b.author)
+                return c == .orderedSame ? a.title.localizedStandardCompare(b.title) == .orderedAscending : c == .orderedAscending
+            }.map(\.book)
         }
     }
 

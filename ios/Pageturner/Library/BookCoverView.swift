@@ -141,6 +141,8 @@ struct BookGrid: View {
                 .buttonStyle(PressableStyle())
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(accessibilityLabel(for: book))
+                .accessibilityAddTraits(selection?.wrappedValue.contains(book.id) == true ? .isSelected : [])
+                .accessibilityHint(selection == nil ? "Opens the book" : "Double tap to select")
                 .contextMenu {
                     // no menu while ticking books
                     if selection == nil {
@@ -178,6 +180,7 @@ struct BookGrid: View {
         // filtering, sorting, adding and removing glide; ticking a book in select mode eases
         .ptAnimation(.smooth(duration: 0.35), value: books.map(\.id))
         .ptAnimation(.snappy(duration: 0.2), value: selection?.wrappedValue)
+        .sensoryFeedback(.selection, trigger: selection?.wrappedValue)
     }
 
     private func accessibilityLabel(for book: Book) -> String {

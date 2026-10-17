@@ -16,6 +16,7 @@ struct ShelvesSheet: View {
     @State private var newName = ""
     @State private var renaming: String?
     @State private var renameText = ""
+    @State private var deleting: String?
 
     private var title: String {
         target.bookIDs.count == 1 ? "Shelves" : "Shelves for \(target.bookIDs.count) Books"
@@ -40,7 +41,7 @@ struct ShelvesSheet: View {
                             }
                         }
                         .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { library.deleteShelf(name) } label: {
+                            Button(role: .destructive) { deleting = name } label: {
                                 Label("Delete", systemImage: "trash")
                             }
                             Button {
@@ -73,9 +74,23 @@ struct ShelvesSheet: View {
                     }
                     newName = ""
                 }
+                .disabled(nameProblem(newName, renaming: nil) != nil)
                 Button("Cancel", role: .cancel) { newName = "" }
             } message: {
-                Text("The selected books go onto it.")
+                Text(nameProblem(newName, renaming: nil) ?? "The selected books go onto it.")
+            }
+            .confirmationDialog(
+                "Delete shelf “\(deleting ?? "")”?",
+                isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Delete Shelf", role: .destructive) {
+                    if let name = deleting { library.deleteShelf(name) }
+                    deleting = nil
+                }
+                Button("Cancel", role: .cancel) { deleting = nil }
+            } message: {
+                Text("Its books stay in your library.")
             }
             .alert("Rename Shelf", isPresented: Binding(
                 get: { renaming != nil },
@@ -86,11 +101,29 @@ struct ShelvesSheet: View {
                     if let old = renaming { library.renameShelf(old, to: renameText) }
                     renaming = nil
                 }
+                .disabled(nameProblem(renameText, renaming: renaming) != nil)
                 Button("Cancel", role: .cancel) { renaming = nil }
+            } message: {
+                if let problem = nameProblem(renameText, renaming: renaming) { Text(problem) }
             }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    /// Why a shelf name can't be used, nil when it can. A new shelf may reuse an
+    /// existing name (the books go onto that shelf); a rename may not.
+    private func nameProblem(_ raw: String, renaming old: String?) -> String? {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return "Enter a name." }
+        if name.count > 40 { return "Names can be up to 40 characters." }
+        if let old {
+            if name.hasPrefix("~") { return "A name can’t start with “~”." }
+            if library.shelves.contains(where: { $0 != old && $0.caseInsensitiveCompare(name) == .orderedSame }) {
+                return "Name already used."
+            }
+        }
+        return nil
     }
 
     /// All on it → take them off; otherwise (none or some) → put them all on.

@@ -297,7 +297,9 @@ struct BookEditSheet: View {
     }
 
     private func save() {
-        var book = original
+        // start from the book as stored now: the one this sheet opened with may have
+        // lost reading progress, bookmarks or shelves since
+        var book = library.books.first(where: { $0.id == original.id }) ?? original
         book.title = title.trimmingCharacters(in: .whitespaces)
         book.author = author.trimmingCharacters(in: .whitespaces)
         let trimmedYear = year.trimmingCharacters(in: .whitespaces)

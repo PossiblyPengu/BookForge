@@ -13,8 +13,10 @@ struct ReaderView: View {
     @State private var scrubbing: Double?
     @AppStorage("readerShowsTimeLeft") private var showsTimeLeft = false
     @State private var dragging = false
+    @State private var scrubTask: Task<Void, Never>?
     @State private var exportFile: ShareItem?
     @State private var copied = false
+    @State private var contentsTab: ContentsTab = .chapters
 
     /// The way out of the book: the Reading tab is the book's home, so leaving
     /// it is a tab switch, not a dismissal.
@@ -176,7 +178,7 @@ struct ReaderView: View {
                     canQuote: BookMaster.shared.isLinked,
                     onSave: { color, note in model.updateHighlight(highlight.id, color: color, note: note) },
                     onDelete: { model.removeHighlight(highlight) },
-                    onQuote: { model.quoteHighlight(highlight) }
+                    onQuote: { await model.quoteHighlight(highlight) }
                 )
                 .preferredColorScheme(scheme)
             }
@@ -237,7 +239,7 @@ struct ReaderView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(maxWidth: .infinity)
-                .frame(height: 44)
+                .frame(minHeight: 44)
                 .ptGlassCapsule()
                 .accessibilityElement(children: .combine)
 
@@ -268,10 +270,15 @@ struct ReaderView: View {
                 HStack(spacing: 10) {
                     progressLabel
                     Slider(
-                        value: Binding(get: { shownProgress }, set: { scrubbing = $0 }),
+                        value: Binding(get: { shownProgress }, set: { value in
+                            scrubbing = value
+                            // VoiceOver / Switch Control adjust without a drag: navigate once they settle
+                            if !dragging { settleScrub(at: value) }
+                        }),
                         in: 0...1,
                         onEditingChanged: { editing in
                             dragging = editing
+                            scrubTask?.cancel()
                             if editing { model.holdChrome() } else { model.revealChrome() }
                             guard !editing, let target = scrubbing else { return }
                             model.go(toProgression: target)
@@ -288,7 +295,7 @@ struct ReaderView: View {
                 }
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity)
-                .frame(height: 44)
+                .frame(minHeight: 44)
                 .ptGlassCapsule()
 
                 if model.canReadAloud {
@@ -300,6 +307,18 @@ struct ReaderView: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
+        }
+    }
+
+    /// Goes to a position set without a drag (an accessibility adjustment), after a short pause for further steps.
+    private func settleScrub(at value: Double) {
+        scrubTask?.cancel()
+        scrubTask = Task {
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard !Task.isCancelled, !dragging else { return }
+            model.go(toProgression: value)
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if !Task.isCancelled, !dragging { scrubbing = nil }
         }
     }
 
@@ -322,6 +341,7 @@ struct ReaderView: View {
             .font(.footnote.weight(.semibold))
             .monospacedDigit()
             .lineLimit(1)
+            .minimumScaleFactor(0.7)
             .fixedSize()
             .frame(minWidth: 36, minHeight: 44, alignment: .leading)
             .ptNumberRoll(on: left ?? percent)
@@ -378,8 +398,37 @@ struct ReaderView: View {
         .accessibilityLabel(label)
     }
 
+    /// The Contents sheet's tab: chapters unless there are none to show.
+    private var contentsTabNow: ContentsTab {
+        let available = ContentsTab.allCases.filter { contentsHas($0) }
+        return available.contains(contentsTab) ? contentsTab : (available.first ?? .chapters)
+    }
+
+    private func contentsHas(_ tab: ContentsTab) -> Bool {
+        switch tab {
+        case .chapters: return !model.toc.isEmpty
+        case .bookmarks: return !model.book.bookmarks.isEmpty
+        case .highlights: return !model.book.highlights.isEmpty
+        }
+    }
+
+    /// Chapters | Bookmarks | Highlights — only the ones with something in them, and only when there is a choice.
+    @ViewBuilder
+    private var contentsPicker: some View {
+        let available = ContentsTab.allCases.filter { contentsHas($0) }
+        if available.count > 1 {
+            Picker("Show", selection: Binding(get: { contentsTabNow }, set: { contentsTab = $0 })) {
+                ForEach(available) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+    }
+
     private var contentsSheet: some View {
-        NavigationStack {
+        let tab = contentsTabNow
+        return NavigationStack {
             Group {
                 if model.toc.isEmpty, model.book.bookmarks.isEmpty, model.book.highlights.isEmpty {
                     Text("No table of contents.")
@@ -387,19 +436,21 @@ struct ReaderView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollViewReader { proxy in
+                    VStack(spacing: 0) {
+                    contentsPicker
                     List {
-                        if !model.book.highlights.isEmpty {
+                        if tab == .highlights {
                             Section {
-                                ForEach(model.book.highlights.sorted { $0.createdAt > $1.createdAt }) { hl in
+                                ForEach(model.book.highlights.sorted { ($0.progression ?? 0) < ($1.progression ?? 0) }) { hl in
                                     highlightRow(hl)
                                 }
                             } header: {
                                 highlightsHeader
                             }
                         }
-                        if !model.book.bookmarks.isEmpty {
+                        if tab == .bookmarks {
                             Section("Bookmarks") {
-                                ForEach(model.book.bookmarks.sorted { $0.createdAt > $1.createdAt }) { bm in
+                                ForEach(model.book.bookmarks.sorted { ($0.progression ?? 0) < ($1.progression ?? 0) }) { bm in
                                     Button {
                                         showContents = false
                                         model.goToBookmark(bm)
@@ -426,7 +477,7 @@ struct ReaderView: View {
                                 }
                             }
                         }
-                        if !model.toc.isEmpty {
+                        if tab == .chapters {
                             Section("Chapters") {
                                 OutlineRows(links: model.toc, depth: 0, current: model.currentChapterID) { link in
                                     showContents = false
@@ -440,6 +491,7 @@ struct ReaderView: View {
                     .onAppear {
                         guard let current = model.currentChapterID else { return }
                         DispatchQueue.main.async { proxy.scrollTo("toc-" + current, anchor: .center) }
+                    }
                     }
                     }
                 }
@@ -484,7 +536,7 @@ struct ReaderView: View {
                     .foregroundStyle(HighlightColor(saved: hl.color).color)
             }
         }
-        .swipeActions {
+        .swipeActions(allowsFullSwipe: false) {
             Button(role: .destructive) { model.removeHighlight(hl) } label: {
                 Label("Delete", systemImage: "trash")
             }
@@ -690,6 +742,7 @@ private struct ReadAloudBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Speaking speed")
+        .accessibilityValue(String(format: "%.3g times", rate))
     }
 
     private var sleepMenu: some View {
@@ -708,6 +761,7 @@ private struct ReadAloudBar: View {
             .contentShape(Rectangle())
         }
         .accessibilityLabel("Sleep timer")
+        .accessibilityValue(readAloud.sleepRemaining.map { "\(Int($0 / 60) + 1) minutes left" } ?? "Off")
         .simultaneousGesture(TapGesture().onEnded { _ in onInteraction() })
     }
 
@@ -776,7 +830,7 @@ private struct SearchResultsView: View {
             List(Array(model.searchResults.enumerated()), id: \.offset) { i, locator in
                 Button {
                     onPick()
-                    model.go(to: locator)
+                    model.goToSearchHit(locator)
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         // a PDF hit has no chapter title but does have its page
@@ -795,7 +849,8 @@ private struct SearchResultsView: View {
             }
             .listStyle(.plain)
             .overlay {
-                if !model.searchInFlight, model.searchResults.isEmpty, !query.isEmpty {
+                if !model.searchInFlight, model.searchResults.isEmpty, !query.isEmpty,
+                   model.searchedQuery == query.trimmingCharacters(in: .whitespaces) {
                     Text("No matches")
                         .foregroundStyle(.secondary)
                 }
@@ -808,11 +863,26 @@ private struct SearchResultsView: View {
         }
         .onChange(of: query) { _, q in
             debounceTask?.cancel()
+            // cleared: the old results go now, not after the pause
+            if q.trimmingCharacters(in: .whitespaces).isEmpty { model.search(""); return }
             debounceTask = Task {
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 guard !Task.isCancelled else { return }
                 model.search(q)
             }
+        }
+    }
+}
+
+/// The sections of the Contents sheet.
+enum ContentsTab: String, CaseIterable, Identifiable {
+    case chapters, bookmarks, highlights
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .chapters: return "Chapters"
+        case .bookmarks: return "Bookmarks"
+        case .highlights: return "Highlights"
         }
     }
 }

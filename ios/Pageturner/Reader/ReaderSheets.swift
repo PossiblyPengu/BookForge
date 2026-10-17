@@ -39,17 +39,20 @@ struct HighlightEditorSheet: View {
     let canQuote: Bool
     let onSave: (HighlightColor, String) -> Void
     let onDelete: () -> Void
-    let onQuote: () -> Void
+    let onQuote: () async -> String?
 
     @State private var color: HighlightColor
     @State private var note: String
+    @State private var quoteStatus: String?
+    @State private var sending = false
+    @State private var confirmDelete = false
     @Environment(\.dismiss) private var dismiss
 
     init(
         highlight: Highlight, canQuote: Bool,
         onSave: @escaping (HighlightColor, String) -> Void,
         onDelete: @escaping () -> Void,
-        onQuote: @escaping () -> Void
+        onQuote: @escaping () async -> String?
     ) {
         self.highlight = highlight
         self.canQuote = canQuote
@@ -100,16 +103,35 @@ struct HighlightEditorSheet: View {
                 }
                 Section {
                     if canQuote {
-                        Button("Send to BookMaster as a Quote", action: onQuote)
+                        Button("Send to BookMaster as a Quote") {
+                            sending = true
+                            Task {
+                                quoteStatus = await onQuote()
+                                sending = false
+                            }
+                        }
+                        .disabled(sending)
                     }
                     Button("Delete Highlight", role: .destructive) {
-                        onDelete()
-                        dismiss()
+                        if note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            onDelete()
+                            dismiss()
+                        } else {
+                            confirmDelete = true
+                        }
                     }
+                } footer: {
+                    if let quoteStatus { Text(quoteStatus) }
                 }
             }
             .navigationTitle("Highlight")
             .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog("Delete this highlight and its note?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete Highlight", role: .destructive) {
+                    onDelete()
+                    dismiss()
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

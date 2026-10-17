@@ -15,6 +15,7 @@ struct LibraryView: View {
     @State private var selected: Set<UUID> = []
     @State private var finding: (done: Int, total: Int)?
     @State private var findResult: String?
+    @State private var findTask: Task<Void, Never>?
     /// The folded-in Search tab's field — empty means the shelf shows.
     @State private var query = ""
 
@@ -100,6 +101,7 @@ struct LibraryView: View {
                     content
                 }
             }
+            .allowsHitTesting(finding == nil)
             .navigationTitle(selecting ? "\(selected.count) Selected" : "Library")
             // the folded-in Search tab: browsing filters step aside for it
             .searchable(text: $query, prompt: "Books and audiobooks")
@@ -135,7 +137,10 @@ struct LibraryView: View {
 
     // MARK: Content
 
+    @ViewBuilder
     private var content: some View {
+        // one filter + sort per render, not one per use
+        let books = visible
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 if !searching {
@@ -147,7 +152,7 @@ struct LibraryView: View {
                     if !selecting { shelfChips }
                 }
 
-                if visible.isEmpty {
+                if books.isEmpty {
                     if searching {
                         ContentUnavailableView.search(text: query)
                             .padding(.top, 40)
@@ -175,7 +180,7 @@ struct LibraryView: View {
                         .padding(.top, 40)
                     }
                 } else {
-                    BookGrid(books: visible, selection: selecting ? $selected : nil)
+                    BookGrid(books: books, selection: selecting ? $selected : nil)
                 }
             }
             .padding(.horizontal, 18)
@@ -216,10 +221,14 @@ struct LibraryView: View {
         } description: {
             Text("Add EPUB, PDF, CBZ comic, text or audiobook files — a folder or a zip of an audiobook's parts becomes one book — from Files, or use “Open in Pageturner” from another app.")
         } actions: {
-            Button { router.showImporter = true } label: {
-                Label("Add Books", systemImage: "plus")
+            if library.importing {
+                ProgressView("Adding books…")
+            } else {
+                Button { router.showImporter = true } label: {
+                    Label("Add Books", systemImage: "plus")
+                }
+                .ptButtonStyle(prominent: true)
             }
-            .ptButtonStyle(prominent: true)
             Button { router.showSettings = true } label: {
                 Text("Watch a folder in Settings")
             }
@@ -232,9 +241,10 @@ struct LibraryView: View {
     private var toolbar: some ToolbarContent {
         if selecting {
             ToolbarItem(placement: .topBarLeading) {
-                let all = selected.count == visible.count && !visible.isEmpty
+                let books = visible
+                let all = selected.count == books.count && !books.isEmpty
                 Button(all ? "Deselect All" : "Select All") {
-                    selected = all ? [] : Set(visible.map(\.id))
+                    selected = all ? [] : Set(books.map(\.id))
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -322,13 +332,15 @@ struct LibraryView: View {
         let ids = Array(selected)
         guard !ids.isEmpty else { return }
         finding = (0, ids.count)
-        Task {
+        findTask = Task {
             var updated = 0
             for (n, id) in ids.enumerated() {
+                if Task.isCancelled { break }
                 if await MetadataLookup.autoApply(to: id, library: library) { updated += 1 }
                 finding = (n + 1, ids.count)
             }
             finding = nil
+            findTask = nil
             findResult = updated == 0
                 ? "No new details turned up for \(ids.count == 1 ? "that book" : "those books")."
                 : "Updated \(updated) of \(ids.count) book\(ids.count == 1 ? "" : "s")."
@@ -340,6 +352,8 @@ struct LibraryView: View {
             ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
                 .tint(.ptAccent)
             Text("Finding details… \(progress.done) of \(progress.total)")
+                .font(.subheadline)
+            Button("Cancel") { findTask?.cancel() }
                 .font(.subheadline)
         }
         .padding(20)
