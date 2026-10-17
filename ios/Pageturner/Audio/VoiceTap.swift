@@ -48,14 +48,14 @@ final class VoiceTap {
                 }
                 state.dsp.process(planes, frames: Int(framesOut.pointee))
             })
-        var tap: Unmanaged<MTAudioProcessingTap>?
+        var tap: MTAudioProcessingTap?
         let status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
         guard status == noErr, let tap else {
             retained.release()
             return nil
         }
         let parameters = AVMutableAudioMixInputParameters(track: track)
-        parameters.audioTapProcessor = tap.takeRetainedValue()
+        parameters.audioTapProcessor = tap
         let mix = AVMutableAudioMix()
         mix.inputParameters = [parameters]
         return mix
