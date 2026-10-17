@@ -26,6 +26,8 @@ struct BookMasterDetailView: View {
     @State private var logging = false
     @State private var editing = false
     @State private var loggedMinutes: Int? = nil
+    /// The open log sheet was filled from the running timer, which stops when it saves.
+    @State private var timedLog = false
     @State private var timerNow = Date()
 
     /// The library's copy of this book, when there is one — for the Read button.
@@ -91,11 +93,11 @@ struct BookMasterDetailView: View {
             guard case let .success(urls) = result else { return }
             Task { await bringIn(urls) }
         }
-        .sheet(isPresented: $logging, onDismiss: { loggedMinutes = nil }) {
+        .sheet(isPresented: $logging, onDismiss: { loggedMinutes = nil; timedLog = false }) {
             if let book = detail?.book {
                 BMLogSheet(row: book, initialMinutes: loggedMinutes) {
                     loggedMinutes = nil
-                    if timer.run?.pin == book.userBookId { timer.stop() }
+                    if timedLog { BMReadingTimer.shared.stop() }
                     Task { await load() }
                 }
             }
@@ -180,16 +182,22 @@ struct BookMasterDetailView: View {
             HStack {
                 Text("Rating")
                 Spacer()
-                HStack(spacing: 4) {
+                HStack(spacing: 0) {
                     ForEach(1...5, id: \.self) { star in
                         Button { Task { await setRating(star == book.rating ? nil : star) } } label: {
                             Image(systemName: star <= (book.rating ?? 0) ? "star.fill" : "star")
                                 .foregroundStyle(Color.ptAccent)
+                                .frame(minWidth: 36, minHeight: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .disabled(busy)
+                        .accessibilityLabel("\(star) star\(star == 1 ? "" : "s")")
+                        .accessibilityAddTraits(star == book.rating ? .isSelected : [])
                     }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Rating")
             }
             Toggle("Up next", isOn: upNextBinding).disabled(busy)
             Button { logging = true } label: {
@@ -238,6 +246,7 @@ struct BookMasterDetailView: View {
                 Button("Stop & log") {
                     // the clock keeps running until the log is saved
                     loggedMinutes = min(Int((timer.elapsed / 60).rounded(.up)), 12 * 60)
+                    timedLog = true
                     logging = true
                 }
                 .font(.subheadline)

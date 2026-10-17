@@ -8,27 +8,24 @@ extension BookMaster {
     func pushCovers(from library: LibraryStore) async {
         guard isLinked, syncEnabled, AppPrefs.sendCovers else { return }
         var sent = Set(UserDefaults.standard.stringArray(forKey: Self.sentKey) ?? [])
+        var unsaved = 0
+        // written in batches, and on every way out, instead of once per cover
+        func save() {
+            guard unsaved > 0 else { return }
+            UserDefaults.standard.set(Array(sent), forKey: Self.sentKey)
+            unsaved = 0
+        }
+        defer { save() }
         for book in library.books where book.bookmasterId != nil && !sent.contains(book.id.uuidString) {
             guard !Task.isCancelled, isLinked else { return }
-            guard let image = library.cover(for: book), let jpeg = Self.thumbnail(image) else { continue }
+            // ImageIO decodes straight to 400px (and caches it): no full-size decode on the main actor
+            guard let image = library.coverThumbnail(for: book, maxPixels: 400),
+                  let jpeg = image.jpegData(compressionQuality: 0.8) else { continue }
             if await pushCover(ref: book.bookMasterRef, jpeg: jpeg) {
                 sent.insert(book.id.uuidString)
-                UserDefaults.standard.set(Array(sent), forKey: Self.sentKey)
+                unsaved += 1
+                if unsaved >= 10 { save() }
             }
         }
-    }
-
-    /// Small enough to send: 400 points on the long side, as a JPEG.
-    private static func thumbnail(_ image: UIImage) -> Data? {
-        let longest = max(image.size.width, image.size.height)
-        guard longest > 0 else { return nil }
-        let scale = min(1, 400 / longest)
-        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: size))
-        }
-        return resized.jpegData(compressionQuality: 0.8)
     }
 }

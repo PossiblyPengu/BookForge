@@ -7,6 +7,7 @@ struct BMSeriesView: View {
     @State private var error: String?
     @State private var naming = false
     @State private var newName = ""
+    @State private var actionError: String?
 
     var body: some View {
         List {
@@ -46,6 +47,12 @@ struct BMSeriesView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Series live on the catalogue — every reader who owns the books sees the run.")
+        }
+        .alert("Couldn’t do that", isPresented: Binding(
+            get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(actionError ?? "")
         }
         .task { await load() }
         .refreshable { await load() }
@@ -90,7 +97,8 @@ struct BMSeriesView: View {
             _ = try await BookMaster.shared.createSeries(name: name)
             await load()
         } catch {
-            self.error = error.localizedDescription
+            newName = name
+            actionError = error.localizedDescription
         }
     }
 }
@@ -105,15 +113,18 @@ struct BMSeriesDetailView: View {
     @State private var error: String?
     @State private var adding = false
     @State private var busy = false
+    @State private var actionError: String?
 
     var body: some View {
         List {
             if let detail {
                 ForEach(Array(detail.books.enumerated()), id: \.element.id) { index, book in
                     bookRow(book, position: book.position ?? index + 1)
-                }
-                .onDelete { offsets in
-                    for i in offsets { Task { await unfile(detail.books[i]) } }
+                        .swipeActions {
+                            Button("Remove from series", role: .destructive) {
+                                Task { await unfile(book) }
+                            }
+                        }
                 }
             } else if let error {
                 ContentUnavailableView(
@@ -134,6 +145,12 @@ struct BMSeriesDetailView: View {
             }
         }
         .sheet(isPresented: $adding) { pickSheet }
+        .alert("Couldn’t do that", isPresented: Binding(
+            get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(actionError ?? "")
+        }
         .task { await load() }
         .refreshable { await load() }
     }
@@ -226,7 +243,7 @@ struct BMSeriesDetailView: View {
             adding = false
             await load()
         } catch {
-            self.error = error.localizedDescription
+            actionError = error.localizedDescription
         }
     }
 
@@ -237,7 +254,7 @@ struct BMSeriesDetailView: View {
             try await BookMaster.shared.setSeriesBook(series: id, book: book.id, remove: true)
             detail?.books.removeAll { $0.id == book.id }
         } catch {
-            self.error = error.localizedDescription
+            actionError = error.localizedDescription
         }
     }
 
