@@ -6,6 +6,7 @@ import SwiftUI
 /// and the way out.
 struct BookMasterStatsView: View {
     @Environment(AppRouter.self) private var router
+    @EnvironmentObject private var library: LibraryStore
     @State private var overview: BMOverview?
     @State private var stats: BMStatBlock?
     @State private var achievements: [BMAchievementFull]?
@@ -19,6 +20,12 @@ struct BookMasterStatsView: View {
     /// Good news — an import's tally, not a failure.
     @State private var notice: String?
     @State private var loading = true
+    /// A write that failed (remove goal, rename, export) — an alert, since the footer can be off-screen.
+    @State private var actionError: String?
+    @State private var removingGoal: String?
+    @State private var allBadges = false
+    /// The last refresh missed something while older numbers are still on screen.
+    @State private var refreshFailed = false
 
     var body: some View {
         NavigationStack {
@@ -56,7 +63,11 @@ struct BookMasterStatsView: View {
             }
             .sheet(item: $shareItem) { ShareSheet(items: [$0.url]) }
             .alert("Unlink BookMaster?", isPresented: $confirmUnlink) {
-                Button("Unlink", role: .destructive) { BookMaster.shared.unlink() }
+                Button("Unlink", role: .destructive) {
+                    BookMaster.shared.unlink()
+                    library.clearBookMasterFields()
+                    Notifier.shared.reset()
+                }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("The link is forgotten and queued pushes with it. Nothing on BookMaster is deleted.")
@@ -67,6 +78,21 @@ struct BookMasterStatsView: View {
         // the stack, not the list: a pushed pane is still the Stats tab
         .onAppear { BookMaster.shared.place = "bookmaster" }
         .onDisappear { BookMaster.shared.place = "library" }
+        .confirmationDialog("Remove this goal?", isPresented: Binding(
+            get: { removingGoal != nil }, set: { if !$0 { removingGoal = nil } }),
+                            titleVisibility: .visible) {
+            Button("Remove goal", role: .destructive) {
+                if let id = removingGoal { Task { await removeGoal(id) } }
+                removingGoal = nil
+            }
+            Button("Cancel", role: .cancel) { removingGoal = nil }
+        }
+        .alert("BookMaster", isPresented: Binding(
+            get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(actionError ?? "")
+        }
     }
 
     private enum Push: String, Hashable { case wrapped }
@@ -90,6 +116,16 @@ struct BookMasterStatsView: View {
         }
         if let notice {
             Label(notice, systemImage: "checkmark.circle.fill")
+                .font(.footnote).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .bmCard()
+                .task(id: notice) {
+                    try? await Task.sleep(for: .seconds(6))
+                    if !Task.isCancelled { self.notice = nil }
+                }
+        }
+        if refreshFailed, overview != nil || stats != nil {
+            Label("Couldn’t refresh — showing the last numbers.", systemImage: "wifi.exclamationmark")
                 .font(.footnote).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .bmCard()
@@ -209,8 +245,10 @@ struct BookMasterStatsView: View {
                 Text("\(Int(goal.current)) of \(Int(goal.target ?? 0))")
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 if let id = goal.id {
-                    Button(role: .destructive) { Task { await removeGoal(id) } } label: {
+                    Button(role: .destructive) { removingGoal = id } label: {
                         Image(systemName: "trash").font(.caption)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -225,8 +263,9 @@ struct BookMasterStatsView: View {
         do {
             try await BookMaster.shared.removeGoal(id: id)
             overview?.goals.removeAll { $0.id == id }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
         } catch {
-            self.error = error.localizedDescription
+            actionError = error.localizedDescription
         }
     }
 
@@ -244,13 +283,14 @@ struct BookMasterStatsView: View {
                         .fill(cell.color)
                         .aspectRatio(1, contentMode: .fit)
                         .accessibilityLabel(cell.label)
+                        .accessibilityHidden(cell.label.isEmpty)
                 }
             }
         }
         .bmCard()
     }
 
-    /// One square per day ending today, Sunday-first — nil pages is a quiet day.
+    /// One square per day ending today, in week columns — nil pages is a quiet day.
     private struct HeatCell {
         let date: String
         let color: Color
@@ -258,12 +298,20 @@ struct BookMasterStatsView: View {
     }
 
     private static func cells(_ days: [BMActivityDay]) -> [HeatCell] {
-        let byDate = Dictionary(uniqueKeysWithValues: days.map { ($0.sessionDate, $0.pages ?? 0) })
+        let byDate = Dictionary(days.map { ($0.sessionDate, $0.pages ?? 0) }, uniquingKeysWith: +)
         let peak = max(days.map(\.pages).compactMap { $0 }.max() ?? 0, 1)
         var out: [HeatCell] = []
         let calendar = Calendar.current
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
+        // empty squares first, so the first column is the calendar's first weekday
+        if let first = calendar.date(byAdding: .day, value: -34, to: Date()) {
+            let pad = (calendar.component(.weekday, from: first) - calendar.firstWeekday + 7) % 7
+            for i in 0..<pad {
+                out.append(HeatCell(date: "pad\(i)", color: Color.clear, label: ""))
+            }
+        }
         for back in (0..<35).reversed() {
             guard let day = calendar.date(byAdding: .day, value: -back, to: Date()) else { continue }
             let key = formatter.string(from: day)
@@ -315,9 +363,10 @@ struct BookMasterStatsView: View {
                     Text("\(achievements.filter(\.earned).count) of \(achievements.count)")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                let ordered = achievements.filter(\.earned) + achievements.filter { !$0.earned }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()),
                                     GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    ForEach(achievements.prefix(8)) { badge in
+                    ForEach(allBadges ? ordered : Array(ordered.prefix(8))) { badge in
                         VStack(spacing: 4) {
                             Text(badge.icon ?? "🏆").font(.title2)
                             if !badge.earned, let progress = badge.progress, progress > 0 {
@@ -328,7 +377,12 @@ struct BookMasterStatsView: View {
                         .frame(maxWidth: .infinity)
                         .opacity(badge.earned ? 1 : 0.5)
                         .accessibilityLabel(badge.name ?? "Achievement")
+                        .accessibilityValue(badge.earned ? "Earned" : "Locked")
                     }
+                }
+                if achievements.count > 8 {
+                    Button(allBadges ? "Show fewer" : "Show all \(achievements.count)") { allBadges.toggle() }
+                        .font(.subheadline)
                 }
             }
             .bmCard()
@@ -410,7 +464,7 @@ struct BookMasterStatsView: View {
         do {
             try await BookMaster.shared.updateProfile(displayName: name)
         } catch {
-            self.error = error.localizedDescription
+            actionError = error.localizedDescription
         }
     }
 
@@ -423,7 +477,7 @@ struct BookMasterStatsView: View {
             try data.write(to: url)
             shareItem = ShareItem(url: url)
         } catch {
-            self.error = error.localizedDescription
+            actionError = error.localizedDescription
         }
     }
 
@@ -447,6 +501,7 @@ struct BookMasterStatsView: View {
         if let overview { self.overview = overview }
         if let stats { self.stats = stats }
         if let achievements { self.achievements = achievements }
+        refreshFailed = overview == nil || stats == nil || achievements == nil
         error = (overview == nil && stats == nil && self.overview == nil && self.stats == nil)
             ? "BookMaster can’t be reached right now." : nil
         loading = false

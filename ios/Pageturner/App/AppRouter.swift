@@ -37,6 +37,17 @@ final class AppRouter {
     var shelfTarget: ShelfTarget?
     var resumePrompt: ResumePrompt?
 
+    /// Close whatever sheet is up, so a request from outside lands on screen.
+    func dismissPresentations() {
+        detail = nil
+        editing = nil
+        shelfTarget = nil
+        showSettings = false
+        showLink = false
+        showImporter = false
+        resumePrompt = nil
+    }
+
     func openShelves(_ ids: [UUID]) { shelfTarget = ShelfTarget(bookIDs: ids) }
 
     func askDelete(_ books: [Book]) { pendingDelete = books }

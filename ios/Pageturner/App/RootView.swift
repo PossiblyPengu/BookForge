@@ -39,6 +39,7 @@ struct RootView: View {
         content
             .onChange(of: notifier.openTogether, initial: true) { _, open in
                 guard open else { return }
+                router.dismissPresentations()
                 router.tab = .together
                 notifier.openTogether = false
             }
@@ -54,6 +55,7 @@ struct RootView: View {
     }
 
     private func handle(_ request: IntentRouter.Request) {
+        router.dismissPresentations()
         switch request {
         case let .open(id):
             // a book that is gone still answers with its shelf, not with nothing
@@ -187,6 +189,9 @@ struct RootView: View {
                 Button(books.count == 1 ? "Remove from Library" : "Remove \(books.count) Books", role: .destructive) {
                     for book in books {
                         if playback.bookID == book.id { playback.stop() }
+                        if router.reading?.id == book.id { router.reading = nil }
+                        if router.detail?.id == book.id { router.detail = nil }
+                        if router.editing?.id == book.id { router.editing = nil }
                         library.delete(book)
                     }
                 }

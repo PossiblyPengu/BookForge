@@ -93,6 +93,12 @@ struct SettingsView: View {
             } footer: {
                 Text("New EPUB, PDF, CBZ and audio files that appear in the folder are added to your library whenever Pageturner opens.")
             }
+            .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
+                switch result {
+                case let .success(url): Task { await watcher.watch(url, library: library) }
+                case let .failure(error): message = error.localizedDescription
+                }
+            }
 
             Section {
                 Toggle("Show books in Spotlight", isOn: $spotlight)
@@ -120,6 +126,12 @@ struct SettingsView: View {
                     Label("Restore Backup…", systemImage: "square.and.arrow.down")
                 }
                 .disabled(backupBusy)
+            }
+            .fileImporter(isPresented: $showBackupImporter, allowedContentTypes: [.zip]) { result in
+                switch result {
+                case let .success(url): restoreBackup(url)
+                case let .failure(error): message = error.localizedDescription
+                }
             }
 
             Section {
@@ -151,14 +163,6 @@ struct SettingsView: View {
         }
         .onAppear { prevPlace = BookMaster.shared.place; BookMaster.shared.place = "settings" }
         .onDisappear { BookMaster.shared.place = prevPlace }
-        .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
-            if case let .success(url) = result {
-                Task { await watcher.watch(url, library: library) }
-            }
-        }
-        .fileImporter(isPresented: $showBackupImporter, allowedContentTypes: [.zip]) { result in
-            if case let .success(url) = result { restoreBackup(url) }
-        }
         .sheet(item: $shareItem) { ShareSheet(items: [$0.url]) }
         .alert("Backup", isPresented: Binding(
             get: { message != nil },

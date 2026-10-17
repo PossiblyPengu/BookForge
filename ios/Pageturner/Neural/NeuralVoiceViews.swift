@@ -14,12 +14,13 @@ struct SavedVoicesView: View {
     private let store = NeuralVoiceStore.shared
 
     var body: some View {
-        List {
+        Group {
             if store.installedVoices.isEmpty {
                 ContentUnavailableView(
                     "No Saved Voices", systemImage: "arrow.down.circle",
                     description: Text("Neural voices you download are kept here, so they work offline."))
             } else {
+                List {
                 Section {
                     ForEach(store.installedVoices) { voice in
                         VStack(alignment: .leading, spacing: 2) {
@@ -34,9 +35,11 @@ struct SavedVoicesView: View {
                             }
                         }
                         .accessibilityElement(children: .combine)
+                        .accessibilityAction(named: "Delete") { remove(voice) }
                     }
                 } footer: {
                     Text("\(NeuralVoiceSummary.text(for: store)) in all. Deleting a voice frees its space; you can download it again whenever you like. Swipe a voice to delete it.")
+                }
                 }
             }
         }

@@ -35,14 +35,41 @@ final class NeuralSynth: @unchecked Sendable {
 
     /// Speech for `text` in the voice at `directory` (see `NeuralVoiceFormat.install`) at its natural pace.
     func generate(text: String, directory: URL, info: NeuralVoiceFormat.Installed) async throws -> Audio {
-        try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                do {
-                    continuation.resume(returning: try self.run(text: text, directory: directory, info: info))
-                } catch {
-                    continuation.resume(throwing: error)
+        let cancelled = CancelFlag()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                queue.async {
+                    // abandoned while it waited its turn (a skip): don't spend the queue on it
+                    if cancelled.isSet {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                    do {
+                        continuation.resume(returning: try self.run(text: text, directory: directory, info: info))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
+        } onCancel: {
+            cancelled.set()
+        }
+    }
+
+    private final class CancelFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+
+        var isSet: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return value
+        }
+
+        func set() {
+            lock.lock()
+            value = true
+            lock.unlock()
         }
     }
 

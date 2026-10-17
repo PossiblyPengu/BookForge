@@ -300,13 +300,20 @@ final class NeuralDownloader: NSObject, URLSessionDownloadDelegate, @unchecked S
 
     private let lock = NSLock()
     private var jobs: [Int: Job] = [:]
+    /// Where an interrupted download got to, by URL, so a retry carries on instead of starting at 0%.
+    private var resumeData: [URL: Data] = [:]
+    private var jobURLs: [Int: URL] = [:]
     private lazy var session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
 
     func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
-        let task = session.downloadTask(with: url)
+        lock.lock()
+        let saved = resumeData.removeValue(forKey: url)
+        lock.unlock()
+        let task = saved.map { session.downloadTask(withResumeData: $0) } ?? session.downloadTask(with: url)
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 lock.lock()
+                jobURLs[task.taskIdentifier] = url
                 jobs[task.taskIdentifier] = Job(destination: destination, progress: progress, continuation: continuation)
                 lock.unlock()
                 task.resume()
@@ -333,7 +340,7 @@ final class NeuralDownloader: NSObject, URLSessionDownloadDelegate, @unchecked S
         lock.unlock()
         guard let destination else { return }
         var failure: Error?
-        if let code = (downloadTask.response as? HTTPURLResponse)?.statusCode, code != 200 {
+        if let code = (downloadTask.response as? HTTPURLResponse)?.statusCode, code != 200, code != 206 {
             failure = NeuralVoiceStore.Failure.server(code)
         } else {
             // the system deletes the file when this returns
@@ -352,6 +359,10 @@ final class NeuralDownloader: NSObject, URLSessionDownloadDelegate, @unchecked S
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         lock.lock()
         let job = jobs.removeValue(forKey: task.taskIdentifier)
+        let url = jobURLs.removeValue(forKey: task.taskIdentifier)
+        if let url, let data = ((error as NSError?)?.userInfo[NSURLSessionDownloadTaskResumeData]) as? Data {
+            resumeData[url] = data
+        }
         lock.unlock()
         guard let job else { return }
         if let error {

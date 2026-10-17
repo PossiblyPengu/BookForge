@@ -46,7 +46,8 @@ enum Log {
     static func install() {
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         lastRunEndedUncleanly = fm.fileExists(atPath: markerURL.path)
-        _ = fm.createFile(atPath: markerURL.path, contents: Data())
+        // the marker is made when a scene comes to the front (markForeground): a
+        // background launch for app refresh has no scene and never reaches .background
         if lastRunEndedUncleanly {
             event("lifecycle", "previous run ended without a background transition — crash or force-close")
         }
@@ -61,7 +62,7 @@ enum Log {
 
     /// The app left the screen: whatever happens next is a clean end.
     static func markBackground() {
-        queue.async { try? fm.removeItem(at: markerURL) }
+        queue.sync { try? fm.removeItem(at: markerURL) }
     }
 
     /// A normal log line.

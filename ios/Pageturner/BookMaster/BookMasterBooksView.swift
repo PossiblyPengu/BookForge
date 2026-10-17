@@ -18,6 +18,7 @@ struct BookMasterBooksView: View {
     @State private var pick: BMShelfRow?
     @State private var pushing: Push?
     @State private var error: String?
+    @State private var confirmRemove = false
 
     /// A destination the tab pushes — also the -PTDebugScreen names.
     enum Push: String, Identifiable {
@@ -135,6 +136,18 @@ struct BookMasterBooksView: View {
         // the stack, not the list: a pushed pane is still the Books tab
         .onAppear { BookMaster.shared.place = "bookmaster" }
         .onDisappear { BookMaster.shared.place = "library" }
+        .confirmationDialog("Remove \(selected.count) \(selected.count == 1 ? "book" : "books") from your shelf?",
+                            isPresented: $confirmRemove, titleVisibility: .visible) {
+            Button("Remove", role: .destructive) { bulkUnshelve() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Their sessions, quotes and comments go with them.")
+        }
+        .alert("BookMaster", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(error ?? "")
+        }
     }
 
     @ViewBuilder
@@ -303,11 +316,7 @@ struct BookMasterBooksView: View {
 
     private var shelfCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Picker("Show", selection: $filter) {
-                ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            filterChips
 
             if visible.isEmpty {
                 Text(query.isEmpty ? "Nothing in \(filter.rawValue.lowercased()) yet." : "Nothing matches “\(query)”.")
@@ -315,7 +324,7 @@ struct BookMasterBooksView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 20)
             } else {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 12)], spacing: 16) {
                     ForEach(visible) { row in
                         gridCell(row)
                     }
@@ -323,6 +332,28 @@ struct BookMasterBooksView: View {
             }
         }
         .bmCard()
+    }
+
+    /// The status filter as a row of chips that scrolls — six segments don't fit at large text.
+    private var filterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Filter.allCases) { item in
+                    let on = filter == item
+                    Button { filter = item } label: {
+                        Text(item.rawValue)
+                            .font(.subheadline.weight(.medium))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .foregroundStyle(on ? Color.white : Color.primary)
+                            .background(on ? Color.ptAccent : Color(.tertiarySystemFill), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(on ? .isSelected : [])
+                }
+            }
+        }
+        .ptSoftScrollEdges()
     }
 
     private func gridCell(_ row: BMShelfRow) -> some View {
@@ -367,6 +398,7 @@ struct BookMasterBooksView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selecting && selected.contains(row.userBookId) ? .isSelected : [])
     }
 
     // MARK: Destinations
@@ -451,7 +483,7 @@ struct BookMasterBooksView: View {
             barButton("To read", "bookmark") { bulk(status: "want_to_read") }
             barButton("Reading", "book") { bulk(status: "reading") }
             barButton("Finished", "checkmark") { bulk(status: "read") }
-            barButton("Remove", "trash") { bulkUnshelve() }
+            barButton("Remove", "trash") { confirmRemove = true }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -473,26 +505,35 @@ struct BookMasterBooksView: View {
     }
 
     private func bulk(status: String) {
-        let pins = Array(selected)
-        Task {
-            for pin in pins {
-                do { _ = try await BookMaster.shared.shelve(pin: pin, status: BMShelfStatus(rawValue: status)) }
-                catch { self.error = error.localizedDescription }
-            }
-            selecting = false
-            selected = []
+        runBulk { pin in
+            _ = try await BookMaster.shared.shelve(pin: pin, status: BMShelfStatus(rawValue: status))
         }
     }
 
     private func bulkUnshelve() {
+        runBulk { pin in
+            _ = try await BookMaster.shared.shelve(pin: pin, unshelve: true)
+        }
+    }
+
+    /// One request per pick, in turn. When some fail, only those stay selected so the batch can be retried.
+    private func runBulk(_ op: @escaping (String) async throws -> Void) {
         let pins = Array(selected)
         Task {
+            var failed: [String] = []
+            var reason = ""
             for pin in pins {
-                do { _ = try await BookMaster.shared.shelve(pin: pin, unshelve: true) }
-                catch { self.error = error.localizedDescription }
+                do { try await op(pin) }
+                catch { failed.append(pin); reason = error.localizedDescription }
             }
-            selecting = false
-            selected = []
+            if failed.isEmpty {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                selecting = false
+                selected = []
+            } else {
+                selected = Set(failed)
+                self.error = "\(failed.count) of \(pins.count) failed. \(reason)"
+            }
         }
     }
 

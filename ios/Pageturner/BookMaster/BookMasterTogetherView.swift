@@ -12,6 +12,10 @@ struct BookMasterTogetherView: View {
     @State private var overview: BMOverview?
     @State private var error: String?
     @State private var loading = true
+    /// Suggestion ids with a reply in flight — both buttons wait for it.
+    @State private var answering: Set<String> = []
+    /// The last refresh missed while older data is still on screen.
+    @State private var refreshFailed = false
 
     var body: some View {
         NavigationStack {
@@ -86,6 +90,12 @@ struct BookMasterTogetherView: View {
         }
         if loading, together == nil {
             ProgressView().frame(maxWidth: .infinity).padding(.vertical, 30)
+        }
+        if refreshFailed, together != nil {
+            Label("Couldn’t refresh — showing the last data.", systemImage: "wifi.exclamationmark")
+                .font(.footnote).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .bmCard()
         }
         if let error {
             Label(error, systemImage: "wifi.exclamationmark")
@@ -191,8 +201,10 @@ struct BookMasterTogetherView: View {
                                 .buttonStyle(.borderedProminent)
                             Button("Dismiss") { Task { await answer(nudge, accept: false) } }
                                 .buttonStyle(.bordered)
+                            if answering.contains(nudge.id) { ProgressView() }
                         }
                         .controlSize(.small)
+                        .disabled(answering.contains(nudge.id))
                         .padding(.top, 4)
                     }
                 }
@@ -259,13 +271,18 @@ struct BookMasterTogetherView: View {
                 HStack {
                     Text(label).font(.subheadline).foregroundStyle(.secondary)
                     Spacer()
-                    Text(Self.fmt(m)).font(.subheadline.weight(.semibold)).monospacedDigit()
+                    Text((m > t ? "▲ " : "") + Self.fmt(m)).font(.subheadline.weight(.semibold)).monospacedDigit()
                         .foregroundStyle(m > t ? Color.ptAccent : .primary)
+                        .lineLimit(1).minimumScaleFactor(0.6)
                         .frame(width: 64, alignment: .trailing)
-                    Text(Self.fmt(t)).font(.subheadline.weight(.semibold)).monospacedDigit()
+                    Text((t > m ? "▲ " : "") + Self.fmt(t)).font(.subheadline.weight(.semibold)).monospacedDigit()
                         .foregroundStyle(t > m ? Color.ptAccent : .primary)
+                        .lineLimit(1).minimumScaleFactor(0.6)
                         .frame(width: 64, alignment: .trailing)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
+                .accessibilityValue("You \(Self.fmt(m)), \(partnerShelf?.partner?.name ?? "them") \(Self.fmt(t))")
             }
         }
         .bmCard()
@@ -296,6 +313,7 @@ struct BookMasterTogetherView: View {
                         Circle()
                             .fill(online ? Color.green : Color.secondary.opacity(0.4))
                             .frame(width: 10, height: 10)
+                            .accessibilityLabel(online ? "Online" : "Offline")
                         Text(name).font(.headline)
                     }
                     if let level {
@@ -510,6 +528,7 @@ struct BookMasterTogetherView: View {
         if let partnerShelf { self.partnerShelf = partnerShelf }
         if let stats { self.stats = stats }
         if let overview { self.overview = overview }
+        refreshFailed = together == nil || partnerShelf == nil || stats == nil || overview == nil
         error = (together == nil && self.together == nil)
             ? "BookMaster can’t be reached right now." : nil
         loading = false
@@ -521,8 +540,11 @@ struct BookMasterTogetherView: View {
     }
 
     private func answer(_ nudge: BMNudge, accept: Bool) async {
+        guard answering.insert(nudge.id).inserted else { return }
+        defer { answering.remove(nudge.id) }
         do {
             try await BookMaster.shared.answerNudge(id: nudge.id, accept: accept)
+            error = nil
             together?.nudges.removeAll { $0.id == nudge.id }
             if let together { Notifier.shared.noteSeen(together) }
         } catch {

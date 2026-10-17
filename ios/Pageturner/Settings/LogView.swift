@@ -15,6 +15,7 @@ struct LogView: View {
                 .textSelection(.enabled)
                 .padding()
         }
+        .defaultScrollAnchor(.bottom)
         .navigationTitle("Log")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -22,6 +23,11 @@ struct LogView: View {
                 Button(copied ? "Copied" : "Copy") {
                     UIPasteboard.general.string = text
                     copied = true
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    Task {
+                        try? await Task.sleep(for: .seconds(2))
+                        copied = false
+                    }
                 }
             }
         }

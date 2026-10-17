@@ -64,6 +64,33 @@ enum BMShelf {
     /// ("Dune (Dune Chronicles, #1)" files as "Dune"), and the part ahead of a
     /// subtitle marker.
     static func titleForms(_ s: String) -> Set<String> {
+        if let hit = formsMemo.get(s) { return hit }
+        let forms = computeTitleForms(s)
+        formsMemo.set(s, forms)
+        return forms
+    }
+
+    /// `titleForms` is pure and `match` asks for the same few thousand titles over and over (every
+    /// book against every row), so the answers are remembered. Capped so it cannot grow without end.
+    private final class FormsMemo: @unchecked Sendable {
+        private let lock = NSLock()
+        private var table: [String: Set<String>] = [:]
+
+        func get(_ key: String) -> Set<String>? {
+            lock.lock(); defer { lock.unlock() }
+            return table[key]
+        }
+
+        func set(_ key: String, _ value: Set<String>) {
+            lock.lock(); defer { lock.unlock() }
+            if table.count >= 8_000 { table.removeAll(keepingCapacity: true) }
+            table[key] = value
+        }
+    }
+
+    private static let formsMemo = FormsMemo()
+
+    private static func computeTitleForms(_ s: String) -> Set<String> {
         var forms: Set<String> = [fold(s), fold(stripBrackets(s))]
         func head(_ t: String) -> String {
             var h = t

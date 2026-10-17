@@ -55,6 +55,8 @@ final class NeuralTTSEngine: TTSEngine {
     /// …and the one that was said last, so that picking up after a pause (which starts the sentence
     /// again) doesn't make it twice.
     @MainActor private var recent: (key: String, audio: NeuralSynth.Audio)?
+    /// Bumped by `reset`, so a lookahead still in flight can tell it is stale.
+    @MainActor private var generation = 0
 
     init(index: NeuralVoiceIndex) {
         self.index = index
@@ -114,6 +116,8 @@ final class NeuralTTSEngine: TTSEngine {
             }
             return played ? .success(()) : .failure(.other(Failure.playback))
         } catch {
+            // cancelled while the sentence was being made: a pause or skip, not a failure
+            if Task.isCancelled || error is CancellationError { return .success(()) }
             return .failure(.other(error))
         }
     }
@@ -141,6 +145,8 @@ final class NeuralTTSEngine: TTSEngine {
     /// Forget what was made ahead (read-aloud has stopped).
     @MainActor
     func reset() {
+        generation += 1
+        made.values.forEach { $0.cancel() }
         made.removeAll()
         recent = nil
     }
@@ -181,6 +187,7 @@ final class NeuralTTSEngine: TTSEngine {
     @MainActor
     private func makeNext(after text: String, entry: NeuralVoiceIndex.Entry) {
         guard let upcoming else { return }
+        let started = generation
         Task { @MainActor [weak self] in
             guard let next = await upcoming(text) else {
                 Self.log("no next sentence found")
@@ -191,7 +198,8 @@ final class NeuralTTSEngine: TTSEngine {
             if let other = next.language?.code.bcp47,
                SpeechVoices.baseLanguage(other) != SpeechVoices.baseLanguage(entry.voice.language)
             { return }
-            self?.make(next.text, entry: entry)
+            guard let self, self.generation == started else { return }
+            self.make(next.text, entry: entry)
         }
     }
 
@@ -200,7 +208,10 @@ final class NeuralTTSEngine: TTSEngine {
         let key = Self.key(text, entry)
         guard made[key] == nil else { return }
         // a skip leaves sentences behind that nobody will ask for
-        if made.count >= 2 { made.removeAll() }
+        if made.count >= 2 {
+            made.values.forEach { $0.cancel() }
+            made.removeAll()
+        }
         made[key] = Task {
             try await NeuralSynth.shared.generate(text: text, directory: entry.directory, info: entry.info)
         }

@@ -2,6 +2,9 @@ import CoreImage
 import SwiftUI
 import UIKit
 
+/// One context for every cover: creating a CIContext is the expensive part.
+private let coverTintContext = CIContext(options: [.workingColorSpace: NSNull()])
+
 extension UIImage {
     /// The average colour of the image, for tinting a backdrop to match a cover.
     /// Nil when it can't be worked out; callers fall back to the accent.
@@ -16,8 +19,7 @@ extension UIImage {
               let output = filter.outputImage
         else { return nil }
         var pixel = [UInt8](repeating: 0, count: 4)
-        let context = CIContext(options: [.workingColorSpace: NSNull()])
-        context.render(
+        coverTintContext.render(
             output, toBitmap: &pixel, rowBytes: 4,
             bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
             format: .RGBA8, colorSpace: nil)

@@ -51,19 +51,14 @@ struct PageturnerApp: App {
                     default: break
                     }
                 }
-                // runs while the app is in front: say hello first (the slow work
-                // below must not delay it), then beat sparsely — BookMaster counts
-                // you as here for two minutes after a beat, and a missed one gets
-                // a single retry so a dropped request never gaps the window
-                .task(id: scenePhase) {
-                    guard scenePhase == .active else { return }
+                // The heartbeat has its own task so the slow work below never delays
+                // it: BookMaster counts you as here for two minutes after a beat, and
+                // a missed one gets a single retry so a dropped request never gaps the
+                // window. Keyed on "not in the background", so a brief .inactive
+                // (Control Center, an alert) does not cancel and restart anything.
+                .task(id: scenePhase != .background) {
+                    guard scenePhase != .background else { return }
                     await BookMaster.shared.beat()
-                    await BookMaster.shared.flush()
-                    await FolderWatcher.shared.scan(library: library)
-                    await BookMaster.shared.pullShelf(into: library)
-                    await BookMaster.shared.pushCovers(from: library)
-                    await Notifier.shared.refresh(notify: false)
-                    SpotlightIndexer.shared.libraryChanged(library)
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(LowPower.on ? 120 : 90))
                         guard !Task.isCancelled else { return }
@@ -73,6 +68,16 @@ struct PageturnerApp: App {
                             await BookMaster.shared.beat()
                         }
                     }
+                }
+                // the one-off sync on coming to the front
+                .task(id: scenePhase != .background) {
+                    guard scenePhase != .background else { return }
+                    await BookMaster.shared.flush()
+                    await FolderWatcher.shared.scan(library: library)
+                    await BookMaster.shared.pullShelf(into: library)
+                    await BookMaster.shared.pushCovers(from: library)
+                    await Notifier.shared.refresh(notify: false)
+                    SpotlightIndexer.shared.libraryChanged(library)
                 }
         }
         // iOS's own background refresh (a scene modifier): look for new
