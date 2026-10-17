@@ -269,6 +269,31 @@ func runLogic() {
     let legacy = try? JSONDecoder().decode([Book].self, from: Data(old.utf8))
     check("a highlight from before colours decodes (no colour, no note)", legacy?.first?.highlights.first?.color == nil && legacy?.first?.highlights.first?.note == nil && legacy?.first?.highlights.first?.text == "old")
     check("…with its early-build date repaired", abs((legacy?.first?.highlights.first?.createdAt.timeIntervalSince(made)) ?? 9e9) < 2)
+    check("…and was never sent to BookMaster as a quote", legacy?.first?.highlights.first?.quoted == nil)
+    var sentOne = Highlight(locatorJSON: "{}", text: "a line")
+    sentOne.quoted = true
+    let sentRound = try? JSONDecoder().decode([Highlight].self, from: JSONEncoder().encode([sentOne]))
+    check("a saved word is the selection without its edge punctuation",
+          SavedWord.clean("  “Sullen,” ") == "Sullen" && SavedWord.clean("\n ephemeral \n") == "ephemeral"
+          && SavedWord.clean("don’t") == "don’t" && SavedWord.clean("well-known") == "well-known")
+    check("…or a short phrase, but never a sentence or nothing",
+          SavedWord.clean("a b c d") == "a b c d" && SavedWord.clean("one two three four five") == nil
+          && SavedWord.clean("") == nil && SavedWord.clean(" “ ” ") == nil && SavedWord.clean(String(repeating: "x", count: 60)) == nil)
+    check("the line around a word is kept whole",
+          SavedWord.context(before: "The weather had turned ", word: "sullen", after: " and grey.") == "The weather had turned sullen and grey.")
+    check("…nothing around it, nothing kept", SavedWord.context(before: nil, word: "sullen", after: nil) == nil
+          && SavedWord.context(before: " ", word: "sullen", after: "\n") == nil)
+    let long = String(repeating: "lorem ipsum ", count: 20) + "the weather had turned "
+    let cut = SavedWord.context(before: long, word: "sullen", after: " and grey and cold and wet and windy for days on end without a break in it", reach: 20)
+    check("…cut on word edges, with an ellipsis where it was cut", cut == "…weather had turned sullen and grey and cold…", cut ?? "nil")
+    check("a quote mark stays against the word it opens", SavedWord.context(before: "He said “", word: "sullen", after: "” and left.") == "He said “sullen” and left.")
+    var withWords = Book(id: UUID(), title: "T", author: "A", fileName: "x.epub", fileNames: ["x.epub"], addedAt: Date())
+    withWords.words = [SavedWord(word: "sullen", context: "turned sullen and grey", chapter: "One")]
+    let wordsRound = try? JSONDecoder().decode(Book.self, from: JSONEncoder().encode(withWords))
+    check("saved words survive the library file, and an older book has none",
+          wordsRound?.words.first?.word == "sullen" && wordsRound?.words.first?.context == "turned sullen and grey"
+          && (try? JSONDecoder().decode([Book].self, from: Data(old.utf8)))?.first?.words.isEmpty == true)
+    check("a highlight remembers it was sent as a quote", sentRound?.first?.quoted == true && Highlight(locatorJSON: "{}", text: "x").quoted == nil)
 }
 
 

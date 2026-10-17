@@ -131,6 +131,10 @@ final class ReaderModel: ObservableObject {
                         title: "Highlight",
                         action: #selector(ReaderContainerViewController.highlightSelection)
                     ),
+                    EditingAction(
+                        title: "Save Word",
+                        action: #selector(ReaderContainerViewController.saveWordSelection)
+                    ),
                 ]
                 if BookMaster.shared.isLinked {
                     actions.append(EditingAction(
@@ -151,6 +155,7 @@ final class ReaderModel: ObservableObject {
                 install(navigator: nav, controller: nav)
             } else if publication.conforms(to: .pdf) {
                 var actions = EditingAction.defaultActions
+                actions.append(EditingAction(title: "Save Word", action: #selector(ReaderContainerViewController.saveWordSelection)))
                 if BookMaster.shared.isLinked {
                     actions.append(EditingAction(title: "Quote", action: #selector(ReaderContainerViewController.quoteSelection)))
                 }
@@ -210,6 +215,7 @@ final class ReaderModel: ObservableObject {
         let container = ReaderContainerViewController(contentController: controller)
         container.onHighlightSelection = { [weak self] in self?.highlightSelection() }
         container.onQuoteSelection = { [weak self] in self?.quoteSelection() }
+        container.onSaveWordSelection = { [weak self] in self?.saveWordSelection() }
         navigatorController = container
 
         // which side of the page was tapped, for the way a page turn leaves (the adapter's own callback has no side)
@@ -714,6 +720,30 @@ final class ReaderModel: ObservableObject {
         }
     }
 
+    /// "Save Word" in the selection menu — the word and the line around it, kept with the book.
+    private func saveWordSelection() {
+        guard let selectable = navigator as? SelectableNavigator,
+              let selection = selectable.currentSelection
+        else { return }
+        let text = selection.locator.text
+        selectable.clearSelection()
+        guard let word = SavedWord.clean(text.highlight ?? "") else {
+            notice = "Select a word or a short phrase to save"
+            return
+        }
+        if book.words.contains(where: { $0.word.localizedCaseInsensitiveCompare(word) == .orderedSame }) {
+            notice = "“\(word)” is already saved"
+            return
+        }
+        book.words.append(SavedWord(
+            word: word,
+            context: SavedWord.context(before: text.before, word: word, after: text.after),
+            chapter: chapterTitle(for: selection.locator)
+        ))
+        flushSave()
+        notice = "Saved “\(word)”"
+    }
+
     /// "Highlight" in the selection menu — stores the locator, notes where in the
     /// book it was, and repaints.
     private func highlightSelection() {
@@ -721,14 +751,34 @@ final class ReaderModel: ObservableObject {
               let selection = selectable.currentSelection,
               let json = try? selection.locator.jsonString()
         else { return }
-        book.highlights.append(Highlight(
+        let made = Highlight(
             locatorJSON: json,
             text: selection.locator.text.highlight ?? "",
             chapter: chapterTitle(for: selection.locator),
             progression: selection.locator.locations.totalProgression
-        ))
+        )
+        book.highlights.append(made)
         applyHighlights()
         selectable.clearSelection()
+        flushSave()
+        autoQuote(made)
+    }
+
+    /// With "Send new highlights as quotes" on, a new highlight goes to BookMaster as well — once. A passage
+    /// that could not be sent stays unmarked, so it is not mistaken for sent.
+    private func autoQuote(_ highlight: Highlight) {
+        let text = highlight.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard AppPrefs.quotesAutoSend, BookMaster.shared.isLinked, !text.isEmpty else { return }
+        let ref = book.bookMasterRef
+        Task {
+            let result = await BookMaster.shared.postQuote(ref: ref, content: text, percent: highlight.progression)
+            if result != .failed { markQuoted(highlight.id) }
+        }
+    }
+
+    private func markQuoted(_ id: UUID) {
+        guard let i = book.highlights.firstIndex(where: { $0.id == id }) else { return }
+        book.highlights[i].quoted = true
         flushSave()
     }
 
@@ -769,7 +819,9 @@ final class ReaderModel: ObservableObject {
     func quoteHighlight(_ highlight: Highlight) async -> BookMaster.QuoteDelivery? {
         let text = highlight.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
-        return await BookMaster.shared.postQuote(ref: book.bookMasterRef, content: text, percent: highlight.progression)
+        let result = await BookMaster.shared.postQuote(ref: book.bookMasterRef, content: text, percent: highlight.progression)
+        if result != .failed { markQuoted(highlight.id) }
+        return result
     }
 
     /// The book's highlights and notes as Markdown.

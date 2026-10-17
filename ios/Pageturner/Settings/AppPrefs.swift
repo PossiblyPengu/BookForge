@@ -64,6 +64,9 @@ enum AppPrefs {
     static var audioVoiceBoost: Bool { defaults.object(forKey: "audio-voice-boost") as? Bool ?? false }
     static var audioTrimSilence: Bool { defaults.object(forKey: "audio-trim-silence") as? Bool ?? false }
 
+    /// Whether a new highlight is also sent to BookMaster as a quote. Off until asked for: quotes are shared.
+    static var quotesAutoSend: Bool { defaults.object(forKey: "bm-quotes-auto") as? Bool ?? false }
+
     /// Whether read-aloud passes over a line that is only a page number.
     static var speechSkipsPageNumbers: Bool { enabled("speech-skip-page-numbers") }
 

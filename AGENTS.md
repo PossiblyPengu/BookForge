@@ -189,5 +189,10 @@ list and `ios/DESIGN.md` for the Liquid Glass design rules.
 - Online catalogues (`Library/OPDSFeed.swift` parses, Linux-checked; `OPDSBrowser.swift` browses and downloads through the
   normal importer; passwords in the Keychain). Plain http is allowed only on the local network (Info.plist).
 - `OpenAt` (`Library/HighlightsHub.swift`) carries a one-shot "open at this place" from the hub to the reader.
+- Trends (`ReadingTrends` in `Library/ReadingStats.swift`, Linux-checked): weekly totals and the finish-date forecast, which
+  spreads what a book gained over the days since its first sitting in the last three weeks (days off count against the pace).
+- Saved words (`SavedWord` in the Book model region, `Library/SavedWordsView.swift`): "Save Word" in the selection menu keeps
+  the word and a line of context on the book; the list opens iOS's dictionary. `Highlight.quoted` stops "Send new highlights
+  as quotes" (off by default) from posting one twice.
 - Not built, on purpose: a Home Screen widget (app extension + App Group, which free-Apple-ID signing
   doesn't reliably provide) and CarPlay (entitlement).

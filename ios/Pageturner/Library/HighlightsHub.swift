@@ -49,6 +49,15 @@ struct HighlightsHubView: View {
     var body: some View {
         NavigationStack {
             List {
+                if query.isEmpty, color == nil, library.books.contains(where: { !$0.words.isEmpty }) {
+                    Section {
+                        NavigationLink {
+                            SavedWordsView()
+                        } label: {
+                            Label("Saved Words", systemImage: "character.book.closed")
+                        }
+                    }
+                }
                 if query.isEmpty, color == nil, let item = revisit {
                     Section {
                         row(item, large: true)

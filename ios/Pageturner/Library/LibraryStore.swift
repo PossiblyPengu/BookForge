@@ -128,9 +128,65 @@ struct Book: Identifiable, Codable, Hashable {
     var audioRate: Double?
     /// Places marked in an audiobook, with an optional note.
     var audioClips: [AudioClip] = []
+    /// Words and phrases saved from the book to look up later.
+    var words: [SavedWord] = []
 
     var ext: String { fileName.split(separator: ".").last.map(String.init)?.lowercased() ?? "" }
     var isAudio: Bool { Self.audioExtensions.contains(ext) }
+}
+
+/// A word or short phrase saved from a book, with the line it was found in.
+struct SavedWord: Identifiable, Codable, Hashable {
+    let id: UUID
+    var word: String
+    /// A little of the text either side of it, cut at word edges.
+    var context: String?
+    var chapter: String?
+    var createdAt: Date
+
+    init(id: UUID = UUID(), word: String, context: String? = nil, chapter: String? = nil, createdAt: Date = Date()) {
+        self.id = id
+        self.word = word
+        self.context = context
+        self.chapter = chapter
+        self.createdAt = createdAt
+    }
+
+    /// A selection tidied into a word: spaces collapsed, quotes and stops at the edges dropped (the ones inside, as
+    /// in "don't", stay). Nil when nothing is left or it is longer than a short phrase — a sentence is a highlight.
+    static func clean(_ selection: String) -> String? {
+        let edge = CharacterSet.punctuationCharacters.union(.symbols).union(.whitespacesAndNewlines)
+        let trimmed = selection.trimmingCharacters(in: edge)
+        let parts = trimmed.split(whereSeparator: \.isWhitespace)
+        guard !parts.isEmpty, parts.count <= 4 else { return nil }
+        let word = parts.joined(separator: " ")
+        return word.count <= 48 ? word : nil
+    }
+
+    /// "…the weather had turned sullen and grey…": up to `reach` characters either side, started and ended on whole
+    /// words, with an ellipsis only where text was cut. Nil when there is nothing around the word.
+    static func context(before: String?, word: String, after: String?, reach: Int = 60) -> String? {
+        func collapse(_ s: String) -> String { s.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        let head = collapse(before ?? ""), tail = collapse(after ?? "")
+        guard !head.isEmpty || !tail.isEmpty else { return nil }
+
+        // when text was cut, the partial word at the cut goes with it
+        var lead = String(head.suffix(reach))
+        let cutLead = head.count > reach
+        if cutLead { lead = lead.firstIndex(of: " ").map { String(lead[lead.index(after: $0)...]) } ?? "" }
+        var rest = String(tail.prefix(reach))
+        let cutRest = tail.count > reach
+        if cutRest { rest = rest.lastIndex(of: " ").map { String(rest[..<$0]) } ?? "" }
+
+        // a space joins the word to its neighbours only where the page had one (not after an opening quote)
+        let spaceBefore = before?.last?.isWhitespace ?? true
+        let spaceAfter = after?.first?.isWhitespace ?? true
+        return (cutLead ? "…" : "")
+            + (lead.isEmpty ? "" : lead + (spaceBefore ? " " : ""))
+            + word
+            + (rest.isEmpty ? "" : (spaceAfter ? " " : "") + rest)
+            + (cutRest ? "…" : "")
+    }
 }
 
 struct Highlight: Identifiable, Codable, Hashable {
@@ -149,10 +205,13 @@ struct Highlight: Identifiable, Codable, Hashable {
     /// was made — for the export, and to list highlights in reading order.
     var chapter: String?
     var progression: Double?
+    /// Whether it has been sent to BookMaster as a quote — so "send new highlights" never sends one twice.
+    var quoted: Bool?
 
     init(
         id: UUID = UUID(), locatorJSON: String, text: String, createdAt: Date = Date(),
-        color: String? = nil, note: String? = nil, chapter: String? = nil, progression: Double? = nil
+        color: String? = nil, note: String? = nil, chapter: String? = nil, progression: Double? = nil,
+        quoted: Bool? = nil
     ) {
         self.id = id
         self.locatorJSON = locatorJSON
@@ -162,6 +221,7 @@ struct Highlight: Identifiable, Codable, Hashable {
         self.note = note
         self.chapter = chapter
         self.progression = progression
+        self.quoted = quoted
     }
 }
 
@@ -189,6 +249,7 @@ extension Highlight {
         note = try c.decodeIfPresent(String.self, forKey: .note)
         chapter = try c.decodeIfPresent(String.self, forKey: .chapter)
         progression = try c.decodeIfPresent(Double.self, forKey: .progression)
+        quoted = try c.decodeIfPresent(Bool.self, forKey: .quoted)
     }
 }
 
@@ -229,6 +290,7 @@ extension Book {
         seriesIndex = try c.decodeIfPresent(Double.self, forKey: .seriesIndex)
         audioRate = try c.decodeIfPresent(Double.self, forKey: .audioRate)
         audioClips = (try? c.decodeIfPresent([AudioClip].self, forKey: .audioClips)) ?? []
+        words = (try? c.decodeIfPresent([SavedWord].self, forKey: .words)) ?? []
     }
 
     /// How a BookMaster push names this book.
@@ -1044,6 +1106,8 @@ final class LibraryStore: ObservableObject {
                 let bookmarked = Set(b.bookmarks.map(\.locatorJSON))
                 b.bookmarks += o.bookmarks.filter { !bookmarked.contains($0.locatorJSON) }
                 for name in o.collections where !b.collections.contains(name) { b.collections.append(name) }
+                let saved = Set(b.words.map { $0.word.lowercased() })
+                b.words += o.words.filter { !saved.contains($0.word.lowercased()) }
                 if (o.progression ?? 0) > (b.progression ?? 0) {
                     b.progression = o.progression
                     b.locatorJSON = o.locatorJSON

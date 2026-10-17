@@ -8,6 +8,7 @@ import UIKit
 final class ReaderContainerViewController: UIViewController {
     var onHighlightSelection: (() -> Void)?
     var onQuoteSelection: (() -> Void)?
+    var onSaveWordSelection: (() -> Void)?
 
     private let contentController: UIViewController
 
@@ -128,6 +129,11 @@ final class ReaderContainerViewController: UIViewController {
     /// "Quote" item — sends the selection to BookMaster as a quote.
     @objc func quoteSelection() {
         onQuoteSelection?()
+    }
+
+    /// "Save Word" item — keeps the selected word, with its line, in the book's word list.
+    @objc func saveWordSelection() {
+        onSaveWordSelection?()
     }
 
     // MARK: Page curl — the leaf that follows the finger

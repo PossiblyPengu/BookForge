@@ -132,12 +132,12 @@ struct HighlightEditorSheet: View {
                             }
                         } label: {
                             HStack {
-                                Text("Send to BookMaster as a Quote")
+                                Text(highlight.quoted == true ? "Sent to BookMaster as a Quote" : "Send to BookMaster as a Quote")
                                 if sending { Spacer(); ProgressView() }
                             }
                         }
                         // once it is sent or parked for later, a second tap would post it again
-                        .disabled(sending || delivery == .sent || delivery == .queued)
+                        .disabled(sending || highlight.quoted == true || delivery == .sent || delivery == .queued)
                     }
                     Button("Delete Highlight", role: .destructive) {
                         if note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

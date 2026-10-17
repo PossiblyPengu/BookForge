@@ -7,6 +7,7 @@ struct BookMasterSection: View {
     @AppStorage("bm-covers") private var sendCovers = true
     @AppStorage("bm-resume-ask") private var resumeAsk = true
     @AppStorage("bm-badge") private var showBadge = true
+    @AppStorage("bm-quotes-auto") private var quotesAuto = false
     @State private var working = false
     @State private var error: String?
     @State private var showLink = false
@@ -31,6 +32,12 @@ struct BookMasterSection: View {
                         .foregroundStyle(.secondary)
                     Toggle("Tell the other reader where I am", isOn: $sharePlace)
                     Toggle("Send my covers", isOn: $sendCovers)
+                    Toggle("Send new highlights as quotes", isOn: $quotesAuto)
+                    if quotesAuto {
+                        Text("Each passage you highlight is also saved to BookMaster as a quote, once. Quotes are visible to the other reader.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     Toggle("Ask to jump to BookMaster’s place", isOn: $resumeAsk)
                     Toggle("Notify me about suggestions", isOn: Binding(
                         get: { notifier.enabled },
