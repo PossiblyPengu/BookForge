@@ -15,6 +15,7 @@ struct BookDetailSheet: View {
     @State private var showNotes = false
     @State private var tint: Color = .ptAccent
     @State private var descriptionExpanded = false
+    @State private var confirmRestart = false
 
     private var isFinished: Bool { (book.progression ?? 0) >= 0.995 }
 
@@ -90,7 +91,7 @@ struct BookDetailSheet: View {
                     }
                 }
                 Section {
-                    LabeledContent("File", value: book.fileName)
+                    LabeledContent("Format", value: book.ext.uppercased())
                     if let year = book.year { LabeledContent("Year", value: year) }
                     if let isbn = book.isbn { LabeledContent("ISBN", value: isbn) }
                     LabeledContent("Added", value: book.addedAt.formatted(date: .abbreviated, time: .omitted))
@@ -120,6 +121,9 @@ struct BookDetailSheet: View {
                                 } label: {
                                     Image(systemName: n <= (picked ?? book.bmRating ?? 0) ? "star.fill" : "star")
                                         .foregroundStyle(Color.ptAccent)
+                                        .font(.title3)
+                                        .frame(minWidth: 36, minHeight: 44)
+                                        .contentShape(Rectangle())
                                         .ptSymbolSwap(on: picked)
                                 }
                                 .buttonStyle(.borderless)
@@ -144,7 +148,12 @@ struct BookDetailSheet: View {
                         Button(book.isAudio ? "Mark as Listened" : "Mark as Finished", action: onFinish)
                     }
                     if (book.progression ?? 0) > 0 {
-                        Button(book.isAudio ? "Listen from the Beginning" : "Start from the Beginning", action: onRestart)
+                        Button(book.isAudio ? "Listen from the Beginning" : "Start from the Beginning") { confirmRestart = true }
+                            .confirmationDialog("Start over?", isPresented: $confirmRestart, titleVisibility: .visible) {
+                                Button(book.isAudio ? "Listen from the Beginning" : "Start from the Beginning", role: .destructive, action: onRestart)
+                            } message: {
+                                Text("Your place in this book is forgotten.")
+                            }
                     }
                     Button(book.collections.isEmpty ? "Add to a Shelf…" : "Shelves: \(book.collections.joined(separator: ", "))", action: onShelves)
                     Button("Edit Details", action: onEdit)

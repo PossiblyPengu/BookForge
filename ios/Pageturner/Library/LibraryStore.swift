@@ -399,6 +399,12 @@ final class LibraryStore: ObservableObject {
             guard !batch.isEmpty else { return }
             var failures: [String] = []
             await importBatch(batch, failures: &failures, inArchive: false)
+            // files delivered to Documents/Inbox (AirDrop, Mail, "Open in") are copies the app made its own of
+            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let inbox = docs.appendingPathComponent("Inbox").resolvingSymlinksInPath().path + "/"
+            for url in batch where url.resolvingSymlinksInPath().path.hasPrefix(inbox) {
+                try? fm.removeItem(at: url)
+            }
             for root in scopedRoots { root.stopAccessingSecurityScopedResource() }
             scopedRoots = []
             if !failures.isEmpty {
@@ -596,7 +602,8 @@ final class LibraryStore: ObservableObject {
         }()
         // a dump folder ("Downloads", the share sheet's "Inbox") names where
         // files sat, not the book — only a folder the reader named counts
-        let dirTitle = !leaf.isEmpty && !Self.dumpFolders.contains(leaf.lowercased()) ? leaf : nil
+        // A lone file in a folder is probably one of several in a shared folder: its own name says more.
+        let dirTitle = sorted.count > 1 && !leaf.isEmpty && !Self.dumpFolders.contains(leaf.lowercased()) ? leaf : nil
         if let album = meta(.commonKeyAlbumName)?.stringValue, !album.isEmpty {
             book.title = album
         } else if let dirTitle {
@@ -893,9 +900,10 @@ final class LibraryStore: ObservableObject {
         var list = books
         let q = query.trimmingCharacters(in: .whitespaces)
         if !q.isEmpty {
-            list = list.filter {
-                $0.title.localizedCaseInsensitiveContains(q)
-                    || $0.author.localizedCaseInsensitiveContains(q)
+            // every word must match the title or the author, ignoring case and accents
+            let tokens = q.split(whereSeparator: \.isWhitespace).map(String.init)
+            list = list.filter { b in
+                tokens.allSatisfy { b.title.localizedStandardContains($0) || b.author.localizedStandardContains($0) }
             }
         }
         switch order {

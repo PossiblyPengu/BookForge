@@ -18,6 +18,14 @@ extension Color {
 }
 
 extension Color {
+    /// Text on a ptAccent fill: white on the deep light-mode clay, near-black on the lighter dark-mode one
+    /// (white on that is only ~3:1).
+    static let ptOnAccent = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor(white: 0.08, alpha: 1) : .white
+    })
+}
+
+extension Color {
     /// 0xRRGGBB.
     init(rgb: Int) {
         self.init(

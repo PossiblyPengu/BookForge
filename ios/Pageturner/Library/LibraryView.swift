@@ -203,7 +203,7 @@ struct LibraryView: View {
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 7)
                                 .background(active ? Color.ptAccent : Color(.tertiarySystemFill), in: Capsule())
-                                .foregroundStyle(active ? Color.white : Color.primary)
+                                .foregroundStyle(active ? Color.ptOnAccent : Color.primary)
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(active ? .isSelected : [])
@@ -286,7 +286,6 @@ struct LibraryView: View {
                 Button { router.showImporter = true } label: {
                     if library.importing { ProgressView() } else { Image(systemName: "plus") }
                 }
-                .disabled(library.importing)
                 .accessibilityLabel("Add books")
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -339,9 +338,12 @@ struct LibraryView: View {
                 if await MetadataLookup.autoApply(to: id, library: library) { updated += 1 }
                 finding = (n + 1, ids.count)
             }
+            let stopped = Task.isCancelled
             finding = nil
             findTask = nil
-            findResult = updated == 0
+            findResult = stopped
+                ? (updated == 0 ? nil : "Stopped. Updated \(updated) of \(ids.count) book\(ids.count == 1 ? "" : "s").")
+                : updated == 0
                 ? "No new details turned up for \(ids.count == 1 ? "that book" : "those books")."
                 : "Updated \(updated) of \(ids.count) book\(ids.count == 1 ? "" : "s")."
         }

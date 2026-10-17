@@ -345,7 +345,7 @@ struct BookMasterBooksView: View {
                             .font(.subheadline.weight(.medium))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
-                            .foregroundStyle(on ? Color.white : Color.primary)
+                            .foregroundStyle(on ? Color.ptOnAccent : Color.primary)
                             .background(on ? Color.ptAccent : Color(.tertiarySystemFill), in: Capsule())
                     }
                     .buttonStyle(.plain)

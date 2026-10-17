@@ -47,6 +47,8 @@ struct BookCoverView: View {
         let base = Self.colour(for: book.title)
         return ZStack {
             LinearGradient(colors: [base, base.opacity(0.72)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            // a light hue under white lettering needs a little dark behind it
+            Color.black.opacity(0.2)
             VStack(spacing: 6) {
                 Text(book.title)
                     .font(.system(.footnote, design: .serif).weight(.semibold))
@@ -55,7 +57,7 @@ struct BookCoverView: View {
                 if !book.author.isEmpty {
                     Text(book.author)
                         .font(.system(.caption2, design: .serif))
-                        .opacity(0.85)
+                        .opacity(0.95)
                         .lineLimit(2)
                 }
             }
@@ -102,6 +104,8 @@ struct BookGrid: View {
     @EnvironmentObject private var library: LibraryStore
     @Environment(AppRouter.self) private var router
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// Starting over throws the place away, so it asks first.
+    @State private var restarting: Book?
 
     /// Wider cells at accessibility sizes, so titles under the covers have room.
     private var columns: [GridItem] {
@@ -142,7 +146,8 @@ struct BookGrid: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(accessibilityLabel(for: book))
                 .accessibilityAddTraits(selection?.wrappedValue.contains(book.id) == true ? .isSelected : [])
-                .accessibilityHint(selection == nil ? "Opens the book" : "Double tap to select")
+                .accessibilityHint(selection == nil ? "Opens the book"
+                    : (selection?.wrappedValue.contains(book.id) == true ? "Double tap to deselect" : "Double tap to select"))
                 .contextMenu {
                     // no menu while ticking books
                     if selection == nil {
@@ -155,7 +160,7 @@ struct BookGrid: View {
                             }
                         }
                         if (book.progression ?? 0) > 0 {
-                            Button { library.restart(book.id) } label: {
+                            Button { restarting = book } label: {
                                 Label(book.isAudio ? "Listen from the Beginning" : "Start from the Beginning", systemImage: "arrow.counterclockwise")
                             }
                         }
@@ -181,6 +186,16 @@ struct BookGrid: View {
         .ptAnimation(.smooth(duration: 0.35), value: books.map(\.id))
         .ptAnimation(.snappy(duration: 0.2), value: selection?.wrappedValue)
         .sensoryFeedback(.selection, trigger: selection?.wrappedValue)
+        .confirmationDialog(
+            "Start over?", isPresented: Binding(get: { restarting != nil }, set: { if !$0 { restarting = nil } }),
+            titleVisibility: .visible, presenting: restarting
+        ) { book in
+            Button(book.isAudio ? "Listen from the Beginning" : "Start from the Beginning", role: .destructive) {
+                library.restart(book.id)
+            }
+        } message: { _ in
+            Text("Your place in this book is forgotten.")
+        }
     }
 
     private func accessibilityLabel(for book: Book) -> String {
