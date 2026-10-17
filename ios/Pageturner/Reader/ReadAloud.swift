@@ -117,6 +117,8 @@ final class ReadAloud: NSObject, ObservableObject {
 
     /// Surfaces problems the caller should show (e.g. utterances keep failing).
     var onError: ((String) -> Void)?
+    /// Called when the session ends, however it ended (the reader, the sleep timer, repeated failures).
+    var onStopped: (() -> Void)?
     /// Called when a chosen voice proved unusable and was dropped for the
     /// automatic one — the caller should clear its persisted voice setting.
     var onVoiceFallback: (() -> Void)?
@@ -313,6 +315,7 @@ final class ReadAloud: NSObject, ObservableObject {
         AudioFocus.shared.unregister("readaloud")
         isActive = false
         setSleepTimer(minutes: nil)
+        onStopped?()
     }
 
     // MARK: - Sleep timer

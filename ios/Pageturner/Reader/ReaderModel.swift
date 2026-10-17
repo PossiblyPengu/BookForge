@@ -39,6 +39,10 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var searchResults: [Locator] = []
     /// The query the current results answer — "No matches" is only true once a search for what is typed has finished.
     @Published private(set) var searchedQuery = ""
+    /// The last search could not run at all (as opposed to finding nothing).
+    @Published private(set) var searchFailed = false
+    /// Whether font, spacing and margins mean anything for this book (a PDF's pages are fixed).
+    @Published private(set) var adjustsType = true
     /// Where a "Back" button would return to after a jump.
     @Published private(set) var history = JumpHistory()
     @Published var footnote: Footnote?
@@ -132,9 +136,10 @@ final class ReaderModel: ObservableObject {
                 let nav = try PDFNavigatorViewController(
                     publication: publication,
                     initialLocation: initial,
-                    config: .init(editingActions: actions),
+                    config: .init(preferences: settings.pdfPreferences, editingActions: actions),
                     delegate: self
                 )
+                adjustsType = false
                 install(navigator: nav, controller: nav)
             } else {
                 phase = .failed("This book's format isn't supported yet.")
@@ -146,15 +151,13 @@ final class ReaderModel: ObservableObject {
             canReadAloud = ReadAloud.canSpeak(publication)
             isSearchable = publication.isSearchable
             toc = (try? await publication.tableOfContents().get()) ?? []
-            // a comic's reading order is every page — not a contents worth listing
-            if toc.isEmpty, !publication.conforms(to: .divina) {
-                // untitled spine items would list as a column of identical rows
-                toc = publication.readingOrder.enumerated().map { i, link in
-                    var link = link
-                    if link.title?.isEmpty != false { link.title = "Section \(i + 1)" }
-                    return link
-                }
+            // a comic's reading order is every page — not a contents worth listing, and a
+            // one-item order (a PDF without an outline) is no contents either. Untitled
+            // entries stay untitled here: the list labels them "Section N" for display only.
+            if toc.isEmpty, !publication.conforms(to: .divina), publication.readingOrder.count > 1 {
+                toc = publication.readingOrder
             }
+            if publication.conforms(to: .divina) { adjustsType = false }
             learnPageCount(publication: publication)
             phase = .ready
             autoHideChrome()
@@ -165,8 +168,16 @@ final class ReaderModel: ObservableObject {
             // a task cancelled by a tab switch is not a failed book — the next appearance retries
             if Task.isCancelled, publication == nil { return }
             Log.error("reader", "open failed for \(book.title): \(error.localizedDescription)")
-            phase = .failed(error.localizedDescription)
+            // the technical detail is in the log; the reader gets a sentence
+            phase = .failed("This book couldn’t be opened. The file may be damaged or missing.")
         }
+    }
+
+    /// Open again after a failure.
+    func retry() {
+        publication = nil
+        phase = .loading
+        Task { await open() }
     }
 
     /// Edge taps turn pages (DirectionalNavigationAdapter); anything left over
@@ -591,6 +602,7 @@ final class ReaderModel: ObservableObject {
         searchGeneration += 1
         let generation = searchGeneration
         let q = query.trimmingCharacters(in: .whitespaces)
+        searchFailed = false
         guard let publication, !q.isEmpty else {
             searchResults = []
             searchedQuery = ""
@@ -616,7 +628,7 @@ final class ReaderModel: ObservableObject {
             case .failure:
                 guard generation == searchGeneration, !Task.isCancelled else { return }
                 searchResults = []
-                notice = "This book can't be searched."
+                searchFailed = true
             }
         }
     }
@@ -629,6 +641,8 @@ final class ReaderModel: ObservableObject {
         settings.save()
         (navigator as? EPUBNavigatorViewController)?
             .submitPreferences(settings.epubPreferences)
+        (navigator as? PDFNavigatorViewController)?
+            .submitPreferences(settings.pdfPreferences)
         directionalAdapter?.animatedTransition = settings.pageTurn == .slide
         readAloud?.setRate(settings.speechRate)
         readAloud?.setVoice(settings.voiceIdentifier)
@@ -705,11 +719,10 @@ final class ReaderModel: ObservableObject {
 
     /// Send a highlight to BookMaster as a quote.
     /// Returns the result's message, for the editor sheet to show inline (an alert can't present over a sheet).
-    func quoteHighlight(_ highlight: Highlight) async -> String? {
+    func quoteHighlight(_ highlight: Highlight) async -> BookMaster.QuoteDelivery? {
         let text = highlight.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
-        let ok = await BookMaster.shared.postQuote(ref: book.bookMasterRef, content: text, percent: highlight.progression)
-        return ok.message
+        return await BookMaster.shared.postQuote(ref: book.bookMasterRef, content: text, percent: highlight.progression)
     }
 
     /// The book's highlights and notes as Markdown.
@@ -764,6 +777,11 @@ final class ReaderModel: ObservableObject {
               )
         else { return }
         readAloud.onError = { [weak self] message in self?.notice = message }
+        // a session that ends itself (sleep timer, repeated failures) must not leave a dead one here
+        readAloud.onStopped = { [weak self, weak readAloud] in
+            guard let self, let readAloud, self.readAloud === readAloud else { return }
+            self.readAloud = nil
+        }
         readAloud.onVoiceFallback = { [weak self] in
             guard let self else { return }
             settings.voiceIdentifier = nil

@@ -39,11 +39,11 @@ struct HighlightEditorSheet: View {
     let canQuote: Bool
     let onSave: (HighlightColor, String) -> Void
     let onDelete: () -> Void
-    let onQuote: () async -> String?
+    let onQuote: () async -> BookMaster.QuoteDelivery?
 
     @State private var color: HighlightColor
     @State private var note: String
-    @State private var quoteStatus: String?
+    @State private var delivery: BookMaster.QuoteDelivery?
     @State private var sending = false
     @State private var confirmDelete = false
     @Environment(\.dismiss) private var dismiss
@@ -52,7 +52,7 @@ struct HighlightEditorSheet: View {
         highlight: Highlight, canQuote: Bool,
         onSave: @escaping (HighlightColor, String) -> Void,
         onDelete: @escaping () -> Void,
-        onQuote: @escaping () async -> String?
+        onQuote: @escaping () async -> BookMaster.QuoteDelivery?
     ) {
         self.highlight = highlight
         self.canQuote = canQuote
@@ -103,14 +103,20 @@ struct HighlightEditorSheet: View {
                 }
                 Section {
                     if canQuote {
-                        Button("Send to BookMaster as a Quote") {
+                        Button {
                             sending = true
                             Task {
-                                quoteStatus = await onQuote()
+                                delivery = await onQuote()
                                 sending = false
                             }
+                        } label: {
+                            HStack {
+                                Text("Send to BookMaster as a Quote")
+                                if sending { Spacer(); ProgressView() }
+                            }
                         }
-                        .disabled(sending)
+                        // once it is sent or parked for later, a second tap would post it again
+                        .disabled(sending || delivery == .sent || delivery == .queued)
                     }
                     Button("Delete Highlight", role: .destructive) {
                         if note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -121,7 +127,10 @@ struct HighlightEditorSheet: View {
                         }
                     }
                 } footer: {
-                    if let quoteStatus { Text(quoteStatus) }
+                    if let delivery {
+                        Text(delivery.message)
+                            .foregroundStyle(delivery == .failed ? Color.red : Color.secondary)
+                    }
                 }
             }
             .navigationTitle("Highlight")

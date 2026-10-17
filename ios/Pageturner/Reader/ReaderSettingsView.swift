@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ReaderSettingsView: View {
     @Binding var settings: ReaderSettings
+    /// False for PDFs and comics, whose pages are fixed: font, spacing and margins are hidden.
+    var adjustsType = true
 
     var body: some View {
         Form {
@@ -9,6 +11,7 @@ struct ReaderSettingsView: View {
                 ThemePicker(theme: $settings.theme)
             }
 
+            if adjustsType {
             Section("Type") {
                 Picker("Font", selection: $settings.font) {
                     ForEach(ReaderSettings.FontChoice.allCases) {
@@ -19,6 +22,8 @@ struct ReaderSettingsView: View {
                     Text("Size")
                         .font(.subheadline)
                     Slider(value: $settings.fontSize, in: 0.7 ... 2, step: 0.1)
+                        .accessibilityLabel("Text size")
+                        .accessibilityValue("\(Int(settings.fontSize * 100)) percent")
                 }
                 Picker("Line spacing", selection: $settings.spacing) {
                     ForEach(ReaderSettings.Spacing.allCases) {
@@ -27,15 +32,20 @@ struct ReaderSettingsView: View {
                 }
                 Toggle("Justify text", isOn: $settings.justify)
             }
+            }
 
             Section("Layout") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Margins")
-                        .font(.subheadline)
-                    Slider(value: $settings.margins, in: 0.5 ... 2, step: 0.25)
+                if adjustsType {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Margins")
+                            .font(.subheadline)
+                        Slider(value: $settings.margins, in: 0.5 ... 2, step: 0.25)
+                            .accessibilityLabel("Page margins")
+                            .accessibilityValue("\(Int(settings.margins * 100)) percent")
+                    }
                 }
                 Toggle("Scroll instead of pages", isOn: $settings.scroll)
-                if !settings.scroll {
+                if !settings.scroll, adjustsType {
                     Picker("Page layout", selection: $settings.columns) {
                         ForEach(ReaderSettings.Columns.allCases) {
                             Text($0.label).tag($0)
@@ -86,6 +96,7 @@ private struct ThemePicker: View {
                                         lineWidth: selected ? 3 : 1))
                         Text(choice.label)
                             .font(.caption2)
+                            .lineLimit(1).minimumScaleFactor(0.7)
                             .foregroundStyle(selected ? Color.primary : Color.secondary)
                     }
                     .contentShape(Rectangle())

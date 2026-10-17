@@ -163,6 +163,11 @@ struct ReaderSettings: Codable, Equatable {
         return p
     }
 
+    /// What a PDF can take from the Reading sheet: the page colour and scrolling.
+    var pdfPreferences: PDFPreferences {
+        PDFPreferences(backgroundColor: Color(rawValue: theme.background), scroll: scroll)
+    }
+
     // MARK: - Persistence
 
     private static let key = "reader-settings"

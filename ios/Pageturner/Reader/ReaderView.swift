@@ -72,9 +72,9 @@ struct ReaderView: View {
         // a bookmark or highlight added is felt, not just seen
         .sensoryFeedback(trigger: model.book.bookmarks.count) { old, new in new > old ? .impact(weight: .light) : .selection }
         .sensoryFeedback(trigger: model.book.highlights.count) { old, new in new > old ? .success : nil }
-        .animation(.smooth(duration: 0.25), value: model.showChrome)
-        .animation(.smooth(duration: 0.25), value: model.readAloud?.isActive)
-        .animation(.smooth(duration: 0.25), value: model.backLabel)
+        .ptAnimation(.smooth(duration: 0.25), value: model.showChrome)
+        .ptAnimation(.smooth(duration: 0.25), value: model.readAloud?.isActive)
+        .ptAnimation(.smooth(duration: 0.25), value: model.backLabel)
     }
 
     /// The screen stays on while a book is open and on screen (unless the reader switched that off).
@@ -85,7 +85,11 @@ struct ReaderView: View {
     /// Opening, saving, and the sitting that BookMaster is told about.
     private func lifecycle<V: View>(_ content: V) -> some View {
         content
-            .task { await model.open() }
+            .task {
+                await model.open()
+                // coming back to the tab starts a new sitting; beginSession is a no-op while one runs
+                if model.phase == .ready { model.beginSession() }
+            }
             .onChange(of: model.settings) { _, _ in model.applySettings() }
             .onChange(of: model.settings.keepAwake) { _, _ in keepAwake(true) }
             .onAppear { BookMaster.shared.place = "reader"; keepAwake(true) }
@@ -212,8 +216,12 @@ struct ReaderView: View {
                 Text(message)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
-                Button("Back to Library") { onBack() }
-                    .buttonStyle(.borderedProminent)
+                HStack(spacing: 12) {
+                    Button("Try Again") { model.retry() }
+                        .buttonStyle(.bordered)
+                    Button("Back to Library") { onBack() }
+                        .buttonStyle(.borderedProminent)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(.systemBackground).ignoresSafeArea())
@@ -342,7 +350,7 @@ struct ReaderView: View {
             .monospacedDigit()
             .lineLimit(1)
             .minimumScaleFactor(0.7)
-            .fixedSize()
+            .layoutPriority(1)
             .frame(minWidth: 36, minHeight: 44, alignment: .leading)
             .ptNumberRoll(on: left ?? percent)
         // a button only when there is a time left to switch to
@@ -368,14 +376,15 @@ struct ReaderView: View {
                     .font(.subheadline.weight(.semibold))
                     .padding(.leading, 16)
                     .padding(.trailing, 10)
-                    .frame(height: 40)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .frame(minHeight: 40)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             Button { model.dismissBack(); model.revealChrome() } label: {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.bold))
-                    .frame(width: 38, height: 40)
+                    .frame(minWidth: 38, minHeight: 40)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -490,6 +499,11 @@ struct ReaderView: View {
                     // open at the chapter the reader is in
                     .onAppear {
                         guard let current = model.currentChapterID else { return }
+                        DispatchQueue.main.async { proxy.scrollTo("toc-" + current, anchor: .center) }
+                    }
+                    // and again when the reader comes back to the Chapters tab
+                    .onChange(of: contentsTabNow) { _, now in
+                        guard now == .chapters, let current = model.currentChapterID else { return }
                         DispatchQueue.main.async { proxy.scrollTo("toc-" + current, anchor: .center) }
                     }
                     }
@@ -615,7 +629,7 @@ struct ReaderView: View {
 
     private var settingsSheet: some View {
         NavigationStack {
-            ReaderSettingsView(settings: $model.settings)
+            ReaderSettingsView(settings: $model.settings, adjustsType: model.adjustsType)
                 .navigationTitle("Reading")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -664,7 +678,7 @@ private struct OutlineRows: View {
             let here = id == current
             Button { onSelect(link) } label: {
                 HStack {
-                    Text(link.title ?? "Untitled")
+                    Text(link.title.flatMap { $0.isEmpty ? nil : $0 } ?? (depth == 0 ? "Section \(i + 1)" : "Untitled"))
                         .padding(.leading, CGFloat(depth * 16))
                         .foregroundStyle(here ? Color.ptAccent : Color.primary)
                         .fontWeight(here ? .semibold : .regular)
@@ -795,9 +809,16 @@ private struct ReadAloudBar: View {
 private struct SearchResultsView: View {
     @ObservedObject var model: ReaderModel
     let onPick: () -> Void
-    @State private var query = ""
+    @State private var query: String
     @State private var debounceTask: Task<Void, Never>?
     @FocusState private var focused: Bool
+
+    init(model: ReaderModel, onPick: @escaping () -> Void) {
+        self.model = model
+        self.onPick = onPick
+        // reopening the sheet picks up where it was: the same query and its matches
+        _query = State(initialValue: model.searchedQuery)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -838,7 +859,9 @@ private struct SearchResultsView: View {
                             .font(.subheadline.weight(.medium))
                             .lineLimit(1)
                         if let highlight = locator.text.highlight, !highlight.isEmpty {
-                            Text("…\((locator.text.before ?? "").trimmingCharacters(in: .whitespaces)) \(highlight) \((locator.text.after ?? "").trimmingCharacters(in: .whitespaces))…")
+                (Text("…\((locator.text.before ?? "").trimmingCharacters(in: .whitespaces)) ")
+                                + Text(highlight).bold().foregroundColor(.primary)
+                                + Text(" \((locator.text.after ?? "").trimmingCharacters(in: .whitespaces))…"))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
@@ -849,8 +872,12 @@ private struct SearchResultsView: View {
             }
             .listStyle(.plain)
             .overlay {
-                if !model.searchInFlight, model.searchResults.isEmpty, !query.isEmpty,
-                   model.searchedQuery == query.trimmingCharacters(in: .whitespaces) {
+                let trimmed = query.trimmingCharacters(in: .whitespaces)
+                if model.searchFailed {
+                    Text("This book can’t be searched.")
+                        .foregroundStyle(.secondary)
+                } else if !model.searchInFlight, model.searchResults.isEmpty, !trimmed.isEmpty,
+                          model.searchedQuery == trimmed {
                     Text("No matches")
                         .foregroundStyle(.secondary)
                 }
@@ -858,7 +885,6 @@ private struct SearchResultsView: View {
         }
         // the keyboard is up and waiting when the sheet is
         .onAppear {
-            model.search("")   // matches left from the last time the sheet was up belong to a query that is gone
             DispatchQueue.main.async { focused = true }
         }
         .onChange(of: query) { _, q in
