@@ -10,3 +10,4 @@
 /ios/xcodebuild.log
 /ios/DerivedData/
 /ios/dist/
+__pycache__/
