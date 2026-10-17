@@ -60,6 +60,19 @@ enum StoredDate {
     }
 }
 
+/// A place marked in an audiobook.
+struct AudioClip: Identifiable, Codable, Hashable {
+    var id = UUID()
+    /// Seconds from the start of the book.
+    var time: TimeInterval
+    var chapter: String?
+    var note = ""
+    /// Seconds since 1970.
+    var created: Double = Date().timeIntervalSince1970
+
+    var createdAt: Date { Date(timeIntervalSince1970: created) }
+}
+
 struct Book: Identifiable, Codable, Hashable {
     /// Extensions AVPlayer handles directly (m4b/m4a are MPEG-4 audio).
     static let audioExtensions: Set<String> = [
@@ -108,6 +121,13 @@ struct Book: Identifiable, Codable, Hashable {
     var collections: [String] = []
     /// When the "pick up where BookMaster has you" offer was last declined for this book.
     var resumeDismissedAt: Date?
+    /// The series the book belongs to and its place in it, when the file says.
+    var series: String?
+    var seriesIndex: Double?
+    /// The speed this audiobook is played at, kept per book.
+    var audioRate: Double?
+    /// Places marked in an audiobook, with an optional note.
+    var audioClips: [AudioClip] = []
 
     var ext: String { fileName.split(separator: ".").last.map(String.init)?.lowercased() ?? "" }
     var isAudio: Bool { Self.audioExtensions.contains(ext) }
@@ -205,6 +225,10 @@ extension Book {
         pages = try c.decodeIfPresent(Int.self, forKey: .pages)
         collections = try c.decodeIfPresent([String].self, forKey: .collections) ?? []
         resumeDismissedAt = date(.resumeDismissedAt)
+        series = try c.decodeIfPresent(String.self, forKey: .series)
+        seriesIndex = try c.decodeIfPresent(Double.self, forKey: .seriesIndex)
+        audioRate = try c.decodeIfPresent(Double.self, forKey: .audioRate)
+        audioClips = (try? c.decodeIfPresent([AudioClip].self, forKey: .audioClips)) ?? []
     }
 
     /// How a BookMaster push names this book.
@@ -688,6 +712,10 @@ final class LibraryStore: ObservableObject {
             if let identifier = publication.metadata.identifier, let isbn = ISBN.normalize(identifier) {
                 book.isbn = isbn
             }
+            if let series = publication.metadata.belongsToSeries.first, !series.name.isEmpty {
+                book.series = series.name
+                book.seriesIndex = series.position
+            }
             if let image = try? await publication.cover().get(),
                let jpeg = image.jpegData(compressionQuality: 0.85)
             {
@@ -916,7 +944,7 @@ final class LibraryStore: ObservableObject {
     }
 
     enum SortOrder: String, CaseIterable, Identifiable {
-        case recent, added, title, author
+        case recent, added, title, author, series
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -924,6 +952,7 @@ final class LibraryStore: ObservableObject {
             case .added: return "Recently Added"
             case .title: return "Title"
             case .author: return "Author"
+            case .series: return "Series"
             }
         }
     }
@@ -955,7 +984,77 @@ final class LibraryStore: ObservableObject {
                 let c = a.author.localizedStandardCompare(b.author)
                 return c == .orderedSame ? a.title.localizedStandardCompare(b.title) == .orderedAscending : c == .orderedAscending
             }.map(\.book)
+        case .series:
+            // a series together, in reading order; books outside any series after them, by title
+            let keyed = list.map { (book: $0, series: $0.series ?? "", title: $0.sortTitle) }
+            return keyed.sorted { a, b in
+                if a.series.isEmpty != b.series.isEmpty { return !a.series.isEmpty }
+                if a.series != b.series { return a.series.localizedStandardCompare(b.series) == .orderedAscending }
+                if let x = a.book.seriesIndex, let y = b.book.seriesIndex, x != y { return x < y }
+                return a.title.localizedStandardCompare(b.title) == .orderedAscending
+            }.map(\.book)
         }
+    }
+
+    /// The book after `book` in its series, when the library has it and it is not finished.
+    func nextInSeries(after book: Book) -> Book? {
+        guard let series = book.series, let index = book.seriesIndex else { return nil }
+        return books
+            .filter { $0.series == series && ($0.seriesIndex ?? 0) > index && ($0.progression ?? 0) < 0.995 }
+            .min { ($0.seriesIndex ?? 0) < ($1.seriesIndex ?? 0) }
+    }
+
+    // MARK: - Duplicates
+
+    /// Letters and digits only, no case or accents: "The Hobbit." and "the hobbit" are one title.
+    private static func fold(_ s: String) -> String {
+        s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).filter { $0.isLetter || $0.isNumber }
+    }
+
+    /// Books that are the same title by the same author in the same kind (text or audio) — a copy imported
+    /// twice. The one to keep comes first: the furthest along, then the most marked up.
+    func duplicateGroups() -> [[Book]] {
+        var groups: [String: [Book]] = [:]
+        for book in books {
+            let title = Self.fold(book.title)
+            guard !title.isEmpty else { continue }
+            groups["\(title)|\(Self.fold(book.author))|\(book.isAudio ? "a" : "b")", default: []].append(book)
+        }
+        return groups.values
+            .filter { $0.count > 1 }
+            .map { group in
+                group.sorted {
+                    if ($0.progression ?? 0) != ($1.progression ?? 0) { return ($0.progression ?? 0) > ($1.progression ?? 0) }
+                    let a = $0.highlights.count + $0.bookmarks.count, b = $1.highlights.count + $1.bookmarks.count
+                    return a != b ? a > b : $0.addedAt < $1.addedAt
+                }
+            }
+            .sorted { $0[0].sortTitle.localizedStandardCompare($1[0].sortTitle) == .orderedAscending }
+    }
+
+    /// Fold copies of one book into `keep`: what they hold (highlights, bookmarks, shelves, the furthest place) is
+    /// kept, their files are removed.
+    func merge(keep: UUID, removing ids: [UUID]) {
+        let others = books.filter { ids.contains($0.id) && $0.id != keep }
+        guard !others.isEmpty else { return }
+        mutate(keep) { b in
+            for o in others {
+                let marked = Set(b.highlights.map(\.locatorJSON))
+                b.highlights += o.highlights.filter { !marked.contains($0.locatorJSON) }
+                let bookmarked = Set(b.bookmarks.map(\.locatorJSON))
+                b.bookmarks += o.bookmarks.filter { !bookmarked.contains($0.locatorJSON) }
+                for name in o.collections where !b.collections.contains(name) { b.collections.append(name) }
+                if (o.progression ?? 0) > (b.progression ?? 0) {
+                    b.progression = o.progression
+                    b.locatorJSON = o.locatorJSON
+                    b.audioPosition = o.audioPosition
+                    b.lastOpenedAt = o.lastOpenedAt ?? b.lastOpenedAt
+                }
+                if b.bookmasterId == nil { b.bookmasterId = o.bookmasterId }
+                if b.series == nil { b.series = o.series; b.seriesIndex = o.seriesIndex }
+            }
+        }
+        for o in others { delete(o) }
     }
 
     // MARK: - Persistence

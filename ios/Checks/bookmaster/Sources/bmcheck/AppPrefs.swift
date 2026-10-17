@@ -32,6 +32,34 @@ enum AppPrefs {
     /// left" estimates). BookMaster's own numbers are unaffected.
     static var statsTracking: Bool { enabled("stats-tracking") }
 
+    /// Minutes of reading or listening a day the Reading tab's ring counts towards.
+    static var dailyGoalMinutes: Int {
+        get { defaults.object(forKey: "daily-goal-min") as? Int ?? 20 }
+        set { defaults.set(newValue, forKey: "daily-goal-min") }
+    }
+
+    /// When the library was last backed up (seconds since 1970), 0 for never.
+    static var lastBackupAt: Double {
+        get { defaults.double(forKey: "backup-last") }
+        set { defaults.set(newValue, forKey: "backup-last") }
+    }
+
+    /// Until when the "back up your library" reminder is quiet.
+    static var backupSnoozeUntil: Double {
+        get { defaults.double(forKey: "backup-snooze") }
+        set { defaults.set(newValue, forKey: "backup-snooze") }
+    }
+
+    /// Whether to remind about a backup: a library of some size that has never been saved, or has grown
+    /// since — at most once a week once dismissed.
+    static func backupDue(books: [Date], now: Date = Date()) -> Bool {
+        guard books.count >= 3, now.timeIntervalSince1970 >= backupSnoozeUntil else { return false }
+        let last = lastBackupAt
+        if last == 0 { return true }
+        let added = books.filter { $0.timeIntervalSince1970 > last }.count
+        return added >= 3 || (added >= 1 && now.timeIntervalSince1970 - last > 30 * 86_400)
+    }
+
     private static func enabled(_ key: String) -> Bool {
         defaults.object(forKey: key) as? Bool ?? true
     }

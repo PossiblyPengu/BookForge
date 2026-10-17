@@ -19,6 +19,16 @@ struct ReadingNowView: View {
             .prefix(9).map { $0 }
     }
 
+    /// The next volume of a series whose latest book was finished, if it has not been started.
+    private var nextVolume: Book? {
+        library.books
+            .filter { ($0.progression ?? 0) >= 0.995 && $0.series != nil }
+            .sorted { ($0.lastOpenedAt ?? .distantPast) > ($1.lastOpenedAt ?? .distantPast) }
+            .lazy
+            .compactMap { library.nextInSeries(after: $0) }
+            .first { ($0.progression ?? 0) < 0.001 && $0.id != current?.id }
+    }
+
     /// "~2 h 10 min left" at this reader's pace, for a book of text.
     private func timeLeft(_ book: Book) -> String? {
         guard !book.isAudio, let pace = ReadingPace.minutesPerBook(log.sessions, bookID: book.id),
@@ -31,6 +41,7 @@ struct ReadingNowView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    if AppPrefs.statsTracking { ReadingGoalCard() }
                     if let book = current {
                         ContinueCard(book: book, cover: library.coverThumbnail(for: book, maxPixels: 640)) {
                             router.open(book, library: library)
@@ -54,6 +65,12 @@ struct ReadingNowView: View {
                         }
                         .padding(.top, 60)
                     }
+                    if let next = nextVolume {
+                        NextInSeriesRow(book: next, cover: library.coverThumbnail(for: next, maxPixels: 200)) {
+                            router.open(next, library: library)
+                        }
+                    }
+                    PartnerStrip()
                     if !alsoReading.isEmpty {
                         Text("Also reading").font(.title3.weight(.semibold))
                         BookGrid(books: alsoReading)

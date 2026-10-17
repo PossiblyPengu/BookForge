@@ -127,6 +127,7 @@ final class BackupStore {
             for (name, url) in entries + coverEntries {
                 try await archive.addEntry(with: name, fileURL: url, compressionMethod: .none)
             }
+            AppPrefs.lastBackupAt = Date().timeIntervalSince1970
             return dest
         }.value
     }

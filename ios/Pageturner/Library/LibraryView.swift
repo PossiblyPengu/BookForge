@@ -18,6 +18,9 @@ struct LibraryView: View {
     @State private var findTask: Task<Void, Never>?
     /// The folded-in Search tab's field — empty means the shelf shows.
     @State private var query = ""
+    @State private var showDuplicates = false
+    /// "Later" on the backup reminder, until the view is next built.
+    @State private var backupSnoozed = false
 
     /// Comics and Markdown have no system type everywhere — match them by extension.
     private static let extraTypes = ["cbz", "md", "markdown"].compactMap { UTType(filenameExtension: $0) }
@@ -27,6 +30,15 @@ struct LibraryView: View {
     /// Built-in shelf filters carry a "~" a shelf name can't start with.
     private static let allKey = "~all"
     private static let upNextKey = "~upnext"
+
+    /// Shelves that fill themselves from what the books are. Each shows only when it holds some of the
+    /// library but not all of it.
+    private static let smartShelves: [(key: String, label: String, includes: (Book) -> Bool)] = [
+        ("~unread", "Unread", { ($0.progression ?? 0) <= 0.001 }),
+        ("~long", "Long reads", { !$0.isAudio && ($0.pages ?? 0) >= 300 }),
+        ("~short", "Short reads", { !$0.isAudio && ($0.pages ?? 0) > 0 && ($0.pages ?? 0) < 150 }),
+        ("~month", "Added this month", { $0.addedAt > Date().addingTimeInterval(-30 * 86_400) }),
+    ]
 
     /// How far along a book is: none of it, some of it, all of it.
     enum Status: String, CaseIterable, Identifiable {
@@ -55,7 +67,11 @@ struct LibraryView: View {
 
     private var shelfKeys: [String] {
         let upNext = library.books.contains { $0.bmUpNext == true }
-        return [Self.allKey] + (upNext ? [Self.upNextKey] : []) + library.shelves
+        let smart = Self.smartShelves.filter { shelf in
+            let n = library.books.filter(shelf.includes).count
+            return n > 0 && n < library.books.count
+        }.map(\.key)
+        return [Self.allKey] + (upNext ? [Self.upNextKey] : []) + library.shelves + smart
     }
 
     /// The chosen shelf, unless it has since been deleted or emptied of its reason to exist.
@@ -67,7 +83,7 @@ struct LibraryView: View {
         switch key {
         case Self.allKey: return "All"
         case Self.upNextKey: return "Up next"
-        default: return key
+        default: return Self.smartShelves.first { $0.key == key }?.label ?? key
         }
     }
 
@@ -81,7 +97,12 @@ struct LibraryView: View {
         switch activeShelfKey {
         case Self.allKey: break
         case Self.upNextKey: list = list.filter { $0.bmUpNext == true }
-        default: list = list.filter { $0.collections.contains(activeShelfKey) }
+        default:
+            if let smart = Self.smartShelves.first(where: { $0.key == activeShelfKey }) {
+                list = list.filter(smart.includes)
+            } else {
+                list = list.filter { $0.collections.contains(activeShelfKey) }
+            }
         }
         if status != .any { list = list.filter { status.includes($0) } }
         switch filter {
@@ -110,6 +131,7 @@ struct LibraryView: View {
                 if selecting { selectionBar }
             }
             .overlay { if let finding { findingCard(finding) } }
+            .sheet(isPresented: $showDuplicates) { DuplicatesSheet() }
             .alert("Find Details", isPresented: Binding(
                 get: { findResult != nil },
                 set: { if !$0 { findResult = nil } }
@@ -143,6 +165,16 @@ struct LibraryView: View {
         let books = visible
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
+                if !searching, !selecting, !backupSnoozed, AppPrefs.backupDue(books: library.books.map(\.addedAt)) {
+                    BackupReminder {
+                        router.showSettings = true
+                        AppPrefs.backupSnoozeUntil = Date().addingTimeInterval(2 * 86_400).timeIntervalSince1970
+                        backupSnoozed = true
+                    } onLater: {
+                        AppPrefs.backupSnoozeUntil = Date().addingTimeInterval(7 * 86_400).timeIntervalSince1970
+                        backupSnoozed = true
+                    }
+                }
                 if !searching {
                     Picker("Show", selection: $filter) {
                         ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
@@ -179,6 +211,14 @@ struct LibraryView: View {
                         }
                         .padding(.top, 40)
                     }
+                } else if order == .series, !searching {
+                    // a series together, under its name
+                    ForEach(seriesSections(books), id: \.title) { section in
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(section.title).font(.title3.weight(.semibold))
+                            BookGrid(books: section.books, selection: selecting ? $selected : nil)
+                        }
+                    }
                 } else {
                     BookGrid(books: books, selection: selecting ? $selected : nil)
                 }
@@ -187,6 +227,16 @@ struct LibraryView: View {
             .padding(.bottom, 24)
         }
         .ptSoftScrollEdges()
+    }
+
+    /// The books, already in series order, cut into one run per series (the rest under "Other books").
+    private func seriesSections(_ books: [Book]) -> [(title: String, books: [Book])] {
+        var out: [(title: String, books: [Book])] = []
+        for book in books {
+            let title = book.series ?? "Other books"
+            if out.last?.title == title { out[out.count - 1].books.append(book) } else { out.append((title, [book])) }
+        }
+        return out
     }
 
     /// "All", "Up next" (books BookMaster has queued) and the reader's own shelves.
@@ -219,7 +269,13 @@ struct LibraryView: View {
         ContentUnavailableView {
             Label("No Books Yet", systemImage: "books.vertical")
         } description: {
-            Text("Add EPUB, PDF, CBZ comic, text or audiobook files — a folder or a zip of an audiobook's parts becomes one book — from Files, or use “Open in Pageturner” from another app.")
+            VStack(spacing: 10) {
+                Text("Pageturner reads and plays books you already have.")
+                Label("Tap + to pick EPUB, PDF, comic, text or audiobook files from Files", systemImage: "plus.circle")
+                Label("Or AirDrop, or choose Share → Pageturner from another app", systemImage: "square.and.arrow.down")
+                Label("Link BookMaster in Settings to keep your reading in sync", systemImage: "link")
+            }
+            .font(.footnote)
         } actions: {
             if library.importing {
                 ProgressView("Adding books…")
@@ -267,6 +323,11 @@ struct LibraryView: View {
                     Section("Show") {
                         Picker("Status", selection: $status) {
                             ForEach(Status.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                    }
+                    Section("Tidy") {
+                        Button { showDuplicates = true } label: {
+                            Label("Find Duplicates…", systemImage: "square.on.square")
                         }
                     }
                 } label: {
