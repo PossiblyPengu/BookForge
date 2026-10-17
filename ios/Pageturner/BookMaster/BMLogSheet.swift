@@ -121,10 +121,10 @@ struct BMLogSheet: View {
     private func save() async {
         saving = true
         defer { saving = false }
-        // Everything travels as percent — the bridge turns it back into pages
-        // when the book has a count, exactly what the reader's own sync sends.
-        let startPct = paged ? (start / Double(row.totalPages!)) * 100 : start
-        let endPct = paged ? (end / Double(row.totalPages!)) * 100 : end
+        // syncSession takes a 0–1 fraction (it turns it into percent for the
+        // bridge, which turns it back into pages when the book has a count).
+        let startPct = paged ? start / Double(row.totalPages!) : start / 100
+        let endPct = paged ? end / Double(row.totalPages!) : end / 100
         let logged = await BookMaster.shared.syncSession(
             ref: BMBookRef(
                 title: row.title, author: row.author ?? "",

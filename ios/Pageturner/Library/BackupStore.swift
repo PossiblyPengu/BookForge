@@ -118,7 +118,11 @@ final class BackupStore {
             try await archive.addEntry(
                 with: "data.json", type: .file,
                 uncompressedSize: Int64(indexData.count),
-                provider: { _, _ in indexData }
+                provider: { position, size in
+                    // called once per chunk (16 KiB by default): hand back that slice only
+                    let from = Int(position)
+                    return indexData.subdata(in: from..<min(from + size, indexData.count))
+                }
             )
             for (name, url) in entries + coverEntries {
                 try await archive.addEntry(with: name, fileURL: url, compressionMethod: .none)

@@ -422,7 +422,11 @@ final class LibraryStore: ObservableObject {
                 at: url, includingPropertiesForKeys: nil,
                 options: [.skipsHiddenFiles, .skipsPackageDescendants])
             {
-                for case let file as URL in walker { out.append(file) }
+                for case let file as URL in walker {
+                    // the walker also yields the subfolders themselves; only files are books
+                    if (try? file.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true { continue }
+                    out.append(file)
+                }
             }
             if scoped {
                 if isDir { scopedRoots.append(url) } else { url.stopAccessingSecurityScopedResource() }
