@@ -199,29 +199,33 @@ final class ReaderContainerViewController: UIViewController {
             curlPendingTouch = nil
         case .changed:
             let here = pan.location(in: view)
-            guard let grab = curlGrab else {
-                guard !arming else { curlPendingTouch = here; return }
+            guard curlGrab != nil else {
+                guard !arming else { return }
                 // decide the turn the first time the finger travels decisively
                 let t = pan.translation(in: view)
                 let start = CGPoint(x: here.x - t.x, y: here.y - t.y)
-                let onLeft = start.x < view.bounds.width / 2
-                // the pull has to run toward the middle of the page
-                guard abs(t.x) > 10, abs(t.x) > abs(t.y),
-                      onLeft ? t.x > 0 : t.x < 0 else { return }
-                // peeling from the right edge turns forward in an LTR book,
-                // backward in an RTL one (its fore-edge is on the left)
-                let towardLeft = !onLeft
+                // a pull anywhere on the page: leftward lifts the right edge (forward in an LTR book,
+                // backward in an RTL one), rightward lifts the left. A diagonal pull from a corner
+                // counts too — only a mostly vertical drag is left alone.
+                guard abs(t.x) > 10, abs(t.x) > abs(t.y) * 0.6 else { return }
+                let towardLeft = t.x < 0
                 let forward = towardLeft != rightToLeft
-                curlGrab = (origin: start, forward: forward)
-                curlPendingTouch = here
+                // the leaf's free edge is the page's own edge, at the height the finger caught it; the
+                // finger's travel moves that edge, wherever on the page the finger began
+                let edge = CGPoint(x: towardLeft ? view.bounds.width : 0, y: start.y)
+                curlGrab = (origin: edge, forward: forward)
+                curlPendingTouch = CGPoint(x: edge.x + t.x, y: edge.y + t.y)
                 arming = true
                 curlSession += 1
                 let session = curlSession
-                Task { await armCurl(forward: forward, origin: start, session: session) }
+                Task { await armCurl(forward: forward, origin: edge, session: session) }
                 return
             }
-            curlPendingTouch = here
-            curlOverlay?.update(origin: grab.origin, touch: here)
+            guard let grab = curlGrab else { return }
+            let t = pan.translation(in: view)
+            let moved = CGPoint(x: grab.origin.x + t.x, y: grab.origin.y + t.y)
+            curlPendingTouch = moved
+            curlOverlay?.update(origin: grab.origin, touch: moved)
         case .ended, .cancelled, .failed:
             guard let overlay = curlOverlay, let grab = curlGrab else { removeCurl(); return }
             let v = pan.velocity(in: view)
@@ -301,15 +305,25 @@ final class ReaderContainerViewController: UIViewController {
         }
     }
 
-    /// How far in a finger may catch the leaf: the outer quarter of the page,
-    /// never narrower than a comfortable grip.
-    private var curlEdgeWidth: CGFloat { max(52, view.bounds.width * 0.22) }
 }
 
 extension ReaderContainerViewController: UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         guard g === curlPan, canCurl?() == true, curlOverlay == nil else { return false }
-        let x = g.location(in: view).x
-        return x < curlEdgeWidth || x > view.bounds.width - curlEdgeWidth
+        // mostly sideways: a vertical drag is not a page turn (and a drag that starts a selection
+        // handle never reaches here — canCurl is false while text is selected)
+        let v = curlPan.velocity(in: view)
+        return abs(v.x) > abs(v.y) * 0.6
+    }
+
+    /// The book's own scroll views would otherwise win every swipe — they are deeper in the view
+    /// hierarchy, and UIKit lets the deeper recognizer go first. They wait for the curl to decide.
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        guard g === curlPan, other is UIPanGestureRecognizer, other !== curlPan else { return false }
+        return other.view is UIScrollView
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        false
     }
 }

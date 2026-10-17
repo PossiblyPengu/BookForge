@@ -235,7 +235,10 @@ final class ReaderModel: ObservableObject {
         // the leaf that follows the finger — only when the style asks for it
         // and the book is paged (a scrolling page has nothing to peel)
         container.canCurl = { [weak self] in
-            self?.settings.pageTurn == .curl && !(self?.navigator?.presentation.scroll ?? true)
+            guard let self else { return false }
+            // never while text is selected: a drag then belongs to the selection handles
+            return self.settings.pageTurn == .curl && !(self.navigator?.presentation.scroll ?? true)
+                && (self.navigator as? SelectableNavigator)?.currentSelection == nil
         }
         container.onCurlStep = { [weak self] forward in
             await self?.curlStep(forward) ?? false
