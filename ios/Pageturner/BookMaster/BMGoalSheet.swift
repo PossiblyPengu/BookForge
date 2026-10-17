@@ -24,10 +24,14 @@ struct BMGoalSheet: View {
                         ForEach(BMGoal.Kind.allCases) { Text($0.label).tag($0) }
                     }
                     Stepper("\(target) \(kind == .yearlyPages ? "pages" : "books")",
-                            value: $target, in: 1...(kind == .yearlyPages ? 200_000 : 1_000))
+                            value: $target, in: 1...(kind == .yearlyPages ? 200_000 : 1_000),
+                            step: kind == .yearlyPages ? 500 : 1)
+                        .onChange(of: kind) { _, k in
+                            target = k == .yearlyPages ? 10_000 : 24
+                        }
                     if kind == .monthlyBooks {
                         Picker("Month", selection: $month) {
-                            ForEach(1...12, id: \.self) {
+                            ForEach(Calendar.current.component(.month, from: Date())...12, id: \.self) {
                                 Text(monthName($0)).tag($0)
                             }
                         }

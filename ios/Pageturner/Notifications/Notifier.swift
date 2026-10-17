@@ -62,6 +62,7 @@ final class Notifier {
             wasRefused = false
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
             await setBadge(0)
+            UNUserNotificationCenter.current().removeAllDeliveredNotifications()
             return
         }
         let granted = (try? await UNUserNotificationCenter.current()
@@ -91,6 +92,8 @@ final class Notifier {
     /// The Together tab loaded or changed — keep the badge and the "already told" set in step.
     func noteSeen(_ together: BMTogether) {
         _ = settle(together)
+        // the tab is on screen: banners still in Notification Center say what it already shows
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
     }
 
     /// Update the count and the remembered set; return what is new since last time.

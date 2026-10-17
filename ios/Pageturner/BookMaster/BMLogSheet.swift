@@ -125,13 +125,17 @@ struct BMLogSheet: View {
         // when the book has a count, exactly what the reader's own sync sends.
         let startPct = paged ? (start / Double(row.totalPages!)) * 100 : start
         let endPct = paged ? (end / Double(row.totalPages!)) * 100 : end
-        await BookMaster.shared.syncSession(
+        let logged = await BookMaster.shared.syncSession(
             ref: BMBookRef(
                 title: row.title, author: row.author ?? "",
                 isbn: row.isbn, openLibraryId: row.openLibraryId,
                 userBookId: row.userBookId),
             percentStart: startPct, percentEnd: endPct,
             minutes: Double(minutes) ?? 0, at: Date())
+        guard logged else {
+            error = "Couldn’t log this session — check that BookMaster sync is on and try again."
+            return
+        }
         onDone()
         dismiss()
     }

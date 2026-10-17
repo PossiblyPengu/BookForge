@@ -91,10 +91,11 @@ struct BookMasterDetailView: View {
             guard case let .success(urls) = result else { return }
             Task { await bringIn(urls) }
         }
-        .sheet(isPresented: $logging) {
+        .sheet(isPresented: $logging, onDismiss: { loggedMinutes = nil }) {
             if let book = detail?.book {
                 BMLogSheet(row: book, initialMinutes: loggedMinutes) {
                     loggedMinutes = nil
+                    if timer.run?.pin == book.userBookId { timer.stop() }
                     Task { await load() }
                 }
             }
@@ -235,7 +236,8 @@ struct BookMasterDetailView: View {
                     .foregroundStyle(Color.ptAccent)
                 Spacer()
                 Button("Stop & log") {
-                    loggedMinutes = timer.stop()
+                    // the clock keeps running until the log is saved
+                    loggedMinutes = min(Int((timer.elapsed / 60).rounded(.up)), 12 * 60)
                     logging = true
                 }
                 .font(.subheadline)

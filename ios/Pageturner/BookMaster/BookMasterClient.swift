@@ -147,6 +147,7 @@ final class BookMaster {
         defaults.removeObject(forKey: shelfKey)
         defaults.removeObject(forKey: "bm-covers-sent")
         defaults.removeObject(forKey: refusalKey)
+        defaults.removeObject(forKey: refusalKey + "-at")
         lastPush.removeAll()
     }
 
@@ -198,11 +199,14 @@ final class BookMaster {
     }
 
     /// A finished stretch of reading; BookMaster logs it as a real session.
+    /// True when it landed or is parked to send later; false when sync is off,
+    /// the reader isn't linked, or the bridge refused it.
+    @discardableResult
     func syncSession(
         ref: BMBookRef, percentStart: Double, percentEnd: Double,
         minutes: Double, at: Date
-    ) async {
-        guard let user, syncEnabled else { return }
+    ) async -> Bool {
+        guard let user, syncEnabled else { return false }
         let payload = BMSessionPush(
             username: user.username, book: ref,
             percentStart: (percentStart * 1000).rounded() / 10,
@@ -210,8 +214,12 @@ final class BookMaster {
             // the bridge refuses a day or more — and a longer sitting was a screen left on
             durationMinutes: minutes >= 0.5 ? min(Int(minutes.rounded()), 24 * 60) : nil,
             at: (at.timeIntervalSince1970 * 1000).rounded())
-        guard let body = try? JSONEncoder().encode(payload) else { return }
-        _ = await send(kind: "session", title: ref.title, body: body)
+        guard let body = try? JSONEncoder().encode(payload) else { return false }
+        let out = await submit(kind: "session", title: ref.title, body: body)
+        if let data = out.data {
+            announce((try? JSONDecoder().decode(BMPushReply.self, from: data))?.newAchievements)
+        }
+        return out.delivery != .failed
     }
 
     /// A book's jacket, for BookMaster's shelf. True when it was accepted or parked for later.
@@ -255,7 +263,12 @@ final class BookMaster {
         json["place"] = AppPrefs.sharePlace ? (place ?? self.place) : NSNull()
         if leaving { json["leaving"] = true }
         guard let body = try? JSONSerialization.data(withJSONObject: json) else { return false }
-        return (try? await post("presence", body: body)) != nil
+        guard let (data, status) = try? await post("presence", body: body) else { return false }
+        if !(200..<300).contains(status) {
+            handleRefusal(status: status, data: data)
+            return false
+        }
+        return true
     }
 
     // MARK: Reads
@@ -292,7 +305,13 @@ final class BookMaster {
     /// BookMaster's own catalogue search: the reader's shelf first, then Open
     /// Library annotated with BookMaster's ids. Empty when not linked or offline.
     func searchCatalogue(title: String, author: String) async -> [BMSearchBook] {
-        guard let user else { return [] }
+        await searchCatalogueChecked(title: title, author: author) ?? []
+    }
+
+    /// Like `searchCatalogue`, but nil when the lookup failed (offline, refused),
+    /// so a caller can tell a failure from no matches.
+    func searchCatalogueChecked(title: String, author: String) async -> [BMSearchBook]? {
+        guard let user else { return nil }
         let name = title.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return [] }
         let q = [name, author].filter { !$0.isEmpty }.joined(separator: " ")
@@ -300,7 +319,7 @@ final class BookMaster {
             "username": user.username, "title": name, "author": author, "q": q,
         ]), (200..<300).contains(status),
               let reply = try? JSONDecoder().decode(BMSearchReply.self, from: data)
-        else { return [] }
+        else { return nil }
         return reply.books
     }
 
@@ -764,6 +783,11 @@ final class BookMaster {
             do { result = try await postResolving(head.kind, body: head.body) } catch { break }
             guard generation == accountGeneration else { continue }
             if Self.retriable(result.1) { break }
+            // An unknown reader may be a blip: keep the entry until the link is declared dead.
+            if result.1 == 404, Self.errorMessage(result.0) == "Unknown reader" {
+                handleRefusal(status: result.1, data: result.0)
+                break
+            }
             // by identity: the queue may have changed while that was in flight
             queue.removeAll { $0.id == head.id }
             saveQueue()
@@ -799,6 +823,11 @@ final class BookMaster {
     /// the link is only severed after three in a row; any success resets it.
     private func handleRefusal(status: Int, data: Data) {
         guard status == 404, Self.errorMessage(data) == "Unknown reader" else { return }
+        // at most one strike a minute, so a burst of calls in one blip is one strike
+        let now = Date().timeIntervalSince1970
+        let last = defaults.double(forKey: refusalKey + "-at")
+        guard now - last >= 60 || now < last else { return }
+        defaults.set(now, forKey: refusalKey + "-at")
         let strikes = defaults.integer(forKey: refusalKey) + 1
         defaults.set(strikes, forKey: refusalKey)
         Log.event("bookmaster", "link refused (404 Unknown reader) — strike \(strikes)")
@@ -889,6 +918,7 @@ final class BookMaster {
     private func clearRefusals() {
         if defaults.integer(forKey: refusalKey) != 0 {
             defaults.removeObject(forKey: refusalKey)
+        defaults.removeObject(forKey: refusalKey + "-at")
         }
     }
 }

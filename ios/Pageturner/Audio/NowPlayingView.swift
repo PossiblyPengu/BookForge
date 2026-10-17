@@ -15,6 +15,7 @@ struct NowPlayingView: View {
     @State private var tint: Color = .ptAccent
     @State private var showChapters = false
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var shownPosition: TimeInterval { scrubbing ?? player.position }
 
@@ -30,8 +31,11 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             topBar
             Spacer(minLength: 8)
-            artwork
-            Spacer(minLength: 8)
+            // landscape and accessibility text sizes have no height to spare for the art
+            if verticalSizeClass != .compact, !typeSize.isAccessibilitySize {
+                artwork
+                Spacer(minLength: 8)
+            }
             titles
             Spacer(minLength: 8)
             scrubber
@@ -172,6 +176,14 @@ struct NowPlayingView: View {
             )
             .tint(.ptAccent)
             .accessibilityLabel("Position")
+            .accessibilityValue("\(format(shownPosition)) of \(format(player.duration))")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: player.skip(by: skipFwd)
+                case .decrement: player.skip(by: -skipBack)
+                @unknown default: break
+                }
+            }
             HStack {
                 Text(format(shownPosition)).monospacedDigit()
                 Spacer()
@@ -203,13 +215,20 @@ struct NowPlayingView: View {
                     player.skip(by: -skipBack)
                 }
                 Button { player.togglePlay() } label: {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 34, weight: .semibold))
-                        .ptSymbolSwap(on: player.isPlaying)
-                        .frame(width: 88, height: 88)
-                        .contentShape(Circle())
+                    Group {
+                        if player.isLoading {
+                            ProgressView()
+                        } else {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 34, weight: .semibold))
+                                .ptSymbolSwap(on: player.isPlaying)
+                        }
+                    }
+                    .frame(width: 88, height: 88)
+                    .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .disabled(player.isLoading)
                 .ptGlass(in: Circle(), tint: .ptAccent.opacity(0.55), interactive: true)
                 .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
                 transportButton("goforward.\(Int(skipFwd))", label: "Forward \(Int(skipFwd)) seconds", size: chapterSkips ? 56 : 64) {
@@ -244,7 +263,13 @@ struct NowPlayingView: View {
             HStack(spacing: 12) {
                 Menu {
                     ForEach([0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { rate in
-                        Button(speedLabel(rate)) { player.rate = Float(rate) }
+                        Button { player.rate = Float(rate) } label: {
+                            if abs(Double(player.rate) - rate) < 0.01 {
+                                Label(speedLabel(rate), systemImage: "checkmark")
+                            } else {
+                                Text(speedLabel(rate))
+                            }
+                        }
                     }
                 } label: {
                     chip(speedLabel(Double(player.rate)), symbol: "speedometer")

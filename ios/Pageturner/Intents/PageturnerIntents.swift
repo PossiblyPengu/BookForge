@@ -48,7 +48,7 @@ struct BookQuery: EntityStringQuery {
         let needle = string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !needle.isEmpty else { return try await suggestedEntities() }
         return LibrarySnapshot.load()
-            .filter { $0.title.lowercased().contains(needle) || $0.author.lowercased().contains(needle) }
+            .filter { $0.title.localizedStandardContains(needle) || $0.author.localizedStandardContains(needle) }
             .map(BookEntity.init)
     }
 
@@ -70,9 +70,9 @@ struct OpenBookIntent: AppIntent {
     var book: BookEntity
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ProvidesDialog {
         IntentRouter.shared.request = .open(book.id)
-        return .result()
+        return .result(dialog: "Opening \(book.title)")
     }
 }
 
@@ -82,9 +82,9 @@ struct ContinueReadingIntent: AppIntent {
     static let openAppWhenRun = true
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ProvidesDialog {
         IntentRouter.shared.request = .continueReading
-        return .result()
+        return .result(dialog: "Picking up where you left off")
     }
 }
 

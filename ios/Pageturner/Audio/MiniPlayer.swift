@@ -16,7 +16,7 @@ struct MiniPlayer: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 4) {
             Button(action: onOpen) {
                 HStack(spacing: 12) {
                     Group {
@@ -53,24 +53,34 @@ struct MiniPlayer: View {
             Button { player.skip(by: -skipBack) } label: {
                 Image(systemName: "gobackward.\(Int(skipBack))")
                     .font(.title3)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Skip back \(Int(skipBack)) seconds")
 
             Button { player.togglePlay() } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3)
-                    .frame(width: 36, height: 36)
-                    .ptSymbolSwap(on: player.isPlaying)
+                Group {
+                    if player.isLoading {
+                        ProgressView()
+                    } else {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.title3)
+                            .ptSymbolSwap(on: player.isPlaying)
+                    }
+                }
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(player.isLoading)
             .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
 
             Button { player.skip(by: skipFwd) } label: {
                 Image(systemName: "goforward.\(Int(skipFwd))")
                     .font(.title3)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Skip forward \(Int(skipFwd)) seconds")

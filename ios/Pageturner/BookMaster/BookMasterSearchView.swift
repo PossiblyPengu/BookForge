@@ -15,13 +15,24 @@ struct BookMasterSearchView: View {
     @State private var error: String?
     @State private var busy = false
     @State private var scanning = false
+    @State private var offline = false
 
     var body: some View {
         List {
-            if results.isEmpty, !searching, !query.isEmpty {
+            if offline, results.isEmpty, !searching, !query.isEmpty {
+                ContentUnavailableView(
+                    "Couldn’t search", systemImage: "wifi.slash",
+                    description: Text("BookMaster didn’t answer. Check the connection and try again."))
+                    .listRowBackground(Color.clear)
+            } else if results.isEmpty, !searching, !query.isEmpty {
                 ContentUnavailableView(
                     "No matches", systemImage: "magnifyingglass",
                     description: Text("Nothing on the shelf or in Open Library by that name."))
+                    .listRowBackground(Color.clear)
+            }
+            if query.trimmingCharacters(in: .whitespaces).isEmpty, results.isEmpty {
+                Text("Search by title, author or ISBN.")
+                    .foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
             }
             ForEach(results, id: \.stableKey) { hit in
@@ -50,9 +61,16 @@ struct BookMasterSearchView: View {
         }
         .searchable(text: $query, prompt: "Title, author or ISBN")
         .onSubmit(of: .search) { Task { await search() } }
-        .onChange(of: query) { _, q in
-            if q.isEmpty { results = [] }
-            else { Task { await search() } }
+        .task(id: query) {
+            if query.trimmingCharacters(in: .whitespaces).isEmpty {
+                results = []
+                offline = false
+                searching = false
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await search()
         }
         .onAppear {
             if query.isEmpty, !starting.isEmpty {
@@ -125,8 +143,12 @@ struct BookMasterSearchView: View {
         let name = query.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { results = []; return }
         searching = true
-        defer { searching = false }
-        results = await BookMaster.shared.searchCatalogue(title: name, author: "")
+        let found = await BookMaster.shared.searchCatalogueChecked(title: name, author: "")
+        // a newer keystroke cancelled this lookup: leave its state to the next one
+        guard !Task.isCancelled else { return }
+        searching = false
+        offline = found == nil
+        if let found { results = found }
     }
 
     /// Shelve a find, annotated with the catalogue facts it carried.

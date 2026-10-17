@@ -31,6 +31,8 @@ final class AudioPlayer: ObservableObject {
     @Published private(set) var sleepRemaining: TimeInterval?
     @Published private(set) var coverImage: UIImage?
     @Published var notice: String?
+    /// True until `open()` has measured the files — Play does nothing before that.
+    @Published private(set) var isLoading = true
 
     private var book: Book
     private let library: LibraryStore
@@ -62,6 +64,8 @@ final class AudioPlayer: ObservableObject {
     /// Consecutive seconds the player said "paused" while we believed it was playing.
     private var stalledTicks = 0
     private var routeObserver: NSObjectProtocol?
+    /// Watches the current item for a file that won't play.
+    private var itemStatus: AnyCancellable?
 
     init(book: Book, library: LibraryStore) {
         self.book = book
@@ -81,14 +85,28 @@ final class AudioPlayer: ObservableObject {
 
     func open() async {
         // cumulative offsets turn "track i, t seconds" into a global position
+        defer { isLoading = false }
         var offsets: [TimeInterval] = []
         var total: TimeInterval = 0
-        for url in urls {
+        // the files are measured side by side — a long mp3 book would take seconds one by one
+        let measured: [TimeInterval?] = await withTaskGroup(of: (Int, TimeInterval?).self) { group in
+            for (i, url) in urls.enumerated() {
+                group.addTask {
+                    let d = try? await AVURLAsset(url: url).load(.duration).seconds
+                    return (i, d)
+                }
+            }
+            var out = [TimeInterval?](repeating: nil, count: urls.count)
+            for await (i, d) in group { out[i] = d }
+            return out
+        }
+        var unreadable: String?
+        for (i, d) in measured.enumerated() {
             offsets.append(total)
-            let d = (try? await AVURLAsset(url: url).load(.duration).seconds) ?? 0
-            total += d
+            if let d, d.isFinite, d >= 0 { total += d } else if unreadable == nil { unreadable = trackNames[i] }
         }
         guard !closed else { return }
+        if let unreadable { notice = "Couldn't read the length of \(unreadable). Its place in the book may be off." }
         trackOffsets = offsets
         duration = total
         chapters = urls.count > 1
@@ -181,6 +199,17 @@ final class AudioPlayer: ObservableObject {
         pausedAt = nil
         trackIndex = index
         let item = AVPlayerItem(url: urls[index])
+        itemStatus = item.publisher(for: \.status)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak item] status in
+                guard status == .failed, let self, let item else { return }
+                MainActor.assumeIsolated {
+                    guard !self.closed else { return }
+                    let why = item.error?.localizedDescription ?? "unreadable file"
+                    self.notice = "Couldn't play \(self.trackNames[index]): \(why)"
+                    self.pause()
+                }
+            }
         if let player { player.replaceCurrentItem(with: item) } else { player = AVPlayer(playerItem: item) }
         position = trackOffsets[index]
         observeEnd(of: item)
@@ -218,6 +247,7 @@ final class AudioPlayer: ObservableObject {
 
     func play() {
         guard player != nil else { return }
+        player?.volume = 1
         // pressing play on a book that has finished starts it again
         if duration > 0, position >= duration - 0.5 { seek(to: 0, resume: false) }
         // after a break, a little back from where it stopped (never before the start of the chapter)
@@ -248,11 +278,16 @@ final class AudioPlayer: ObservableObject {
     }
 
     func pause() {
-        if isPlaying { pausedAt = Date() }
+        let wasPlaying = isPlaying
+        if wasPlaying { pausedAt = Date() }
         interruptedWhilePlaying = nil   // anything but an interruption's own pause cancels carrying on afterwards
         player?.pause()
+        player?.volume = 1
         isPlaying = false
         stalledTicks = 0
+        // pausing what was not playing (another audio source claiming focus) is not a listen:
+        // saving would re-stamp lastOpenedAt and make "Continue" offer this book
+        guard wasPlaying else { armSessionRelease(); return }
         savePosition(force: true)
         endBookMasterSession()
         MPNowPlayingInfoCenter.default().playbackState = .paused
@@ -387,6 +422,7 @@ final class AudioPlayer: ObservableObject {
 
     func setSleepTimer(minutes: Int?) {
         sleepAtChapterEnd = false
+        player?.volume = 1   // a fade in progress ends with the timer
         sleepTimer?.invalidate()
         sleepTimer = nil
         guard let minutes, minutes > 0 else {
@@ -462,6 +498,8 @@ final class AudioPlayer: ObservableObject {
         libraryChanges?.cancel()
         AudioFocus.shared.unregister("audiobook")   // the lock-screen buttons pass on, or are cleared
         setSleepTimer(minutes: nil)
+        itemStatus?.cancel()
+        itemStatus = nil
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
         timeObserver = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
@@ -475,8 +513,9 @@ final class AudioPlayer: ObservableObject {
 
     private func savePosition(force: Bool = false) {
         // before the files are measured there is no place to save; after a close there is nothing to follow
-        guard opened, !closed, duration > 0, checkpoint.maySave(at: position) else { return }
+        guard opened, !closed, duration > 0, position.isFinite, checkpoint.maySave(at: position) else { return }
         let progression = position / duration
+        guard progression.isFinite else { return }
         checkpoint.saved(position: position, progression: progression)
         // the record as it is now: an edit made while this was loaded (a title, a shelf) must survive
         library.mutate(book.id) { stored in
@@ -538,9 +577,13 @@ final class AudioPlayer: ObservableObject {
         ) { [weak self] time in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                guard time.isNumeric, time.seconds.isFinite, self.trackOffsets.indices.contains(self.trackIndex) else { return }
                 self.position = self.trackOffsets[self.trackIndex] + time.seconds
                 if let deadline = self.sleepDeadline {
-                    self.sleepRemaining = max(0, deadline.timeIntervalSinceNow)
+                    let left = max(0, deadline.timeIntervalSinceNow)
+                    self.sleepRemaining = left
+                    // ease the sound out over the last ten seconds
+                    if self.isPlaying, left < 10 { self.player?.volume = Float(max(0.1, left / 10)) }
                 }
                 // the lock screen shows the chapter's name — keep it current
                 if self.currentChapterIndex != self.lastChapterIndex {

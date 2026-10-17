@@ -95,8 +95,6 @@ final class RemoteControls {
             set(event.playbackRate)
             return .success
         }
-        center.skipForwardCommand.preferredIntervals = [30]
-        center.skipBackwardCommand.preferredIntervals = [15]
     }
 
     private func run(_ action: KeyPath<Handlers, (() -> Void)?>) -> MPRemoteCommandHandlerStatus {
@@ -109,6 +107,8 @@ final class RemoteControls {
     private func apply() {
         let center = MPRemoteCommandCenter.shared()
         let owner = active
+        center.skipForwardCommand.preferredIntervals = [NSNumber(value: AppPrefs.skipForward)]
+        center.skipBackwardCommand.preferredIntervals = [NSNumber(value: AppPrefs.skipBack)]
         center.playCommand.isEnabled = owner?.play != nil
         center.pauseCommand.isEnabled = owner?.pause != nil
         center.togglePlayPauseCommand.isEnabled = owner?.toggle != nil
