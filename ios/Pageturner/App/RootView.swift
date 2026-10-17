@@ -43,6 +43,12 @@ struct RootView: View {
                 router.tab = .together
                 notifier.openTogether = false
             }
+            // however the link ended (a button, or three refusals), its leftovers go: pins, Up next, banners
+            .onChange(of: bookMaster.isLinked) { old, linked in
+                guard old, !linked else { return }
+                library.clearBookMasterFields()
+                notifier.reset()
+            }
             .onChange(of: intents.request, initial: true) { _, request in
                 guard let request else { return }
                 intents.request = nil

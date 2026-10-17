@@ -114,6 +114,7 @@ struct BMSeriesDetailView: View {
     @State private var adding = false
     @State private var busy = false
     @State private var actionError: String?
+    @State private var pickError: String?
 
     var body: some View {
         List {
@@ -219,6 +220,12 @@ struct BMSeriesDetailView: View {
                 }
             }
         }
+        .alert("Couldn’t add it", isPresented: Binding(
+            get: { pickError != nil }, set: { if !$0 { pickError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(pickError ?? "")
+        }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
@@ -243,7 +250,8 @@ struct BMSeriesDetailView: View {
             adding = false
             await load()
         } catch {
-            actionError = error.localizedDescription
+            // the pick sheet is up: an alert on the page behind it would not show
+            pickError = error.localizedDescription
         }
     }
 

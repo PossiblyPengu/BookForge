@@ -197,7 +197,18 @@ extension BookMaster {
         var changes: [(UUID, (inout Book) -> Void)] = []
         var covers: [(Book, URL)] = []
         for book in library.books {
-            guard let row = BMShelf.match(book, in: reply.books) else { continue }
+            guard let row = BMShelf.match(book, in: reply.books) else {
+                // gone from the shelf (removed on BookMaster): the badges, rating and Up next go with it
+                if book.bmStatus != nil || book.bmRating != nil || book.bmRemotePercent != nil || book.bmUpNext != nil {
+                    changes.append((book.id, { b in
+                        b.bmStatus = nil
+                        b.bmRating = nil
+                        b.bmRemotePercent = nil
+                        b.bmUpNext = nil
+                    }))
+                }
+                continue
+            }
             let shelf = (id: row.userBookId, status: row.status, rating: row.rating,
                          percent: row.percent, upNext: row.upNext != nil)
             changes.append((book.id, { b in

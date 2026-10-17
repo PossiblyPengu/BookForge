@@ -72,7 +72,13 @@ struct BookMasterDetailView: View {
                 ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear)
             }
             if let info { Section { Text(info).foregroundStyle(.secondary) } }
-            if let error { Section { Text(error).foregroundStyle(.secondary) } }
+            if let error, detail == nil { Section { Text(error).foregroundStyle(.secondary) } }
+        }
+        // a failed write is told where the reader is looking, not in a footer at the bottom of a long list
+        .alert("BookMaster", isPresented: Binding(get: { error != nil && detail != nil }, set: { if !$0 { error = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(error ?? "")
         }
         .navigationTitle(detail?.catalogue?.title ?? detail?.book?.title ?? title ?? "Book")
         .navigationBarTitleDisplayMode(.inline)
@@ -239,7 +245,7 @@ struct BookMasterDetailView: View {
         let timer = BMReadingTimer.shared
         if let run = timer.run, run.pin == book.userBookId {
             HStack {
-                Label(clock(timerNow.timeIntervalSince(run.startedAt)), systemImage: "timer")
+                Label(clock(max(0, timerNow.timeIntervalSince(run.startedAt))), systemImage: "timer")
                     .font(.subheadline.weight(.medium).monospacedDigit())
                     .foregroundStyle(Color.ptAccent)
                 Spacer()
@@ -256,7 +262,7 @@ struct BookMasterDetailView: View {
             }
             .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { timerNow = $0 }
         } else {
-            Button { timer.start(pin: book.userBookId, title: book.title) } label: {
+            Button { timerNow = Date(); timer.start(pin: book.userBookId, title: book.title) } label: {
                 Label("Time me", systemImage: "timer")
             }
             .disabled(timer.run != nil)
@@ -325,7 +331,7 @@ struct BookMasterDetailView: View {
                     }
                     Spacer()
                 }
-                .swipeActions(edge: .trailing) {
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     Button("Remove", role: .destructive) { Task { await takeBack(.session, id: session.id) } }
                 }
             }
@@ -353,7 +359,7 @@ struct BookMasterDetailView: View {
                     .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 2)
-                .swipeActions(edge: .trailing) {
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     Button("Remove", role: .destructive) { Task { await takeBack(.quote, id: quote.id) } }
                 }
             }
@@ -390,7 +396,7 @@ struct BookMasterDetailView: View {
                     }
                 }
                 .padding(.vertical, 2)
-                .swipeActions(edge: .trailing) {
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     if comment.userId == detail.you {
                         Button("Remove", role: .destructive) { Task { await takeBack(.comment, id: comment.id) } }
                     }

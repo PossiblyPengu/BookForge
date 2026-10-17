@@ -76,8 +76,8 @@ struct BMLogSheet: View {
                 }
             }
             .onAppear {
-                start = current
-                end = min(current + (paged ? 30 : 10), ceiling)
+                start = current.rounded()
+                end = min(start + (paged ? 30 : 10), ceiling)
                 if let initialMinutes { minutes = "\(initialMinutes)" }
             }
             .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
@@ -133,7 +133,9 @@ struct BMLogSheet: View {
             percentStart: startPct, percentEnd: endPct,
             minutes: Double(minutes) ?? 0, at: Date())
         guard logged else {
-            error = "Couldn’t log this session — check that BookMaster sync is on and try again."
+            error = BookMaster.shared.syncEnabled
+                ? "Couldn’t log this session — try again in a moment."
+                : "BookMaster sync is turned off. Turn it on in Settings to log this session."
             return
         }
         onDone()

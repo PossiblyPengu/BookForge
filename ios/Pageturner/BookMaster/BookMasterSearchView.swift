@@ -60,7 +60,6 @@ struct BookMasterSearchView: View {
             }
         }
         .searchable(text: $query, prompt: "Title, author or ISBN")
-        .onSubmit(of: .search) { Task { await search() } }
         .task(id: query) {
             if query.trimmingCharacters(in: .whitespaces).isEmpty {
                 results = []
@@ -68,6 +67,9 @@ struct BookMasterSearchView: View {
                 searching = false
                 return
             }
+            // the pause is part of searching: no "No matches" or stale offline note while it runs
+            searching = true
+            offline = false
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             await search()
@@ -145,7 +147,7 @@ struct BookMasterSearchView: View {
         searching = true
         let found = await BookMaster.shared.searchCatalogueChecked(title: name, author: "")
         // a newer keystroke cancelled this lookup: leave its state to the next one
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, name == query.trimmingCharacters(in: .whitespaces) else { return }
         searching = false
         offline = found == nil
         if let found { results = found }

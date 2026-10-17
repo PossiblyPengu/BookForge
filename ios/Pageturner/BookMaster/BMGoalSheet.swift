@@ -27,7 +27,11 @@ struct BMGoalSheet: View {
                             value: $target, in: 1...(kind == .yearlyPages ? 200_000 : 1_000),
                             step: kind == .yearlyPages ? 500 : 1)
                         .onChange(of: kind) { _, k in
-                            target = k == .yearlyPages ? 10_000 : 24
+                            switch k {
+                            case .yearlyPages: target = 10_000
+                            case .yearlyBooks: target = 24
+                            case .monthlyBooks: target = 2
+                            }
                         }
                     if kind == .monthlyBooks {
                         Picker("Month", selection: $month) {
