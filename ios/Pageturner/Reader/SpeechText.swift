@@ -20,7 +20,15 @@ enum SpeechText {
         text = replacing(#"\b[vV][sS]\.(?=\s|$)"#, in: text, with: "versus")
         text = replacing(#"\b[eE][tT][cC]\.(?=\s|$)"#, in: text, with: "et cetera")
         text = replacing(#"\s+([,;:.!?…])"#, in: text, with: "$1")
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // a running page number ("42", "- 42 -", "Page 42") is not part of the story
+        if AppPrefs.speechSkipsPageNumbers, isPageNumber(text) { return "" }
+        return text
+    }
+
+    /// Only digits (at most four), or "page" and digits, or those between dashes or brackets.
+    static func isPageNumber(_ text: String) -> Bool {
+        text.range(of: #"^[\[(\-–—\s]*(?:page\s+)?\d{1,4}[\])\-–—\s]*$"#, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     static func shouldJoin(previous: String, separator: String, next: String) -> Bool {

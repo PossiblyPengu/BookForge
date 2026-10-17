@@ -6,6 +6,7 @@ struct ReadAloudSection: View {
     @State private var rate: Double
     @State private var voice: String?
     @State private var highlights: ReadAloudHighlights
+    @AppStorage("speech-skip-page-numbers") private var skipPageNumbers = true
     private let store = NeuralVoiceStore.shared
 
     init() {
@@ -23,6 +24,7 @@ struct ReadAloudSection: View {
             } label: {
                 LabeledContent("Saved Voices", value: NeuralVoiceSummary.text(for: store))
             }
+            Toggle("Skip page numbers", isOn: $skipPageNumbers)
         } header: {
             Text("Read Aloud")
         } footer: {

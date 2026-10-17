@@ -76,4 +76,11 @@ func runOPDSChecks() {
           "\(g.entries[0].downloads.map(\.url))")
     check("something that is not a feed is refused", OPDS.parse(Data("<html><body>hi</body></html>".utf8), base: base) == nil)
     check("garbage is refused", OPDS.parse(Data("not xml".utf8), base: base) == nil)
+
+    section("Read-aloud skips page numbers")
+    check("a bare number or a page label is a page number",
+          ["42", "- 42 -", "[ 7 ]", "Page 112", "page 3"].allSatisfy(SpeechText.isPageNumber))
+    check("a sentence, a long number or a chapter number word is not",
+          !["It was 42 years ago.", "Chapter 3", "12345", "XII", "42 Wallaby Way"].contains(where: SpeechText.isPageNumber))
+    check("spoken() drops a lone page number and keeps real text", SpeechText.spoken(" 42 ") == "" && SpeechText.spoken("Forty-two.") == "Forty-two.")
 }

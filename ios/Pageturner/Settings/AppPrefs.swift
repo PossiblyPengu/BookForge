@@ -60,6 +60,9 @@ enum AppPrefs {
         return added >= 3 || (added >= 1 && now.timeIntervalSince1970 - last > 30 * 86_400)
     }
 
+    /// Whether read-aloud passes over a line that is only a page number.
+    static var speechSkipsPageNumbers: Bool { enabled("speech-skip-page-numbers") }
+
     private static func enabled(_ key: String) -> Bool {
         defaults.object(forKey: key) as? Bool ?? true
     }

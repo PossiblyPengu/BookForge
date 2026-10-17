@@ -107,6 +107,10 @@ final class ReaderModel: ObservableObject {
             self.publication = publication
             reading = ReadingSpan(startingAt: book.progression)
             var initial = book.locatorJSON.flatMap { try? Locator(jsonString: $0) }
+            // opened from a highlight in the hub: land on it, not where the book was left
+            if let requested = OpenAt.take(for: book.id), let place = try? Locator(jsonString: requested) {
+                initial = place
+            }
             // no saved place but a progression (a jump to where BookMaster has
             // the book, or a restored backup): find that point in the book
             if initial == nil, let progression = book.progression, progression > 0.001 {

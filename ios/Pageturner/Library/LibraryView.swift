@@ -20,6 +20,7 @@ struct LibraryView: View {
     @State private var query = ""
     @State private var showDuplicates = false
     @State private var showCatalogs = false
+    @State private var showHighlights = false
     /// "Later" on the backup reminder, until the view is next built.
     @State private var backupSnoozed = false
 
@@ -133,6 +134,7 @@ struct LibraryView: View {
             }
             .overlay { if let finding { findingCard(finding) } }
             .sheet(isPresented: $showDuplicates) { DuplicatesSheet() }
+            .sheet(isPresented: $showHighlights) { HighlightsHubView() }
             .sheet(isPresented: $showCatalogs) { NavigationStack { OPDSCatalogsView() } }
             .alert("Find Details", isPresented: Binding(
                 get: { findResult != nil },
@@ -328,6 +330,11 @@ struct LibraryView: View {
                     Section("Show") {
                         Picker("Status", selection: $status) {
                             ForEach(Status.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                    }
+                    Section("Notes") {
+                        Button { showHighlights = true } label: {
+                            Label("All Highlights", systemImage: "highlighter")
                         }
                     }
                     Section("Get books") {
