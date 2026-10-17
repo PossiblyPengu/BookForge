@@ -49,6 +49,9 @@ struct ReaderView: View {
                         if let label = model.backLabel {
                             backChip(label)
                         }
+                        if let index = model.searchHitIndex {
+                            searchStepper(index: index, count: model.searchResults.count)
+                        }
                         if let readAloud = model.readAloud, readAloud.isActive {
                             ReadAloudBar(
                                 readAloud: readAloud,
@@ -390,6 +393,31 @@ struct ReaderView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Dismiss")
         }
+        .foregroundStyle(.primary)
+        .ptGlassCapsule(interactive: true)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    /// "‹ 3 of 12 ›" — step through the matches of the last search without reopening it.
+    private func searchStepper(index: Int, count: Int) -> some View {
+        HStack(spacing: 0) {
+            Button { model.stepSearchHit(-1); model.revealChrome() } label: {
+                Image(systemName: "chevron.up").frame(minWidth: 44, minHeight: 40).contentShape(Rectangle())
+            }
+            .accessibilityLabel("Previous match")
+            Text("\(index + 1) of \(count)")
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .lineLimit(1).minimumScaleFactor(0.8)
+            Button { model.stepSearchHit(1); model.revealChrome() } label: {
+                Image(systemName: "chevron.down").frame(minWidth: 44, minHeight: 40).contentShape(Rectangle())
+            }
+            .accessibilityLabel("Next match")
+            Button { model.endSearchStepping(); model.revealChrome() } label: {
+                Image(systemName: "xmark").font(.caption.weight(.bold)).frame(minWidth: 38, minHeight: 40).contentShape(Rectangle())
+            }
+            .accessibilityLabel("Done with search")
+        }
+        .buttonStyle(.plain)
         .foregroundStyle(.primary)
         .ptGlassCapsule(interactive: true)
         .transition(.move(edge: .bottom).combined(with: .opacity))

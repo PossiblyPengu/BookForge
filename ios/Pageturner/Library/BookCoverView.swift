@@ -10,6 +10,8 @@ struct BookCoverView: View {
     var corner: CGFloat = 10
     /// nil outside select mode; true/false draws the tick.
     var selected: Bool?
+    /// The book's file has gone from the device.
+    var missing = false
 
     var body: some View {
         // The 2:3 box is a clear base and the art an overlay on it: an overlay never changes its
@@ -68,6 +70,14 @@ struct BookCoverView: View {
 
     private var badges: some View {
         HStack(alignment: .bottom) {
+            if missing {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.orange)
+                    .padding(6)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .accessibilityLabel("File missing")
+            }
             if book.isAudio {
                 Image(systemName: "headphones")
                     .font(.caption2.weight(.bold))
@@ -128,7 +138,8 @@ struct BookGrid: View {
                     VStack(alignment: .leading, spacing: 6) {
                         BookCoverView(
                             book: book, cover: library.coverThumbnail(for: book, maxPixels: 640),
-                            selected: selection.map { $0.wrappedValue.contains(book.id) })
+                            selected: selection.map { $0.wrappedValue.contains(book.id) },
+                            missing: library.missing.contains(book.id))
                         Text(book.title)
                             .font(.footnote.weight(.semibold))
                             .lineLimit(2)
@@ -203,6 +214,7 @@ struct BookGrid: View {
         if !book.author.isEmpty { parts.append("by \(book.author)") }
         if book.isAudio { parts.append("audiobook") }
         if let p = book.progression, p > 0 { parts.append("\(Int((p * 100).rounded())) percent") }
+        if library.missing.contains(book.id) { parts.append("file missing") }
         return parts.joined(separator: ", ")
     }
 }

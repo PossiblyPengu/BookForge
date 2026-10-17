@@ -77,8 +77,15 @@ struct BookMasterBooksView: View {
 
     private func matchBooks() {
         var found: [String: UUID] = [:]
+        // the pin settles most rows at once; only the rest pay for the title-and-author scan
+        var byPin: [String: UUID] = [:]
+        for book in library.books {
+            if let pin = book.bookmasterId, byPin[pin] == nil { byPin[pin] = book.id }
+        }
         for row in rows {
-            if let book = library.books.first(where: { BMShelf.match($0, in: [row]) != nil }) {
+            if let id = byPin[row.userBookId] {
+                found[row.userBookId] = id
+            } else if let book = library.books.first(where: { BMShelf.match($0, in: [row]) != nil }) {
                 found[row.userBookId] = book.id
             }
         }

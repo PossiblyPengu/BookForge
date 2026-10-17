@@ -231,15 +231,42 @@ extension BookMaster {
                 }
             }))
             if let url = row.coverURL,
-               !FileManager.default.fileExists(atPath: library.coverURL(for: book).path) {
+               !FileManager.default.fileExists(atPath: library.coverURL(for: book).path),
+               !Self.recentlyMissedCover(book.id) {
                 covers.append((book, url))
             }
         }
         library.applyShelf(changes)
         // and the jackets: a book with none of its own takes BookMaster's
-        for (book, url) in covers where !Task.isCancelled {
-            await MetadataLookup.applyCover(from: url, to: book, library: library)
+        // in the background: the refresh spinner should not wait on a string of image downloads
+        if !covers.isEmpty {
+            Task {
+                for (book, url) in covers where !Task.isCancelled {
+                    await MetadataLookup.applyCover(from: url, to: book, library: library)
+                    if !FileManager.default.fileExists(atPath: library.coverURL(for: book).path) {
+                        Self.noteCoverMiss(book.id)
+                    }
+                }
+            }
         }
         return true
+    }
+
+    // A cover URL that gave nothing (a 404, not an image) is not asked again on every pull.
+    private static let coverMissKey = "bm-cover-miss"
+    private static let coverMissHours: Double = 6
+
+    private static func recentlyMissedCover(_ id: UUID) -> Bool {
+        let misses = UserDefaults.standard.dictionary(forKey: coverMissKey) as? [String: Double] ?? [:]
+        guard let at = misses[id.uuidString] else { return false }
+        return Date().timeIntervalSince1970 - at < coverMissHours * 3600
+    }
+
+    private static func noteCoverMiss(_ id: UUID) {
+        var misses = UserDefaults.standard.dictionary(forKey: coverMissKey) as? [String: Double] ?? [:]
+        let now = Date().timeIntervalSince1970
+        misses = misses.filter { now - $0.value < coverMissHours * 3600 }   // old entries expire
+        misses[id.uuidString] = now
+        UserDefaults.standard.set(misses, forKey: coverMissKey)
     }
 }

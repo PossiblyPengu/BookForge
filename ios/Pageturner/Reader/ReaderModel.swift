@@ -41,6 +41,8 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var searchedQuery = ""
     /// The last search could not run at all (as opposed to finding nothing).
     @Published private(set) var searchFailed = false
+    /// Which match the reader is on, so the next/previous arrows know where to step from.
+    @Published private(set) var searchHitIndex: Int?
     /// Whether font, spacing and margins mean anything for this book (a PDF's pages are fixed).
     @Published private(set) var adjustsType = true
     /// Where a "Back" button would return to after a jump.
@@ -371,6 +373,7 @@ final class ReaderModel: ObservableObject {
 
     /// A search hit: jump there and mark the match for a few seconds, so it can be found on a full page.
     func goToSearchHit(_ locator: Locator) {
+        searchHitIndex = searchResults.firstIndex(of: locator)
         go(to: locator)
         guard let decorable = navigator as? DecorableNavigator else { return }
         searchHitGeneration += 1
@@ -385,6 +388,16 @@ final class ReaderModel: ObservableObject {
             (self.navigator as? DecorableNavigator)?.apply(decorations: [], in: Self.searchHitGroup)
         }
     }
+
+    /// The next (+1) or previous (-1) match of the last search; wraps around.
+    func stepSearchHit(_ delta: Int) {
+        guard let i = searchHitIndex, !searchResults.isEmpty else { return }
+        let count = searchResults.count
+        goToSearchHit(searchResults[((i + delta) % count + count) % count])
+    }
+
+    /// Put the match arrows away.
+    func endSearchStepping() { searchHitIndex = nil }
 
     func go(to locator: Locator) {
         guard let navigator else { return }
@@ -603,6 +616,7 @@ final class ReaderModel: ObservableObject {
         let generation = searchGeneration
         let q = query.trimmingCharacters(in: .whitespaces)
         searchFailed = false
+        if q != searchedQuery { searchHitIndex = nil }
         guard let publication, !q.isEmpty else {
             searchResults = []
             searchedQuery = ""

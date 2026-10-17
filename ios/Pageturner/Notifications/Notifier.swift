@@ -38,6 +38,9 @@ final class Notifier {
     }
 
     /// Switched on but refused (or later turned off) in iOS Settings.
+    /// Background App Refresh is how suggestions arrive while the app is closed: with it off they only show on opening.
+    var backgroundRefreshOff: Bool { UIApplication.shared.backgroundRefreshStatus != .available }
+
     var blockedBySystem: Bool { authorization == .denied && (enabled || wasRefused) }
     /// The reader switched it on and iOS said no — `enabled` stays off then, and without this the toggle
     /// would just spring back with no word on why or how to fix it.

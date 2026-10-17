@@ -43,7 +43,9 @@ struct PageturnerApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     Log.event("lifecycle", "scene → \(String(describing: phase))")
                     switch phase {
-                    case .active: Log.markForeground()
+                    case .active:
+                        Log.markForeground()
+                        library.refreshMissing()
                     case .background:
                         Log.markBackground()
                         Task { await BookMaster.shared.beat(leaving: true) }

@@ -76,6 +76,8 @@ final class BookMaster {
         var body: Data
         /// Which entry a drain step means after its await; older files have none.
         var id: UUID? = nil
+        /// A session the reader logged by hand: it goes out even while automatic sync is paused. Older files have none.
+        var manual: Bool? = nil
     }
 
     private let defaults: UserDefaults
@@ -204,9 +206,10 @@ final class BookMaster {
     @discardableResult
     func syncSession(
         ref: BMBookRef, percentStart: Double, percentEnd: Double,
-        minutes: Double, at: Date
+        minutes: Double, at: Date, manual: Bool = false
     ) async -> Bool {
-        guard let user, syncEnabled else { return false }
+        // pausing automatic sync must not swallow a session the reader typed in on purpose
+        guard let user, syncEnabled || manual else { return false }
         let payload = BMSessionPush(
             username: user.username, book: ref,
             percentStart: (percentStart * 1000).rounded() / 10,
@@ -215,7 +218,7 @@ final class BookMaster {
             durationMinutes: minutes >= 0.5 ? min(Int(minutes.rounded()), 24 * 60) : nil,
             at: (at.timeIntervalSince1970 * 1000).rounded())
         guard let body = try? JSONEncoder().encode(payload) else { return false }
-        let out = await submit(kind: "session", title: ref.title, body: body)
+        let out = await submit(kind: "session", title: ref.title, body: body, manual: manual)
         if let data = out.data {
             announce((try? JSONDecoder().decode(BMPushReply.self, from: data))?.newAchievements)
         }
@@ -720,11 +723,11 @@ final class BookMaster {
         return reply
     }
 
-    private func submit(kind: String, title: String, body: Data) async -> (delivery: QuoteDelivery, data: Data?) {
+    private func submit(kind: String, title: String, body: Data, manual: Bool = false) async -> (delivery: QuoteDelivery, data: Data?) {
         guard let user, Self.owner(of: body) == user.username else { return (.failed, nil) }
         let generation = accountGeneration
         let id = UUID()
-        enqueue(QueueEntry(kind: kind, title: title, body: body, id: id))
+        enqueue(QueueEntry(kind: kind, title: title, body: body, id: id, manual: manual ? true : nil))
         let results = await drainQueue()
         guard generation == accountGeneration else { return (.failed, nil) }
         if case let .accepted(data) = results[id] { return (.sent, data) }
@@ -740,7 +743,7 @@ final class BookMaster {
         let generation = accountGeneration
         await flush()
         guard generation == accountGeneration, Self.owner(of: body) == user?.username,
-              !queue.contains(where: { syncEnabled || $0.kind == "quote" }) else { return false }
+              !queue.contains(where: { syncEnabled || $0.kind == "quote" || $0.manual == true }) else { return false }
         do {
             let (data, status) = try await postResolving(kind, body: body)
             guard generation == accountGeneration else { return false }
@@ -777,7 +780,7 @@ final class BookMaster {
         while let user {
             queue.removeAll { Self.owner(of: $0.body) != user.username }
             saveQueue()
-            guard let head = queue.first(where: { syncEnabled || $0.kind == "quote" }) else { break }
+            guard let head = queue.first(where: { syncEnabled || $0.kind == "quote" || $0.manual == true }) else { break }
             let generation = accountGeneration
             let result: (Data, Int)
             do { result = try await postResolving(head.kind, body: head.body) } catch { break }

@@ -15,7 +15,18 @@ struct MiniPlayer: View {
         return player.bookAuthor.isEmpty ? nil : player.bookAuthor
     }
 
+    /// Below this width — the bottom accessory's inline placement, beside the tab icons — four controls and
+    /// a title don't fit: the skip buttons and the subtitle step aside, play/pause stays.
+    private static let compactBelow: CGFloat = 340
+
     var body: some View {
+        GeometryReader { proxy in
+            row(compact: proxy.size.width < Self.compactBelow)
+        }
+        .frame(height: 44)
+    }
+
+    private func row(compact: Bool) -> some View {
         HStack(spacing: 4) {
             Button(action: onOpen) {
                 HStack(spacing: 12) {
@@ -35,7 +46,7 @@ struct MiniPlayer: View {
                         Text(player.bookTitle)
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
-                        if let line = subtitle {
+                        if !compact, let line = subtitle {
                             Text(line)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -50,6 +61,7 @@ struct MiniPlayer: View {
             .accessibilityLabel("Now playing: \(player.bookTitle)")
             .accessibilityHint("Opens the player")
 
+            if !compact {
             Button { player.skip(by: -skipBack) } label: {
                 Image(systemName: "gobackward.\(Int(skipBack))")
                     .font(.title3)
@@ -58,6 +70,7 @@ struct MiniPlayer: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Skip back \(Int(skipBack)) seconds")
+            }
 
             Button { player.togglePlay() } label: {
                 Group {
@@ -76,6 +89,7 @@ struct MiniPlayer: View {
             .disabled(player.isLoading)
             .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
 
+            if !compact {
             Button { player.skip(by: skipFwd) } label: {
                 Image(systemName: "goforward.\(Int(skipFwd))")
                     .font(.title3)
@@ -84,6 +98,7 @@ struct MiniPlayer: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Skip forward \(Int(skipFwd)) seconds")
+            }
         }
         .padding(.horizontal, 16)
     }

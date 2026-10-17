@@ -57,6 +57,10 @@ final class AppRouter {
     /// is where the book is. When BookMaster has the book further on than this
     /// device, that is asked about first.
     func open(_ book: Book, library: LibraryStore) {
+        if library.missing.contains(book.id) {
+            library.lastError = "“\(book.title)” can’t be opened: its file is no longer on this device (it may have been deleted in the Files app). Remove it from the library to clear it."
+            return
+        }
         if AppPrefs.resumeAsk, let fraction = ResumeOffer.target(for: book) {
             resumePrompt = ResumePrompt(book: book, fraction: fraction)
             return

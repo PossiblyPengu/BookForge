@@ -46,6 +46,16 @@ struct BookMasterSection: View {
                             }
                         }
                     } else {
+                        if notifier.enabled, notifier.backgroundRefreshOff {
+                            Text("Background App Refresh is off, so suggestions only appear when you open Pageturner.")
+                                .font(.footnote)
+                                .foregroundStyle(.orange)
+                            Button("Open iOS Settings") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            }
+                        }
                         Text("A suggestion from the other reader shows up as a notification. iOS decides when Pageturner may check in the background, so it can take a while — and Background App Refresh has to be on.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)

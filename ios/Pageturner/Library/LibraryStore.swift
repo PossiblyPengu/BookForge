@@ -261,6 +261,8 @@ final class LibraryStore: ObservableObject {
     /// Shelves (the web app's "collections") in the order they were made.
     @Published private(set) var shelves: [String] = UserDefaults.standard.stringArray(forKey: "shelves") ?? []
     @Published var importing = false
+    /// Books whose file is no longer on the device (deleted in the Files app): marked, and they do not open.
+    @Published private(set) var missing: Set<UUID> = []
     @Published var lastError: String?
 
     private let fm = FileManager.default
@@ -296,6 +298,21 @@ final class LibraryStore: ObservableObject {
                 try? data.write(to: backup, options: .atomic)
                 Log.error("library", "library.json could not be read; original kept as \(backup.lastPathComponent)")
             }
+        }
+        refreshMissing()
+    }
+
+    /// Look for books whose file has gone, off the main thread — at launch and when the app returns.
+    func refreshMissing() {
+        let snapshot = books.map { (id: $0.id, urls: fileURLs(for: $0)) }
+        Task {
+            let gone = await Task.detached(priority: .utility) { () -> Set<UUID> in
+                let fm = FileManager.default
+                return Set(snapshot.filter { entry in
+                    entry.urls.contains { url in !fm.fileExists(atPath: url.path) }
+                }.map(\.id))
+            }.value
+            if missing != gone { missing = gone }
         }
     }
 
@@ -349,7 +366,7 @@ final class LibraryStore: ObservableObject {
     /// different book (AudioGrouping). Tracks play in natural path order so
     /// "ch2" comes before "ch10". Ebooks import one per file.
     enum ImportError: LocalizedError {
-        case notAnArchive, looksLikeBackup, nothingToImport, emptyText
+        case notAnArchive, looksLikeBackup, nothingToImport, emptyText, duplicate(String)
 
         var errorDescription: String? {
             switch self {
@@ -357,6 +374,7 @@ final class LibraryStore: ObservableObject {
             case .looksLikeBackup: return "That looks like a Pageturner backup — restore it from Settings → Restore Backup."
             case .nothingToImport: return "There were no books, comics or audio files inside."
             case .emptyText: return "There was no text in that file."
+            case let .duplicate(title): return "“\(title)” is already in your library."
             }
         }
     }
@@ -679,8 +697,23 @@ final class LibraryStore: ObservableObject {
             try? fm.removeItem(at: dest)
             throw error
         }
+        // the same file twice ("Open in" twice, the watched folder plus a manual import) is one book
+        if let size = Self.fileSize(dest),
+           books.contains(where: {
+               $0.fileNames.count <= 1 && $0.title == book.title && $0.author == book.author
+                   && Self.fileSize(fileURL(for: $0)) == size
+           })
+        {
+            try? fm.removeItem(at: dest)
+            try? fm.removeItem(at: coverURL(for: book))
+            throw ImportError.duplicate(book.title)
+        }
         books.insert(book, at: 0)
         save()
+    }
+
+    private static func fileSize(_ url: URL) -> Int? {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
     }
 
     // MARK: - Changes

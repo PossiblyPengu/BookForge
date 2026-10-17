@@ -131,11 +131,9 @@ struct BMLogSheet: View {
                 isbn: row.isbn, openLibraryId: row.openLibraryId,
                 userBookId: row.userBookId),
             percentStart: startPct, percentEnd: endPct,
-            minutes: Double(minutes) ?? 0, at: Date())
+            minutes: Double(minutes) ?? 0, at: Date(), manual: true)
         guard logged else {
-            error = BookMaster.shared.syncEnabled
-                ? "Couldn’t log this session — try again in a moment."
-                : "BookMaster sync is turned off. Turn it on in Settings to log this session."
+            error = "Couldn’t log this session — try again in a moment."
             return
         }
         onDone()
