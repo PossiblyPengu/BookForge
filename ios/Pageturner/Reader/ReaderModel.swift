@@ -56,6 +56,19 @@ final class ReaderModel: ObservableObject {
     private var navigator: (any VisualNavigator)?
     private(set) var navigatorController: UIViewController?
     private var directionalAdapter: DirectionalNavigationAdapter?
+    /// Whether it is after dark right now — kept fresh by `refreshNight`, so a theme that follows the
+    /// clock changes while the book is open.
+    @Published private(set) var nightNow = ReaderSettings.isNight(Date())
+
+    /// The settings as the page shows them: the reader's choices, with the evening theme applied.
+    var activeSettings: ReaderSettings { settings.resolved(night: nightNow) }
+
+    func refreshNight() {
+        let night = ReaderSettings.isNight(Date())
+        guard night != nightNow else { return }
+        nightNow = night
+        if settings.autoNight { applySettings() }
+    }
     private var inputTokens: Set<InputObservableToken> = []
     /// Every page turn used to re-encode and rewrite the whole catalogue
     /// JSON — a disk write per page. Coalesced here and flushed on close.
@@ -103,7 +116,7 @@ final class ReaderModel: ObservableObject {
             // comics (cbz) are opened by the EPUB navigator too — the CBZ one is deprecated
             if publication.conforms(to: .epub) || publication.conforms(to: .divina) {
                 var config = EPUBNavigatorViewController.Configuration(
-                    preferences: settings.epubPreferences
+                    preferences: activeSettings.epubPreferences
                 )
                 // custom action on the selection menu — handled by
                 // ReaderContainerViewController in the responder chain
@@ -138,7 +151,7 @@ final class ReaderModel: ObservableObject {
                 let nav = try PDFNavigatorViewController(
                     publication: publication,
                     initialLocation: initial,
-                    config: .init(preferences: settings.pdfPreferences, editingActions: actions),
+                    config: .init(preferences: activeSettings.pdfPreferences, editingActions: actions),
                     delegate: self
                 )
                 adjustsType = false
@@ -219,6 +232,8 @@ final class ReaderModel: ObservableObject {
         let adapter = DirectionalNavigationAdapter(
             animatedTransition: settings.pageTurn == .slide,
             onNavigation: { [weak self] in self?.pageIsTurning() })
+        adapter.pointerPolicy.horizontalEdgeThresholdPercent = settings.tapZone.percent
+        adapter.pointerPolicy.minimumHorizontalEdgeSize = settings.tapZone.minimumEdge
         adapter.bind(to: navigator)
         directionalAdapter = adapter
 
@@ -254,6 +269,7 @@ final class ReaderModel: ObservableObject {
     /// Readium's slide, the page as it is now leaves over what comes next.
     private func pageIsTurning(frozenAt: Double? = nil) {
         defer { tapOnLeft = false }
+        if settings.turnHaptic { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
         guard settings.pageTurn != .slide, !(navigator?.presentation.scroll ?? false),
               let container = navigatorController as? ReaderContainerViewController
         else { return }
@@ -301,6 +317,7 @@ final class ReaderModel: ObservableObject {
 
     /// The leaf landed: release the hold and let the arrived page count.
     private func curlCommitted() {
+        if settings.turnHaptic { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
         curling = false
         curlBefore = nil
         curlMoved = false
@@ -657,9 +674,11 @@ final class ReaderModel: ObservableObject {
         if fitted != settings.speechRate { settings.speechRate = fitted }
         settings.save()
         (navigator as? EPUBNavigatorViewController)?
-            .submitPreferences(settings.epubPreferences)
+            .submitPreferences(activeSettings.epubPreferences)
         (navigator as? PDFNavigatorViewController)?
-            .submitPreferences(settings.pdfPreferences)
+            .submitPreferences(activeSettings.pdfPreferences)
+        directionalAdapter?.pointerPolicy.horizontalEdgeThresholdPercent = settings.tapZone.percent
+        directionalAdapter?.pointerPolicy.minimumHorizontalEdgeSize = settings.tapZone.minimumEdge
         directionalAdapter?.animatedTransition = settings.pageTurn == .slide
         readAloud?.setRate(settings.speechRate)
         readAloud?.setVoice(settings.voiceIdentifier)

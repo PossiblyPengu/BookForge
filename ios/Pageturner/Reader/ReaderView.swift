@@ -28,7 +28,7 @@ struct ReaderView: View {
     }
 
     /// The page's own light or dark — the chrome, the sheets and the status bar follow it.
-    private var scheme: ColorScheme { model.settings.theme.isDark ? .dark : .light }
+    private var scheme: ColorScheme { model.activeSettings.theme.isDark ? .dark : .light }
 
     var body: some View {
         // grouped, so no one expression is a long chain the compiler has to solve at once
@@ -39,6 +39,11 @@ struct ReaderView: View {
     private var layout: some View {
         ZStack {
             content
+            // the evening light and the ruler sit over the page, under the controls
+            ReaderVeil(dim: model.settings.dim, warmth: model.settings.warmth)
+            if model.settings.ruler, model.phase == .ready {
+                ReadingRuler(y: Binding(get: { model.settings.rulerY }, set: { model.settings.rulerY = $0 }))
+            }
             if model.phase == .ready {
                 VStack(spacing: 8) {
                     if model.showChrome {
@@ -95,6 +100,8 @@ struct ReaderView: View {
             }
             .onChange(of: model.settings) { _, _ in model.applySettings() }
             .onChange(of: model.settings.keepAwake) { _, _ in keepAwake(true) }
+            // a theme that follows the clock: look again every few minutes
+            .onReceive(Timer.publish(every: 300, on: .main, in: .common).autoconnect()) { _ in model.refreshNight() }
             .onAppear { BookMaster.shared.place = "reader"; keepAwake(true) }
             .onDisappear {
                 keepAwake(false)
@@ -185,7 +192,10 @@ struct ReaderView: View {
                     canQuote: BookMaster.shared.isLinked,
                     onSave: { color, note in model.updateHighlight(highlight.id, color: color, note: note) },
                     onDelete: { model.removeHighlight(highlight) },
-                    onQuote: { await model.quoteHighlight(highlight) }
+                    onQuote: { await model.quoteHighlight(highlight) },
+                    bookTitle: model.book.title,
+                    bookAuthor: model.book.author,
+                    cardTheme: model.activeSettings.theme
                 )
                 .preferredColorScheme(scheme)
             }

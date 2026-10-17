@@ -40,7 +40,12 @@ struct HighlightEditorSheet: View {
     let onSave: (HighlightColor, String) -> Void
     let onDelete: () -> Void
     let onQuote: () async -> BookMaster.QuoteDelivery?
+    /// For the quote card: the book, and the page colours it is drawn in.
+    var bookTitle = ""
+    var bookAuthor = ""
+    var cardTheme: ReaderSettings.ThemeChoice = .night
 
+    @State private var sharing: SharedImage?
     @State private var color: HighlightColor
     @State private var note: String
     @State private var delivery: BookMaster.QuoteDelivery?
@@ -52,8 +57,13 @@ struct HighlightEditorSheet: View {
         highlight: Highlight, canQuote: Bool,
         onSave: @escaping (HighlightColor, String) -> Void,
         onDelete: @escaping () -> Void,
-        onQuote: @escaping () async -> BookMaster.QuoteDelivery?
+        onQuote: @escaping () async -> BookMaster.QuoteDelivery?,
+        bookTitle: String = "", bookAuthor: String = "",
+        cardTheme: ReaderSettings.ThemeChoice = .night
     ) {
+        self.bookTitle = bookTitle
+        self.bookAuthor = bookAuthor
+        self.cardTheme = cardTheme
         self.highlight = highlight
         self.canQuote = canQuote
         self.onSave = onSave
@@ -102,6 +112,17 @@ struct HighlightEditorSheet: View {
                         .lineLimit(3...8)
                 }
                 Section {
+                    if !highlight.text.isEmpty {
+                        Button {
+                            if let image = QuoteCard.image(
+                                text: highlight.text, title: bookTitle, author: bookAuthor, theme: cardTheme)
+                            {
+                                sharing = SharedImage(image: image)
+                            }
+                        } label: {
+                            Label("Share as Image", systemImage: "square.and.arrow.up")
+                        }
+                    }
                     if canQuote {
                         Button {
                             sending = true
@@ -135,6 +156,9 @@ struct HighlightEditorSheet: View {
             }
             .navigationTitle("Highlight")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(item: $sharing) { shared in
+                ShareSheet(items: [shared.image])
+            }
             .confirmationDialog("Delete this highlight and its note?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete Highlight", role: .destructive) {
                     onDelete()

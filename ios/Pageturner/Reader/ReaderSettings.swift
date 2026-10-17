@@ -70,6 +70,22 @@ struct ReaderSettings: Codable, Equatable {
         }
     }
 
+    /// The width of the tap-to-turn edges.
+    enum TapZone: String, Codable, CaseIterable, Identifiable {
+        case narrow, normal, wide
+        var id: String { rawValue }
+        var label: String { rawValue.capitalized }
+        /// Share of the page width, per side.
+        var percent: Double {
+            switch self {
+            case .narrow: return 0.18
+            case .normal: return 0.3
+            case .wide: return 0.4
+            }
+        }
+        var minimumEdge: Double { self == .narrow ? 48 : 80 }
+    }
+
     enum Spacing: String, Codable, CaseIterable, Identifiable {
         case book, tight, normal, loose
         var id: String { rawValue }
@@ -117,6 +133,22 @@ struct ReaderSettings: Codable, Equatable {
     /// Keep the screen on while a book is open.
     var keepAwake = true
     var margins: Double = 1.0
+    /// Finer type controls (0 = the book's own).
+    var letterSpacing: Double = 0
+    var wordSpacing: Double = 0
+    var paragraphSpacing: Double = 0
+    /// A black veil over the page, 0…0.6, and an amber one for evening reading, 0…1.
+    var dim: Double = 0
+    var warmth: Double = 0
+    /// Switch to the Night theme after dark (about 7 pm to 6 am), whatever theme is chosen by day.
+    var autoNight = false
+    /// A reading ruler: the page dimmed except for a band the finger can move.
+    var ruler = false
+    var rulerY: Double = 0.45
+    /// How wide the page edges are that turn the page when tapped.
+    var tapZone: TapZone = .normal
+    /// A small tap in the fingers when the page turns.
+    var turnHaptic = false
 
     /// Read-aloud speed multiplier (1 = the voice's normal pace).
     var speechRate: Double = 1.0
@@ -143,6 +175,16 @@ struct ReaderSettings: Codable, Equatable {
         speechRate = try c.decodeIfPresent(Double.self, forKey: .speechRate) ?? speechRate
         voiceIdentifier = try c.decodeIfPresent(String.self, forKey: .voiceIdentifier)
         highlights = try c.decodeIfPresent(ReadAloudHighlights.self, forKey: .highlights) ?? highlights
+        letterSpacing = try c.decodeIfPresent(Double.self, forKey: .letterSpacing) ?? letterSpacing
+        wordSpacing = try c.decodeIfPresent(Double.self, forKey: .wordSpacing) ?? wordSpacing
+        paragraphSpacing = try c.decodeIfPresent(Double.self, forKey: .paragraphSpacing) ?? paragraphSpacing
+        dim = try c.decodeIfPresent(Double.self, forKey: .dim) ?? dim
+        warmth = try c.decodeIfPresent(Double.self, forKey: .warmth) ?? warmth
+        autoNight = try c.decodeIfPresent(Bool.self, forKey: .autoNight) ?? autoNight
+        ruler = try c.decodeIfPresent(Bool.self, forKey: .ruler) ?? ruler
+        rulerY = try c.decodeIfPresent(Double.self, forKey: .rulerY) ?? rulerY
+        tapZone = try c.decodeIfPresent(TapZone.self, forKey: .tapZone) ?? tapZone
+        turnHaptic = try c.decodeIfPresent(Bool.self, forKey: .turnHaptic) ?? turnHaptic
     }
 
     var epubPreferences: EPUBPreferences {
@@ -156,11 +198,29 @@ struct ReaderSettings: Codable, Equatable {
         p.pageMargins = margins
         p.fontFamily = font.family
         p.lineHeight = spacing.lineHeight
+        // 0 leaves the book's own spacing alone
+        if letterSpacing > 0 { p.letterSpacing = letterSpacing }
+        if wordSpacing > 0 { p.wordSpacing = wordSpacing }
+        if paragraphSpacing > 0 { p.paragraphSpacing = paragraphSpacing }
         p.textAlign = justify ? .justify : .start
         p.hyphens = justify
         // Readium only applies typography overrides with publisher styles off.
         p.publisherStyles = false
         return p
+    }
+
+    /// After dark the Night theme stands in for a light one, when the reader asked for that.
+    func resolved(night: Bool) -> ReaderSettings {
+        guard autoNight, night, !theme.isDark else { return self }
+        var s = self
+        s.theme = .night
+        return s
+    }
+
+    /// Whether `date` is after dark for this purpose: 7 pm to 6 am.
+    static func isNight(_ date: Date, calendar: Calendar = .current) -> Bool {
+        let hour = calendar.component(.hour, from: date)
+        return hour >= 19 || hour < 6
     }
 
     /// What a PDF can take from the Reading sheet: the page colour and scrolling.

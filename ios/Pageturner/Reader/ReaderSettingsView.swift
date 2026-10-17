@@ -9,6 +9,27 @@ struct ReaderSettingsView: View {
         Form {
             Section("Theme") {
                 ThemePicker(theme: $settings.theme)
+                Toggle("Night theme after dark", isOn: $settings.autoNight)
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Dim").font(.subheadline)
+                    Slider(value: $settings.dim, in: 0 ... 0.6)
+                        .accessibilityLabel("Dim the page")
+                        .accessibilityValue("\(Int(settings.dim / 0.6 * 100)) percent")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Warmth").font(.subheadline)
+                    Slider(value: $settings.warmth, in: 0 ... 1)
+                        .accessibilityLabel("Warm the page")
+                        .accessibilityValue("\(Int(settings.warmth * 100)) percent")
+                }
+                Toggle("Reading ruler", isOn: $settings.ruler)
+            } header: {
+                Text("Light")
+            } footer: {
+                Text("Dimming and warmth are for this app only; the ruler shades everything but a few lines, and its handle moves it.")
             }
 
             if adjustsType {
@@ -31,6 +52,24 @@ struct ReaderSettingsView: View {
                     }
                 }
                 Toggle("Justify text", isOn: $settings.justify)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Letter spacing").font(.subheadline)
+                    Slider(value: $settings.letterSpacing, in: 0 ... 0.3, step: 0.025)
+                        .accessibilityLabel("Letter spacing")
+                        .accessibilityValue(settings.letterSpacing == 0 ? "the book's own" : "\(Int(settings.letterSpacing * 100)) percent")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Word spacing").font(.subheadline)
+                    Slider(value: $settings.wordSpacing, in: 0 ... 0.5, step: 0.05)
+                        .accessibilityLabel("Word spacing")
+                        .accessibilityValue(settings.wordSpacing == 0 ? "the book's own" : "\(Int(settings.wordSpacing * 100)) percent")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Paragraph spacing").font(.subheadline)
+                    Slider(value: $settings.paragraphSpacing, in: 0 ... 2, step: 0.25)
+                        .accessibilityLabel("Paragraph spacing")
+                        .accessibilityValue(settings.paragraphSpacing == 0 ? "the book's own" : String(format: "%.2g", settings.paragraphSpacing))
+                }
             }
             }
 
@@ -55,6 +94,10 @@ struct ReaderSettingsView: View {
                         ForEach(PageTurnStyle.allCases) { Text($0.label).tag($0) }
                     }
                 }
+                Picker("Tap to turn", selection: $settings.tapZone) {
+                    ForEach(ReaderSettings.TapZone.allCases) { Text($0.label).tag($0) }
+                }
+                Toggle("Tap in the fingers on a turn", isOn: $settings.turnHaptic)
                 Toggle("Keep the screen on", isOn: $settings.keepAwake)
             }
 
