@@ -381,7 +381,7 @@ final class LibraryStore: ObservableObject {
         pendingURLs.append(contentsOf: urls)
         importing = true
         debounce?.cancel()
-        let sleeper = Task { try? await Task.sleep(for: .milliseconds(800)) }
+        let sleeper = Task<Void, Never> { _ = try? await Task.sleep(for: .milliseconds(800)) }
         debounce = sleeper
         await sleeper.value
         guard !sleeper.isCancelled else { return }
