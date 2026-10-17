@@ -27,9 +27,9 @@ struct NowPlayingView: View {
     /// "1x", "1.25x", "1.5x" — `%.2g` would round 1.25 to "1.2".
     private func speedLabel(_ rate: Double) -> String { String(format: "%.3gx", rate) }
 
-    var body: some View {
+    /// Everything under the top bar. When it is taller than the screen (landscape, large text) it scrolls.
+    private var stack: some View {
         VStack(spacing: 0) {
-            topBar
             Spacer(minLength: 8)
             // landscape and accessibility text sizes have no height to spare for the art
             if verticalSizeClass != .compact, !typeSize.isAccessibilitySize {
@@ -41,6 +41,16 @@ struct NowPlayingView: View {
             scrubber
             transport
             extras
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            topBar
+            ViewThatFits(in: .vertical) {
+                stack
+                ScrollView { stack }.scrollBounceBehavior(.basedOnSize)
+            }
         }
         .padding(.bottom, 12)
         .ptReadableWidth(560)
@@ -309,7 +319,7 @@ struct NowPlayingView: View {
     /// enough that three words won't fit in a row (each control has its own VoiceOver label).
     private func chip(_ text: String, symbol: String) -> some View {
         Group {
-            if typeSize.isAccessibilitySize {
+            if typeSize >= .xxxLarge {
                 Image(systemName: symbol)
                     .font(.title3)
                     .frame(minWidth: 56, minHeight: 48)

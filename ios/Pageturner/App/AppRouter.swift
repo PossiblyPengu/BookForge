@@ -81,6 +81,8 @@ final class AppRouter {
 
     private func launch(_ book: Book, library: LibraryStore) {
         if book.isAudio {
+            // an ebook still open in the Reading tab would cover the player: close it (its view saves the place)
+            reading = nil
             PlaybackCoordinator.shared.start(book, library: library)
         } else {
             reading = book

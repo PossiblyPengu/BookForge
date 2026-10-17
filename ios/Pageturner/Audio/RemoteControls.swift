@@ -44,7 +44,9 @@ final class RemoteControls {
 
     /// `id` is about to make sound: it gets the buttons.
     func activate(_ id: String) {
-        guard handlers[id] != nil, order.last != id else { return }
+        guard handlers[id] != nil else { return }
+        // already the active one: still re-apply, so a changed skip interval reaches the lock screen
+        if order.last == id { apply(); return }
         order.removeAll { $0 == id }
         order.append(id)
         apply()

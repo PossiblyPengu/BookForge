@@ -292,7 +292,7 @@ struct RootView: View {
     @ViewBuilder
     private var miniPlayer: some View {
         if let player = playback.player {
-            MiniPlayer(player: player) { router.tab = .reading }
+            MiniPlayer(player: player) { router.reading = nil; router.tab = .reading }
         }
     }
 
@@ -301,7 +301,7 @@ struct RootView: View {
     private func withMiniPlayer<V: View>(_ content: V) -> some View {
         content.safeAreaInset(edge: .bottom, spacing: 0) {
             if showMiniPlayer, let player = playback.player {
-                MiniPlayer(player: player) { router.tab = .reading }
+                MiniPlayer(player: player) { router.reading = nil; router.tab = .reading }
                     .padding(.vertical, 8)
                     .background(.bar)
             }

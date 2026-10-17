@@ -152,6 +152,9 @@ final class Notifier {
         pendingCount = 0
         wasRefused = false
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
+        // banners already on the lock screen belong to the account that just went away
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         Task { await setBadge(0) }
     }
 }

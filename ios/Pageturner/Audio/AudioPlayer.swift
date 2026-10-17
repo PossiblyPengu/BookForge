@@ -90,14 +90,23 @@ final class AudioPlayer: ObservableObject {
         var total: TimeInterval = 0
         // the files are measured side by side — a long mp3 book would take seconds one by one
         let measured: [TimeInterval?] = await withTaskGroup(of: (Int, TimeInterval?).self) { group in
-            for (i, url) in urls.enumerated() {
+            // a sliding window: a several-hundred-file book must not open every file at once
+            var next = 0
+            func addNext() {
+                guard next < urls.count else { return }
+                let i = next, url = urls[next]
+                next += 1
                 group.addTask {
                     let d = try? await AVURLAsset(url: url).load(.duration).seconds
                     return (i, d)
                 }
             }
+            for _ in 0 ..< min(8, urls.count) { addNext() }
             var out = [TimeInterval?](repeating: nil, count: urls.count)
-            for await (i, d) in group { out[i] = d }
+            for await (i, d) in group {
+                out[i] = d
+                addNext()
+            }
             return out
         }
         var unreadable: String?
@@ -247,6 +256,13 @@ final class AudioPlayer: ObservableObject {
 
     func play() {
         guard player != nil else { return }
+        // a file that failed to load never recovers by itself: a fresh item is the retry
+        // (a file that still cannot play reports it again through the status watcher)
+        if player?.currentItem?.status == .failed {
+            let keep = position
+            load(track: trackIndex)
+            seek(to: keep, resume: false)
+        }
         player?.volume = 1
         // pressing play on a book that has finished starts it again
         if duration > 0, position >= duration - 0.5 { seek(to: 0, resume: false) }
@@ -482,8 +498,9 @@ final class AudioPlayer: ObservableObject {
         guard SleepTiming.shouldPause(now: Date(), deadline: deadline,
                                       isPlaying: isPlaying, chapterMode: sleepAtChapterEnd)
         else { return }
-        setSleepTimer(minutes: nil)
+        // pause while the fade is still down: clearing the timer first would snap the volume up for an instant
         pause()
+        setSleepTimer(minutes: nil)
     }
 
     // MARK: - Teardown
@@ -583,7 +600,7 @@ final class AudioPlayer: ObservableObject {
                     let left = max(0, deadline.timeIntervalSinceNow)
                     self.sleepRemaining = left
                     // ease the sound out over the last ten seconds
-                    if self.isPlaying, left < 10 { self.player?.volume = Float(max(0.1, left / 10)) }
+                    if self.isPlaying { self.player?.volume = left < 10 ? Float(max(0.1, left / 10)) : 1 }
                 }
                 // the lock screen shows the chapter's name — keep it current
                 if self.currentChapterIndex != self.lastChapterIndex {
